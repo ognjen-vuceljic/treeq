@@ -72,6 +72,10 @@ bounded slices instead of dumping the whole thing into a tool result.
 - **`--depth <N>`** — truncate the tree at a given depth.
 - **`--stats`** — structural summary (max depth, node-kind counts, input
   size) instead of a full dump, for sizing up a document before drilling in.
+- **`--agent`** — bundles `--stats` and a shallow `--static` tree render
+  (default depth 3, or your explicit `--depth`) into one non-interactive
+  call, for agents that would otherwise chain `--stats` then `--depth` then
+  `--path` across multiple invocations. Composes with `--path`.
 - **`--paths`** — flat list of every path in the document, one per line —
   pairs naturally with [`fzf`](https://github.com/junegunn/fzf):
   ```sh
@@ -102,6 +106,7 @@ cat file.json | treeq --static        # plain tree, for piping/scripting
 treeq file.json --path user.address   # only that subtree
 treeq file.json --depth 2             # truncate deep nesting
 treeq file.json --stats               # size/shape summary, no full dump
+treeq file.json --agent               # stats + shallow tree, in one call
 treeq file.xml                        # XML works the same way
 ```
 
@@ -122,9 +127,9 @@ treeq file.xml                        # XML works the same way
 Open design/feature ideas are tracked as
 [GitHub issues](https://github.com/ognjen-vuceljic/treeq/issues) — covering
 TUI ergonomics (ancestor collapse, range-collapse for large arrays,
-multi-color highlighting), agent-friendliness (`--schema`, `--agent`,
-NDJSON support, better parse-error context), YAML support, and a
-`jq`-filter export for the current node.
+multi-color highlighting), agent-friendliness (`--schema`, NDJSON support,
+better parse-error context), YAML support, and a `jq`-filter export for
+the current node.
 
 Contributions and issue discussion welcome.
 

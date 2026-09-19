@@ -41,7 +41,13 @@ struct Args {
     stats: bool,
     #[arg(long)]
     paths: bool,
+    #[arg(long)]
+    agent: bool,
 }
+
+/// Default tree-render depth used by `--agent` when the user hasn't
+/// explicitly passed `--depth`.
+const AGENT_DEFAULT_DEPTH: usize = 3;
 
 fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
     match file {
@@ -81,6 +87,18 @@ fn run_json(input: &str, args: &Args) {
         for p in json_paths(target) {
             println!("{p}");
         }
+        return;
+    }
+    if args.agent {
+        let s = json_stats(target);
+        println!("input_bytes: {}", input.len());
+        println!("max_depth: {}", s.max_depth);
+        println!("objects: {}", s.objects);
+        println!("arrays: {}", s.arrays);
+        println!("scalars: {}", s.scalars);
+        println!();
+        let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
+        print!("{}", render_json(target, "root", depth, use_color()));
         return;
     }
     if args.stats {
@@ -125,6 +143,18 @@ fn run_xml(input: &str, args: &Args) {
         for p in xml_paths(target) {
             println!("{p}");
         }
+        return;
+    }
+    if args.agent {
+        let s = xml_stats(target);
+        println!("input_bytes: {}", input.len());
+        println!("max_depth: {}", s.max_depth);
+        println!("elements: {}", s.elements);
+        println!("attributes: {}", s.attributes);
+        println!("text_nodes: {}", s.text_nodes);
+        println!();
+        let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
+        print!("{}", render_xml(target, depth, use_color()));
         return;
     }
     if args.stats {

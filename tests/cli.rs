@@ -176,3 +176,26 @@ fn prints_xml_stats() {
     assert!(stdout.contains("elements: 2"));
     assert!(stdout.contains("text_nodes: 1"));
 }
+
+#[test]
+fn agent_flag_prints_stats_then_tree() {
+    let (stdout, _stderr, code) = run_treeq(&["--agent"], r#"{"a": {"b": {"c": {"d": "deep"}}}}"#);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("max_depth:"));
+    assert!(stdout.contains("root"));
+    assert!(stdout.contains("\n\n"));
+}
+
+#[test]
+fn agent_flag_truncates_tree_beyond_default_depth() {
+    let nested = r#"{"a": {"b": {"c": {"d": {"e": "deep"}}}}}"#;
+
+    let (default_stdout, _stderr, code) = run_treeq(&["--agent"], nested);
+    assert_eq!(code, 0);
+    assert!(default_stdout.contains('…'));
+
+    let (deep_stdout, _stderr, code) = run_treeq(&["--agent", "--depth", "10"], nested);
+    assert_eq!(code, 0);
+    assert!(!deep_stdout.contains('…'));
+    assert!(deep_stdout.contains("deep"));
+}
