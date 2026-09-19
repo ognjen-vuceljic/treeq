@@ -85,6 +85,18 @@ fn reports_invalid_json() {
 }
 
 #[test]
+fn reports_invalid_json_with_snippet_and_caret() {
+    let input = "{\n  \"a\": 1,\n  \"b\": 2\n  \"c\": 3\n}";
+    let (_stdout, stderr, code) = run_treeq(&["--static"], input);
+    assert_eq!(code, 1);
+    // Line-numbered snippet, not just the bare parser message.
+    assert!(stderr.contains("4 |   \"c\": 3"));
+    assert!(stderr.contains("^"));
+    assert!(stderr.contains("line"));
+    assert!(stderr.contains("column"));
+}
+
+#[test]
 fn prints_json_stats() {
     let (stdout, _stderr, code) = run_treeq(&["--stats"], r#"{"a": {"b": [1, 2]}}"#);
     assert_eq!(code, 0);
