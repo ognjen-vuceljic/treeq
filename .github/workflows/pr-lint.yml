@@ -1,0 +1,33 @@
+name: PR Lint
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  branch-name:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch name convention
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          if ! [[ "$BRANCH" =~ ^(feat|fix|chore|ci|docs|refactor|test)/[a-z0-9._-]+$ ]]; then
+            echo "::error::Branch name '$BRANCH' must match <type>/<description>, where type is one of: feat, fix, chore, ci, docs, refactor, test"
+            exit 1
+          fi
+          echo "Branch name OK: $BRANCH"
+
+      - name: Require an issue link for feat/fix branches
+        env:
+          BRANCH: ${{ github.head_ref }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          TYPE="${BRANCH%%/*}"
+          if [[ "$TYPE" == "feat" || "$TYPE" == "fix" ]]; then
+            if ! echo "$BODY" | grep -qiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+'; then
+              echo "::error::feat/fix PRs must reference an issue in the description (e.g. 'Closes #12')"
+              exit 1
+            fi
+          fi
+          echo "Issue link check OK"
