@@ -2,6 +2,7 @@ mod color;
 mod detect;
 mod json_tree;
 mod render;
+mod stats;
 mod tui;
 mod xml_tree;
 
@@ -9,6 +10,7 @@ use clap::Parser;
 use detect::{Format, detect_format};
 use json_tree::{JsonNode, find_json_path};
 use render::{render_json, render_xml};
+use stats::{json_stats, xml_stats};
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::{fs, io, process};
@@ -32,6 +34,8 @@ struct Args {
     r#static: bool,
     #[arg(long, value_enum)]
     format: Option<FormatArg>,
+    #[arg(long)]
+    stats: bool,
 }
 
 fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
@@ -68,6 +72,15 @@ fn run_json(input: &str, args: &Args) {
         },
         None => &tree,
     };
+    if args.stats {
+        let s = json_stats(target);
+        println!("input_bytes: {}", input.len());
+        println!("max_depth: {}", s.max_depth);
+        println!("objects: {}", s.objects);
+        println!("arrays: {}", s.arrays);
+        println!("scalars: {}", s.scalars);
+        return;
+    }
     if !args.r#static && io::stdout().is_terminal() {
         tui::run_json_tui(target, use_color()).unwrap_or_else(|e| {
             eprintln!("error: {e}");
@@ -97,6 +110,15 @@ fn run_xml(input: &str, args: &Args) {
         },
         None => &tree,
     };
+    if args.stats {
+        let s = xml_stats(target);
+        println!("input_bytes: {}", input.len());
+        println!("max_depth: {}", s.max_depth);
+        println!("elements: {}", s.elements);
+        println!("attributes: {}", s.attributes);
+        println!("text_nodes: {}", s.text_nodes);
+        return;
+    }
     if !args.r#static && io::stdout().is_terminal() {
         tui::run_xml_tui(target, use_color()).unwrap_or_else(|e| {
             eprintln!("error: {e}");

@@ -55,6 +55,16 @@ fn reports_invalid_json() {
 }
 
 #[test]
+fn prints_json_stats() {
+    let (stdout, _stderr, code) = run_treeq(&["--stats"], r#"{"a": {"b": [1, 2]}}"#);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("max_depth: 3"));
+    assert!(stdout.contains("objects: 2"));
+    assert!(stdout.contains("arrays: 1"));
+    assert!(stdout.contains("scalars: 2"));
+}
+
+#[test]
 fn reports_unresolved_path_segment() {
     let (_stdout, stderr, code) =
         run_treeq(&["--static", "--path", "missing"], r#"{"user": "Alice"}"#);
