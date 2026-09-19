@@ -83,6 +83,10 @@ bounded slices instead of dumping the whole thing into a tool result.
   ```
 - **Type-aware colors** (keys, strings, numbers, booleans, null each
   distinct), auto-disabled when output isn't a terminal or `NO_COLOR` is set.
+- **`--ndjson`** — treat input as NDJSON / JSON Lines (one JSON value per
+  line, as produced by `kubectl`, `docker`, and many log streams) and view
+  it as an array of records. JSON only; combining it with `--format xml`
+  is an error.
 
 ## Install
 

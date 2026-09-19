@@ -2,6 +2,7 @@ mod clipboard;
 mod color;
 mod detect;
 mod json_tree;
+mod ndjson;
 mod paths;
 mod render;
 mod stats;
@@ -11,6 +12,7 @@ mod xml_tree;
 use clap::Parser;
 use detect::{Format, detect_format};
 use json_tree::{JsonNode, find_json_path};
+use ndjson::parse_ndjson;
 use paths::{json_paths, xml_paths};
 use render::{render_json, render_xml};
 use stats::{JsonStats, XmlStats, json_stats, xml_stats};
@@ -43,6 +45,8 @@ struct Args {
     paths: bool,
     #[arg(long)]
     agent: bool,
+    #[arg(long)]
+    ndjson: bool,
 }
 
 /// Default tree-render depth used by `--agent` when the user hasn't
@@ -81,11 +85,18 @@ fn print_xml_stats(s: &XmlStats, input_len: usize) {
 }
 
 fn run_json(input: &str, args: &Args) {
-    let value: serde_json::Value = match serde_json::from_str(input) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("error: invalid JSON: {e}");
+    let value: serde_json::Value = if args.ndjson {
+        parse_ndjson(input).unwrap_or_else(|e| {
+            eprintln!("error: invalid NDJSON: {e}");
             process::exit(1);
+        })
+    } else {
+        match serde_json::from_str(input) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("error: invalid JSON: {e}");
+                process::exit(1);
+            }
         }
     };
     let tree = JsonNode::from_value(&value);
@@ -178,6 +189,10 @@ fn run_xml(input: &str, args: &Args) {
 
 fn main() {
     let args = Args::parse();
+    if args.ndjson && matches!(args.format, Some(FormatArg::Xml)) {
+        eprintln!("error: --ndjson is not supported with --format xml");
+        process::exit(1);
+    }
     let input = read_input(&args.file).unwrap_or_else(|e| {
         eprintln!("error: {e}");
         process::exit(1);
