@@ -1,5 +1,8 @@
 # treeq
 
+[![CI](https://github.com/ognjen-vuceljic/treeq/actions/workflows/ci.yml/badge.svg)](https://github.com/ognjen-vuceljic/treeq/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Fast, readable JSON/XML tree visualization in the terminal — for you, and
 for coding agents.
 
@@ -7,6 +10,39 @@ Minified, deeply-nested API responses and config files are hard to read in
 a plain terminal. `treeq` parses JSON or XML and gives you a real tree —
 either a static, scriptable render, or an interactive TUI — instead of a
 wall of brackets.
+
+## See it
+
+```sh
+$ treeq --static sample.json
+root
+├── user
+│   ├── name: Alice
+│   ├── roles
+│   │   ├── [0]: admin
+│   │   └── [1]: editor
+│   └── address
+│       ├── city: London
+│       └── zip: E1 6AN
+└── active: true
+```
+
+In a real terminal, output is colorized by type (keys, strings, numbers,
+booleans, null each a distinct color) and dropping `--static` opens the
+interactive TUI instead. `--stats` sizes a document up before you dig in:
+
+```sh
+$ treeq --stats sample.json
+input_bytes: 162
+max_depth: 3
+objects: 3
+arrays: 1
+scalars: 6
+```
+
+A terminal recording/GIF would round this section out properly — tracked as
+a follow-up, since it needs to be captured from an actual running session
+rather than generated.
 
 ## Why not just `jq`?
 
@@ -68,6 +104,18 @@ treeq file.json --depth 2             # truncate deep nesting
 treeq file.json --stats               # size/shape summary, no full dump
 treeq file.xml                        # XML works the same way
 ```
+
+## TUI keybindings
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Move cursor |
+| `Enter` / `Space` | Collapse/expand current node |
+| `c` | Collapse all |
+| `e` | Expand all |
+| `/` | Incremental search |
+| `y` | Yank current node's path to clipboard (OSC 52) |
+| `q` / `Esc` | Quit |
 
 ## Roadmap
 
