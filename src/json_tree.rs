@@ -75,7 +75,10 @@ mod tests {
             node,
             JsonNode::Object(vec![
                 ("age".to_string(), JsonNode::Scalar("30".to_string())),
-                ("middle_name".to_string(), JsonNode::Scalar("null".to_string())),
+                (
+                    "middle_name".to_string(),
+                    JsonNode::Scalar("null".to_string())
+                ),
             ])
         );
     }

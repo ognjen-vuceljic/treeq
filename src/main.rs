@@ -1,16 +1,17 @@
 mod detect;
 mod json_tree;
 mod render;
+mod tui;
 mod xml_tree;
 
 use clap::Parser;
-use detect::{detect_format, Format};
-use json_tree::{find_json_path, JsonNode};
+use detect::{Format, detect_format};
+use json_tree::{JsonNode, find_json_path};
 use render::{render_json, render_xml};
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::{fs, io, process};
-use xml_tree::{find_xml_path, XmlNode};
+use xml_tree::{XmlNode, find_xml_path};
 
 #[derive(clap::ValueEnum, Clone, Copy)]
 enum FormatArg {
@@ -62,7 +63,14 @@ fn run_json(input: &str, args: &Args) {
         },
         None => &tree,
     };
-    print!("{}", render_json(target, "root", args.depth));
+    if !args.r#static && io::stdout().is_terminal() {
+        tui::run_json_tui(target).unwrap_or_else(|e| {
+            eprintln!("error: {e}");
+            process::exit(1);
+        });
+    } else {
+        print!("{}", render_json(target, "root", args.depth));
+    }
 }
 
 fn run_xml(input: &str, args: &Args) {
@@ -84,7 +92,14 @@ fn run_xml(input: &str, args: &Args) {
         },
         None => &tree,
     };
-    print!("{}", render_xml(target, args.depth));
+    if !args.r#static && io::stdout().is_terminal() {
+        tui::run_xml_tui(target).unwrap_or_else(|e| {
+            eprintln!("error: {e}");
+            process::exit(1);
+        });
+    } else {
+        print!("{}", render_xml(target, args.depth));
+    }
 }
 
 fn main() {
