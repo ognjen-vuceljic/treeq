@@ -1,3 +1,4 @@
+use crate::clipboard::copy_to_clipboard;
 use crate::color::Color as TqColor;
 use crate::json_tree::JsonNode;
 use crate::xml_tree::XmlNode;
@@ -27,6 +28,7 @@ struct AppState {
     search: String,
     searching: bool,
     use_color: bool,
+    status_message: Option<String>,
 }
 
 fn ratatui_color(color: TqColor) -> Color {
@@ -152,6 +154,8 @@ fn render(frame: &mut Frame, state: &AppState) {
     );
     let status = if state.searching {
         format!("/{}", state.search)
+    } else if let Some(msg) = &state.status_message {
+        msg.clone()
     } else {
         state
             .lines
@@ -195,6 +199,7 @@ fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         return false;
     }
+    state.status_message = None;
     match key {
         KeyCode::Char('q') | KeyCode::Esc => return true,
         KeyCode::Down => state.cursor = (state.cursor + 1).min(state.lines.len().saturating_sub(1)),
@@ -210,6 +215,15 @@ fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('/') => {
             state.searching = true;
             state.search.clear();
+        }
+        KeyCode::Char('y') => {
+            if let Some(line) = state.lines.get(state.cursor) {
+                let path = line.path.join(".");
+                state.status_message = Some(match copy_to_clipboard(&path) {
+                    Ok(()) => format!("copied: {path}"),
+                    Err(e) => format!("copy failed: {e}"),
+                });
+            }
         }
         _ => {}
     }
@@ -253,6 +267,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         search: String::new(),
         searching: false,
         use_color,
+        status_message: None,
     };
     run_loop(state, |s| {
         let mut lines = Vec::new();
@@ -272,6 +287,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         search: String::new(),
         searching: false,
         use_color,
+        status_message: None,
     };
     run_loop(state, |s| {
         let mut lines = Vec::new();

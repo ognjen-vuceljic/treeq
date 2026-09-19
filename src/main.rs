@@ -1,3 +1,4 @@
+mod clipboard;
 mod color;
 mod detect;
 mod json_tree;
