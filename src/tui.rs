@@ -24,6 +24,7 @@ struct Line {
 struct AppState {
     lines: Vec<Line>,
     collapsed: HashSet<Vec<String>>,
+    all_container_paths: HashSet<Vec<String>>,
     cursor: usize,
     search: String,
     searching: bool,
@@ -74,6 +75,39 @@ fn flatten_json(
         if has_children && !collapsed.contains(&child_path) {
             flatten_json(child, &child_path, depth + 1, collapsed, out);
         }
+    }
+}
+
+fn collect_container_paths_json(node: &JsonNode, path: &[String], out: &mut HashSet<Vec<String>>) {
+    let entries: Vec<(String, &JsonNode)> = match node {
+        JsonNode::Object(fields) => fields.iter().map(|(k, v)| (k.clone(), v)).collect(),
+        JsonNode::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (format!("[{i}]"), v))
+            .collect(),
+        JsonNode::Scalar(_) => return,
+    };
+    for (label, child) in entries {
+        if matches!(child, JsonNode::Scalar(_)) {
+            continue;
+        }
+        let mut child_path = path.to_vec();
+        child_path.push(label);
+        out.insert(child_path.clone());
+        collect_container_paths_json(child, &child_path, out);
+    }
+}
+
+fn collect_container_paths_xml(node: &XmlNode, path: &[String], out: &mut HashSet<Vec<String>>) {
+    for child in &node.children {
+        if child.children.is_empty() {
+            continue;
+        }
+        let mut child_path = path.to_vec();
+        child_path.push(child.name.clone());
+        out.insert(child_path.clone());
+        collect_container_paths_xml(child, &child_path, out);
     }
 }
 
@@ -225,6 +259,14 @@ fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
                 });
             }
         }
+        KeyCode::Char('c') => {
+            state.collapsed = state.all_container_paths.clone();
+            state.status_message = Some("collapsed all".to_string());
+        }
+        KeyCode::Char('e') => {
+            state.collapsed.clear();
+            state.status_message = Some("expanded all".to_string());
+        }
         _ => {}
     }
     false
@@ -260,9 +302,12 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
     let collapsed = HashSet::new();
     let mut lines = Vec::new();
     flatten_json(node, &[], 0, &collapsed, &mut lines);
+    let mut all_container_paths = HashSet::new();
+    collect_container_paths_json(node, &[], &mut all_container_paths);
     let state = AppState {
         lines,
         collapsed,
+        all_container_paths,
         cursor: 0,
         search: String::new(),
         searching: false,
@@ -273,6 +318,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         let mut lines = Vec::new();
         flatten_json(node, &[], 0, &s.collapsed, &mut lines);
         s.lines = lines;
+        s.cursor = s.cursor.min(s.lines.len().saturating_sub(1));
     })
 }
 
@@ -280,9 +326,12 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
     let collapsed = HashSet::new();
     let mut lines = Vec::new();
     flatten_xml(node, &[], 0, &collapsed, &mut lines);
+    let mut all_container_paths = HashSet::new();
+    collect_container_paths_xml(node, &[], &mut all_container_paths);
     let state = AppState {
         lines,
         collapsed,
+        all_container_paths,
         cursor: 0,
         search: String::new(),
         searching: false,
@@ -293,5 +342,6 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         let mut lines = Vec::new();
         flatten_xml(node, &[], 0, &s.collapsed, &mut lines);
         s.lines = lines;
+        s.cursor = s.cursor.min(s.lines.len().saturating_sub(1));
     })
 }
