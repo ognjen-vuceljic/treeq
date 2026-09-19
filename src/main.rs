@@ -2,6 +2,7 @@ mod clipboard;
 mod color;
 mod detect;
 mod json_tree;
+mod paths;
 mod render;
 mod stats;
 mod tui;
@@ -10,6 +11,7 @@ mod xml_tree;
 use clap::Parser;
 use detect::{Format, detect_format};
 use json_tree::{JsonNode, find_json_path};
+use paths::{json_paths, xml_paths};
 use render::{render_json, render_xml};
 use stats::{json_stats, xml_stats};
 use std::io::{IsTerminal, Read};
@@ -37,6 +39,8 @@ struct Args {
     format: Option<FormatArg>,
     #[arg(long)]
     stats: bool,
+    #[arg(long)]
+    paths: bool,
 }
 
 fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
@@ -73,6 +77,12 @@ fn run_json(input: &str, args: &Args) {
         },
         None => &tree,
     };
+    if args.paths {
+        for p in json_paths(target) {
+            println!("{p}");
+        }
+        return;
+    }
     if args.stats {
         let s = json_stats(target);
         println!("input_bytes: {}", input.len());
@@ -111,6 +121,12 @@ fn run_xml(input: &str, args: &Args) {
         },
         None => &tree,
     };
+    if args.paths {
+        for p in xml_paths(target) {
+            println!("{p}");
+        }
+        return;
+    }
     if args.stats {
         let s = xml_stats(target);
         println!("input_bytes: {}", input.len());

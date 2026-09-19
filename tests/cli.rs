@@ -65,6 +65,13 @@ fn prints_json_stats() {
 }
 
 #[test]
+fn lists_json_paths() {
+    let (stdout, _stderr, code) = run_treeq(&["--paths"], r#"{"user": {"name": "Alice"}}"#);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "user\nuser.name\n");
+}
+
+#[test]
 fn reports_unresolved_path_segment() {
     let (_stdout, stderr, code) =
         run_treeq(&["--static", "--path", "missing"], r#"{"user": "Alice"}"#);
