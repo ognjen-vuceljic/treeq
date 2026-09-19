@@ -1,3 +1,4 @@
+mod color;
 mod detect;
 mod json_tree;
 mod render;
@@ -44,6 +45,10 @@ fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
     }
 }
 
+fn use_color() -> bool {
+    io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
 fn run_json(input: &str, args: &Args) {
     let value: serde_json::Value = match serde_json::from_str(input) {
         Ok(v) => v,
@@ -64,12 +69,12 @@ fn run_json(input: &str, args: &Args) {
         None => &tree,
     };
     if !args.r#static && io::stdout().is_terminal() {
-        tui::run_json_tui(target).unwrap_or_else(|e| {
+        tui::run_json_tui(target, use_color()).unwrap_or_else(|e| {
             eprintln!("error: {e}");
             process::exit(1);
         });
     } else {
-        print!("{}", render_json(target, "root", args.depth));
+        print!("{}", render_json(target, "root", args.depth, use_color()));
     }
 }
 
@@ -93,12 +98,12 @@ fn run_xml(input: &str, args: &Args) {
         None => &tree,
     };
     if !args.r#static && io::stdout().is_terminal() {
-        tui::run_xml_tui(target).unwrap_or_else(|e| {
+        tui::run_xml_tui(target, use_color()).unwrap_or_else(|e| {
             eprintln!("error: {e}");
             process::exit(1);
         });
     } else {
-        print!("{}", render_xml(target, args.depth));
+        print!("{}", render_xml(target, args.depth, use_color()));
     }
 }
 

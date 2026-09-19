@@ -1,8 +1,38 @@
+use crate::color::Color;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsonScalar {
+    Str(String),
+    Number(String),
+    Bool(bool),
+    Null,
+}
+
+impl JsonScalar {
+    pub fn display(&self) -> String {
+        match self {
+            JsonScalar::Str(s) => s.clone(),
+            JsonScalar::Number(s) => s.clone(),
+            JsonScalar::Bool(b) => b.to_string(),
+            JsonScalar::Null => "null".to_string(),
+        }
+    }
+
+    pub fn color(&self) -> Color {
+        match self {
+            JsonScalar::Str(_) => Color::Str,
+            JsonScalar::Number(_) => Color::Number,
+            JsonScalar::Bool(_) => Color::Bool,
+            JsonScalar::Null => Color::Null,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsonNode {
     Object(Vec<(String, JsonNode)>),
     Array(Vec<JsonNode>),
-    Scalar(String),
+    Scalar(JsonScalar),
 }
 
 impl JsonNode {
@@ -16,9 +46,10 @@ impl JsonNode {
             serde_json::Value::Array(items) => {
                 JsonNode::Array(items.iter().map(JsonNode::from_value).collect())
             }
-            serde_json::Value::String(s) => JsonNode::Scalar(s.clone()),
-            serde_json::Value::Null => JsonNode::Scalar("null".to_string()),
-            other => JsonNode::Scalar(other.to_string()),
+            serde_json::Value::String(s) => JsonNode::Scalar(JsonScalar::Str(s.clone())),
+            serde_json::Value::Null => JsonNode::Scalar(JsonScalar::Null),
+            serde_json::Value::Bool(b) => JsonNode::Scalar(JsonScalar::Bool(*b)),
+            serde_json::Value::Number(n) => JsonNode::Scalar(JsonScalar::Number(n.to_string())),
         }
     }
 }
@@ -55,12 +86,15 @@ mod tests {
         assert_eq!(
             node,
             JsonNode::Object(vec![
-                ("name".to_string(), JsonNode::Scalar("Alice".to_string())),
+                (
+                    "name".to_string(),
+                    JsonNode::Scalar(JsonScalar::Str("Alice".to_string()))
+                ),
                 (
                     "tags".to_string(),
                     JsonNode::Array(vec![
-                        JsonNode::Scalar("admin".to_string()),
-                        JsonNode::Scalar("user".to_string()),
+                        JsonNode::Scalar(JsonScalar::Str("admin".to_string())),
+                        JsonNode::Scalar(JsonScalar::Str("user".to_string())),
                     ])
                 ),
             ])
@@ -68,16 +102,23 @@ mod tests {
     }
 
     #[test]
-    fn converts_number_and_null_scalars() {
-        let value = json!({"age": 30, "middle_name": null});
+    fn converts_number_bool_and_null_scalars() {
+        let value = json!({"age": 30, "active": true, "middle_name": null});
         let node = JsonNode::from_value(&value);
         assert_eq!(
             node,
             JsonNode::Object(vec![
-                ("age".to_string(), JsonNode::Scalar("30".to_string())),
+                (
+                    "age".to_string(),
+                    JsonNode::Scalar(JsonScalar::Number("30".to_string()))
+                ),
+                (
+                    "active".to_string(),
+                    JsonNode::Scalar(JsonScalar::Bool(true))
+                ),
                 (
                     "middle_name".to_string(),
-                    JsonNode::Scalar("null".to_string())
+                    JsonNode::Scalar(JsonScalar::Null)
                 ),
             ])
         );
@@ -88,7 +129,10 @@ mod tests {
         let value = json!({"user": {"tags": ["admin", "user"]}});
         let node = JsonNode::from_value(&value);
         let found = find_json_path(&node, "user.tags.1").unwrap();
-        assert_eq!(found, &JsonNode::Scalar("user".to_string()));
+        assert_eq!(
+            found,
+            &JsonNode::Scalar(JsonScalar::Str("user".to_string()))
+        );
     }
 
     #[test]

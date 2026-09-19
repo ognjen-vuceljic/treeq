@@ -1,3 +1,4 @@
+use crate::color::Color as TqColor;
 use crate::json_tree::JsonNode;
 use crate::xml_tree::XmlNode;
 use crossterm::ExecutableCommand;
@@ -6,13 +7,15 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::prelude::*;
+use ratatui::text::Line as RtLine;
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use std::collections::HashSet;
 use std::io;
 
 struct Line {
     depth: usize,
-    label: String,
+    key: String,
+    value: Option<(String, TqColor)>,
     path: Vec<String>,
     has_children: bool,
 }
@@ -23,6 +26,17 @@ struct AppState {
     cursor: usize,
     search: String,
     searching: bool,
+    use_color: bool,
+}
+
+fn ratatui_color(color: TqColor) -> Color {
+    match color {
+        TqColor::Key => Color::Cyan,
+        TqColor::Str => Color::Green,
+        TqColor::Number => Color::Yellow,
+        TqColor::Bool => Color::Magenta,
+        TqColor::Null | TqColor::Structural => Color::DarkGray,
+    }
 }
 
 fn flatten_json(
@@ -44,14 +58,14 @@ fn flatten_json(
     for (label, child) in entries {
         let mut child_path = path.to_vec();
         child_path.push(label.clone());
-        let has_children = !matches!(child, JsonNode::Scalar(_));
-        let display = match child {
-            JsonNode::Scalar(s) => format!("{label}: {s}"),
-            _ => label.clone(),
+        let (value, has_children) = match child {
+            JsonNode::Scalar(s) => (Some((s.display(), s.color())), false),
+            _ => (None, true),
         };
         out.push(Line {
             depth,
-            label: display,
+            key: label,
+            value,
             path: child_path.clone(),
             has_children,
         });
@@ -72,13 +86,11 @@ fn flatten_xml(
         let mut child_path = path.to_vec();
         child_path.push(child.name.clone());
         let has_children = !child.children.is_empty();
-        let mut display = child.name.clone();
-        if let Some(text) = &child.text {
-            display.push_str(&format!(": {text}"));
-        }
+        let value = child.text.clone().map(|t| (t, TqColor::Str));
         out.push(Line {
             depth,
-            label: display,
+            key: child.name.clone(),
+            value,
             path: child_path.clone(),
             has_children,
         });
@@ -88,6 +100,35 @@ fn flatten_xml(
     }
 }
 
+fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
+    let indent = "  ".repeat(line.depth);
+    let marker = if line.has_children { "▸ " } else { "" };
+    let structural_style = if use_color {
+        Style::default().fg(ratatui_color(TqColor::Structural))
+    } else {
+        Style::default()
+    };
+    let key_style = if use_color {
+        Style::default().fg(ratatui_color(TqColor::Key))
+    } else {
+        Style::default()
+    };
+    let mut spans = vec![
+        Span::styled(format!("{indent}{marker}"), structural_style),
+        Span::styled(line.key.clone(), key_style),
+    ];
+    if let Some((text, color)) = &line.value {
+        let value_style = if use_color {
+            Style::default().fg(ratatui_color(*color))
+        } else {
+            Style::default()
+        };
+        spans.push(Span::raw(": "));
+        spans.push(Span::styled(text.clone(), value_style));
+    }
+    spans
+}
+
 fn render(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
     let items: Vec<ListItem> = state
@@ -95,15 +136,13 @@ fn render(frame: &mut Frame, state: &AppState) {
         .iter()
         .enumerate()
         .map(|(i, line)| {
-            let indent = "  ".repeat(line.depth);
-            let marker = if line.has_children { "▸ " } else { "" };
-            let text = format!("{indent}{marker}{}", line.label);
+            let spans = line_spans(line, state.use_color);
             let style = if i == state.cursor {
                 Style::default().add_modifier(Modifier::REVERSED)
             } else {
                 Style::default()
             };
-            ListItem::new(text).style(style)
+            ListItem::new(RtLine::from(spans)).style(style)
         })
         .collect();
     let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(area);
@@ -131,7 +170,7 @@ fn jump_to_next_match(state: &mut AppState) {
     for offset in 1..=n {
         let idx = (state.cursor + offset) % n;
         if state.lines[idx]
-            .label
+            .key
             .to_lowercase()
             .contains(&state.search.to_lowercase())
         {
@@ -203,7 +242,7 @@ where
     Ok(())
 }
 
-pub fn run_json_tui(node: &JsonNode) -> io::Result<()> {
+pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
     let collapsed = HashSet::new();
     let mut lines = Vec::new();
     flatten_json(node, &[], 0, &collapsed, &mut lines);
@@ -213,6 +252,7 @@ pub fn run_json_tui(node: &JsonNode) -> io::Result<()> {
         cursor: 0,
         search: String::new(),
         searching: false,
+        use_color,
     };
     run_loop(state, |s| {
         let mut lines = Vec::new();
@@ -221,7 +261,7 @@ pub fn run_json_tui(node: &JsonNode) -> io::Result<()> {
     })
 }
 
-pub fn run_xml_tui(node: &XmlNode) -> io::Result<()> {
+pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
     let collapsed = HashSet::new();
     let mut lines = Vec::new();
     flatten_xml(node, &[], 0, &collapsed, &mut lines);
@@ -231,6 +271,7 @@ pub fn run_xml_tui(node: &XmlNode) -> io::Result<()> {
         cursor: 0,
         search: String::new(),
         searching: false,
+        use_color,
     };
     run_loop(state, |s| {
         let mut lines = Vec::new();
