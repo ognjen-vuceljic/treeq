@@ -320,3 +320,26 @@ fn ndjson_stats_and_path_flags_compose() {
     assert_eq!(code, 0);
     assert_eq!(stdout, "root\n└── name: Alice\n");
 }
+
+#[test]
+fn prints_json_schema() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--schema"],
+        r#"{"user": {"name": "Alice", "tags": ["admin", "user"]}}"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "user: object\n  name: string\n  tags: array<string>\n"
+    );
+}
+
+#[test]
+fn prints_xml_schema() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--schema"],
+        r#"<root><user id="1"/><user id="2"/></root>"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "user [id] (repeated)\n");
+}

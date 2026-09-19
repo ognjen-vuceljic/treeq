@@ -6,6 +6,7 @@ mod json_tree;
 mod ndjson;
 mod paths;
 mod render;
+mod schema;
 mod stats;
 mod tui;
 mod xml_tree;
@@ -17,6 +18,7 @@ use json_tree::{JsonNode, find_json_path};
 use ndjson::parse_ndjson;
 use paths::{json_paths, xml_paths};
 use render::{render_json, render_xml};
+use schema::{json_schema, xml_schema};
 use stats::{JsonStats, XmlStats, json_stats, xml_stats};
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
@@ -49,6 +51,8 @@ struct Args {
     agent: bool,
     #[arg(long)]
     ndjson: bool,
+    #[arg(long)]
+    schema: bool,
 }
 
 /// Default tree-render depth used by `--agent` when the user hasn't
@@ -131,6 +135,10 @@ fn run_json(input: &str, args: &Args) {
         print_json_stats(&s, input.len());
         return;
     }
+    if args.schema {
+        print!("{}", json_schema(target));
+        return;
+    }
     if !args.r#static && io::stdout().is_terminal() {
         tui::run_json_tui(target, use_color()).unwrap_or_else(|e| {
             eprintln!("error: {e}");
@@ -177,6 +185,10 @@ fn run_xml(input: &str, args: &Args) {
     if args.stats {
         let s = xml_stats(target);
         print_xml_stats(&s, input.len());
+        return;
+    }
+    if args.schema {
+        print!("{}", xml_schema(target));
         return;
     }
     if !args.r#static && io::stdout().is_terminal() {

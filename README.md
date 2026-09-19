@@ -81,6 +81,18 @@ bounded slices instead of dumping the whole thing into a tool result.
   ```sh
   treeq --path "$(treeq --paths file.json | fzf)" file.json
   ```
+- **`--schema`** — inferred shape summary (field names and types) instead
+  of a full dump, for sizing up an unfamiliar document before writing a
+  `jq` filter against it:
+  ```sh
+  $ treeq --schema sample.json
+  name: string
+  roles: array<string>
+  address: object
+    city: string
+    zip: string
+  active: boolean
+  ```
 - **Type-aware colors** (keys, strings, numbers, booleans, null each
   distinct), auto-disabled when output isn't a terminal or `NO_COLOR` is set.
 - **`--ndjson`** — treat input as NDJSON / JSON Lines (one JSON value per
