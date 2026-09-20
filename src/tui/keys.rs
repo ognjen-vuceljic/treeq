@@ -20,6 +20,45 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
     }
 }
 
+/// Moves the cursor to the line at `path`, if one is currently visible.
+fn move_cursor_to_path(state: &mut AppState, path: &[String]) {
+    if let Some(idx) = state.lines.iter().position(|l| l.path == path) {
+        state.cursor = idx;
+    }
+}
+
+/// Collapses the immediate parent container of the current node (never the
+/// node itself, even if it is a container) and moves the cursor there.
+fn collapse_nearest_parent(state: &mut AppState) {
+    let Some(line) = state.lines.get(state.cursor) else {
+        return;
+    };
+    let path = line.path.clone();
+    if path.len() < 2 {
+        return;
+    }
+    let parent = path[..path.len() - 1].to_vec();
+    state.collapsed.insert(parent.clone());
+    move_cursor_to_path(state, &parent);
+}
+
+/// Collapses every ancestor of the current node up to the root in one
+/// action, and moves the cursor to the outermost (root) ancestor.
+fn collapse_all_ancestors(state: &mut AppState) {
+    let Some(line) = state.lines.get(state.cursor) else {
+        return;
+    };
+    let path = line.path.clone();
+    if path.len() < 2 {
+        return;
+    }
+    for depth in 1..path.len() {
+        state.collapsed.insert(path[..depth].to_vec());
+    }
+    move_cursor_to_path(state, &path[..1]);
+    state.status_message = Some("collapsed ancestors".to_string());
+}
+
 pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
     if state.searching {
         match key {
@@ -70,6 +109,8 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
                 });
             }
         }
+        KeyCode::Backspace => collapse_nearest_parent(state),
+        KeyCode::Char('C') => collapse_all_ancestors(state),
         KeyCode::Char('c') => {
             state.collapsed = state.all_container_paths.clone();
             state.status_message = Some("collapsed all".to_string());
@@ -166,6 +207,103 @@ mod tests {
         state.cursor = 1; // "name" has no children
         handle_key(&mut state, KeyCode::Tab);
         assert!(state.collapsed.is_empty());
+    }
+
+    fn nested_fixture() -> AppState {
+        AppState {
+            lines: vec![
+                line("root", true, &["root"]),
+                line("user", true, &["root", "user"]),
+                line("address", true, &["root", "user", "address"]),
+                line("city", false, &["root", "user", "address", "city"]),
+            ],
+            collapsed: HashSet::new(),
+            all_container_paths: HashSet::from([
+                vec!["root".to_string()],
+                vec!["root".to_string(), "user".to_string()],
+                vec![
+                    "root".to_string(),
+                    "user".to_string(),
+                    "address".to_string(),
+                ],
+            ]),
+            cursor: 3, // "city"
+            search: String::new(),
+            searching: false,
+            use_color: false,
+            status_message: None,
+            help_visible: false,
+        }
+    }
+
+    #[test]
+    fn backspace_collapses_the_nearest_parent_and_moves_cursor_there() {
+        let mut state = nested_fixture();
+        handle_key(&mut state, KeyCode::Backspace);
+        assert!(state.collapsed.contains(&vec![
+            "root".to_string(),
+            "user".to_string(),
+            "address".to_string()
+        ]));
+        assert_eq!(state.cursor, 2, "cursor must move to the collapsed parent");
+    }
+
+    #[test]
+    fn backspace_on_a_container_collapses_its_parent_not_itself() {
+        let mut state = nested_fixture();
+        state.cursor = 2; // "address", itself a container
+        handle_key(&mut state, KeyCode::Backspace);
+        assert!(
+            !state.collapsed.contains(&vec![
+                "root".to_string(),
+                "user".to_string(),
+                "address".to_string()
+            ]),
+            "must not collapse the current node itself"
+        );
+        assert!(
+            state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()])
+        );
+        assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn backspace_at_the_root_does_nothing() {
+        let mut state = nested_fixture();
+        state.cursor = 0; // "root", no parent
+        handle_key(&mut state, KeyCode::Backspace);
+        assert!(state.collapsed.is_empty());
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn shift_c_collapses_every_ancestor_and_moves_cursor_to_the_root() {
+        let mut state = nested_fixture();
+        handle_key(&mut state, KeyCode::Char('C'));
+        assert!(state.collapsed.contains(&vec!["root".to_string()]));
+        assert!(
+            state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()])
+        );
+        assert!(state.collapsed.contains(&vec![
+            "root".to_string(),
+            "user".to_string(),
+            "address".to_string()
+        ]));
+        assert_eq!(state.cursor, 0);
+        assert_eq!(state.status_message.as_deref(), Some("collapsed ancestors"));
+    }
+
+    #[test]
+    fn shift_c_at_the_root_does_nothing() {
+        let mut state = nested_fixture();
+        state.cursor = 0; // "root", no ancestors
+        handle_key(&mut state, KeyCode::Char('C'));
+        assert!(state.collapsed.is_empty());
+        assert_eq!(state.status_message, None);
     }
 
     #[test]

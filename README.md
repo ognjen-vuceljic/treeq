@@ -64,6 +64,7 @@ bounded slices instead of dumping the whole thing into a tool result.
 
 - **Two input formats**, auto-detected: JSON and XML.
 - **Interactive TUI** — arrow-key navigation, collapse/expand (`Tab`/`Space`),
+  collapse-nearest-parent (`Backspace`), collapse-all-ancestors (`Shift+C`),
   collapse-all/expand-all (`c`/`e`), incremental search (`/`), yank current
   path to clipboard (`y`, via OSC 52 — works over SSH).
 - **Static, scriptable output** (`--static`) for piping into other tools or
@@ -132,6 +133,8 @@ treeq file.xml                        # XML works the same way
 |---|---|
 | `↑` / `↓` | Move cursor |
 | `Tab` / `Space` | Collapse/expand current node |
+| `Backspace` | Collapse nearest parent, move cursor there |
+| `Shift+C` | Collapse every ancestor up to the root |
 | `c` | Collapse all |
 | `e` | Expand all |
 | `/` | Incremental search |
