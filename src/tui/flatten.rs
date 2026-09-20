@@ -199,9 +199,26 @@ pub(super) fn collect_container_paths_xml(
     }
 }
 
-/// Every node's path (containers and leaves alike), independent of collapse
-/// state — lets search reach into collapsed subtrees (see issue #30).
-pub(super) fn collect_all_paths_json(node: &JsonNode, path: &[String], out: &mut Vec<Vec<String>>) {
+/// A node's dotted path, plus its value if it's a leaf, joined the same way
+/// a line renders (`key: value`) — what search actually matches against
+/// (see issue #50), so a query spanning both the key and the value (e.g.
+/// `author: "user`) can find a node that a path-only match would miss.
+pub(super) fn search_text(path: &[String], value: Option<&str>) -> String {
+    let joined = path.join(".");
+    match value {
+        Some(v) => format!("{joined}: {v}"),
+        None => joined,
+    }
+}
+
+/// Every node's path (containers and leaves alike) plus its search text,
+/// independent of collapse state — lets search reach into collapsed
+/// subtrees (see issue #30) and match on key/value combos (see issue #50).
+pub(super) fn collect_all_paths_json(
+    node: &JsonNode,
+    path: &[String],
+    out: &mut Vec<(Vec<String>, String)>,
+) {
     let entries: Vec<(String, &JsonNode)> = match node {
         JsonNode::Object(fields) => fields.iter().map(|(k, v)| (k.clone(), v)).collect(),
         JsonNode::Array(items) => items
@@ -214,16 +231,30 @@ pub(super) fn collect_all_paths_json(node: &JsonNode, path: &[String], out: &mut
     for (label, child) in entries {
         let mut child_path = path.to_vec();
         child_path.push(label);
-        out.push(child_path.clone());
+        let value = match child {
+            JsonNode::Scalar(s) => Some(s.display()),
+            _ => None,
+        };
+        out.push((
+            child_path.clone(),
+            search_text(&child_path, value.as_deref()),
+        ));
         collect_all_paths_json(child, &child_path, out);
     }
 }
 
-pub(super) fn collect_all_paths_xml(node: &XmlNode, path: &[String], out: &mut Vec<Vec<String>>) {
+pub(super) fn collect_all_paths_xml(
+    node: &XmlNode,
+    path: &[String],
+    out: &mut Vec<(Vec<String>, String)>,
+) {
     for child in &node.children {
         let mut child_path = path.to_vec();
         child_path.push(child.name.clone());
-        out.push(child_path.clone());
+        out.push((
+            child_path.clone(),
+            search_text(&child_path, child.text.as_deref()),
+        ));
         collect_all_paths_xml(child, &child_path, out);
     }
 }
@@ -414,12 +445,27 @@ mod tests {
         let node = JsonNode::from_value(&value);
         let mut out = Vec::new();
         collect_all_paths_json(&node, &[], &mut out);
+        let paths: Vec<_> = out.iter().map(|(p, _)| p.clone()).collect();
 
-        assert!(out.contains(&path(&["user"])));
-        assert!(out.contains(&path(&["user", "name"])));
-        assert!(out.contains(&path(&["user", "tags"])));
-        assert!(out.contains(&path(&["user", "tags", "[0]"])));
-        assert!(out.contains(&path(&["flag"])));
+        assert!(paths.contains(&path(&["user"])));
+        assert!(paths.contains(&path(&["user", "name"])));
+        assert!(paths.contains(&path(&["user", "tags"])));
+        assert!(paths.contains(&path(&["user", "tags", "[0]"])));
+        assert!(paths.contains(&path(&["flag"])));
+    }
+
+    #[test]
+    fn collects_every_json_leafs_search_text_includes_its_value() {
+        let value = json!({"author": "user0"});
+        let node = JsonNode::from_value(&value);
+        let mut out = Vec::new();
+        collect_all_paths_json(&node, &[], &mut out);
+
+        let (_, text) = out
+            .iter()
+            .find(|(p, _)| p == &path(&["author"]))
+            .expect("author path must be collected");
+        assert_eq!(text, "author: \"user0\"");
     }
 
     #[test]
@@ -429,10 +475,26 @@ mod tests {
         let node = XmlNode::from_document(&doc);
         let mut out = Vec::new();
         collect_all_paths_xml(&node, &[], &mut out);
+        let paths: Vec<_> = out.iter().map(|(p, _)| p.clone()).collect();
 
-        assert!(out.contains(&path(&["user"])));
-        assert!(out.contains(&path(&["user", "name"])));
-        assert!(out.contains(&path(&["flag"])));
+        assert!(paths.contains(&path(&["user"])));
+        assert!(paths.contains(&path(&["user", "name"])));
+        assert!(paths.contains(&path(&["flag"])));
+    }
+
+    #[test]
+    fn collects_every_xml_leafs_search_text_includes_its_text() {
+        let xml = r#"<root><author>user0</author></root>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = XmlNode::from_document(&doc);
+        let mut out = Vec::new();
+        collect_all_paths_xml(&node, &[], &mut out);
+
+        let (_, text) = out
+            .iter()
+            .find(|(p, _)| p == &path(&["author"]))
+            .expect("author path must be collected");
+        assert_eq!(text, "author: user0");
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use super::keys::{array_path_for_summary_line, fuzzy_matches, popup_matches};
+use super::keys::{array_path_for_summary_line, fuzzy_matches, line_search_text, popup_matches};
 use super::state::{AppState, HELP_LEGEND, Line, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
@@ -171,7 +171,7 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
             }
             if state.searching
                 && !state.search.is_empty()
-                && fuzzy_matches(&line.path.join("."), &state.search)
+                && fuzzy_matches(&line_search_text(line), &state.search)
             {
                 style = style.add_modifier(Modifier::UNDERLINED);
             }
@@ -464,6 +464,33 @@ mod tests {
     }
 
     #[test]
+    fn a_key_value_spanning_query_underlines_the_matching_line() {
+        // Issue #50's own repro: a query spanning a node's key and its
+        // rendered value (e.g. `author: "user`) must be treated as a match,
+        // not just a query against the dotted path alone.
+        let mut state = state_with(
+            vec![
+                line(
+                    "author",
+                    false,
+                    Some(("\"user0\"", TqColor::Str)),
+                    0,
+                    &["author"],
+                ),
+                line("id", false, Some(("\"c7-0\"", TqColor::Str)), 0, &["id"]),
+            ],
+            0,
+        );
+        state.searching = true;
+        state.search = "author: \"user".to_string();
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert!(buffer[(1, 1)].modifier.contains(Modifier::UNDERLINED));
+        assert!(!buffer[(1, 2)].modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
     fn render_draws_lines_and_status_bar() {
         let state = state_with(
             vec![
@@ -639,7 +666,7 @@ mod tests {
         let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
         state.popup_visible = true;
         state.popup_query = "user".to_string();
-        state.all_paths = vec![vec!["user".to_string()]];
+        state.all_paths = vec![(vec!["user".to_string()], "user".to_string())];
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
@@ -657,7 +684,10 @@ mod tests {
     fn popup_shows_a_hint_instead_of_the_whole_document_when_query_is_empty() {
         let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
         state.popup_visible = true;
-        state.all_paths = vec![vec!["user".to_string()], vec!["other".to_string()]];
+        state.all_paths = vec![
+            (vec!["user".to_string()], "user".to_string()),
+            (vec!["other".to_string()], "other".to_string()),
+        ];
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
@@ -669,7 +699,7 @@ mod tests {
         let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
         state.popup_visible = true;
         state.popup_query = "zzz".to_string();
-        state.all_paths = vec![vec!["user".to_string()]];
+        state.all_paths = vec![(vec!["user".to_string()], "user".to_string())];
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
