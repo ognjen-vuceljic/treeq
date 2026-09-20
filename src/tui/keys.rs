@@ -928,6 +928,94 @@ mod tests {
     }
 
     #[test]
+    fn tab_stays_put_with_exactly_one_match() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('n'));
+        handle_key(&mut state, KeyCode::Char('a'));
+        handle_key(&mut state, KeyCode::Char('m'));
+        handle_key(&mut state, KeyCode::Char('e'));
+        assert_eq!(
+            popup_matches(&state).len(),
+            1,
+            "\"name\" matches only one path"
+        );
+        handle_key(&mut state, KeyCode::Tab);
+        assert_eq!(state.popup_selected, 0);
+        handle_key(&mut state, KeyCode::BackTab);
+        assert_eq!(state.popup_selected, 0);
+    }
+
+    #[test]
+    fn typing_after_cycling_resets_selection_even_if_still_in_range() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('u'));
+        handle_key(&mut state, KeyCode::Tab);
+        handle_key(&mut state, KeyCode::Tab);
+        assert_eq!(state.popup_selected, 2);
+        handle_key(&mut state, KeyCode::Backspace);
+        assert_eq!(
+            state.popup_selected, 0,
+            "narrowing the query must not leave a stale out-of-range-prone selection"
+        );
+    }
+
+    #[test]
+    fn tab_and_back_tab_are_inverses_over_a_full_cycle() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('u'));
+        let n = popup_matches(&state).len();
+        for _ in 0..n {
+            handle_key(&mut state, KeyCode::Tab);
+        }
+        assert_eq!(
+            state.popup_selected, 0,
+            "cycling forward exactly n times must land back on the start"
+        );
+        for _ in 0..n {
+            handle_key(&mut state, KeyCode::BackTab);
+        }
+        assert_eq!(
+            state.popup_selected, 0,
+            "cycling backward exactly n times must also land back on the start"
+        );
+    }
+
+    #[test]
+    fn cycling_to_the_last_match_then_narrowing_the_query_keeps_selection_in_range() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('u'));
+        assert_eq!(popup_matches(&state).len(), 3);
+        handle_key(&mut state, KeyCode::BackTab); // wraps to the last match
+        assert_eq!(state.popup_selected, 2);
+        handle_key(&mut state, KeyCode::Char('z')); // "uz" matches nothing
+        assert!(popup_matches(&state).is_empty());
+        assert_eq!(state.popup_selected, 0);
+    }
+
+    #[test]
+    fn down_clamp_then_tab_still_wraps_correctly() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('u'));
+        handle_key(&mut state, KeyCode::Down);
+        handle_key(&mut state, KeyCode::Down);
+        handle_key(&mut state, KeyCode::Down);
+        handle_key(&mut state, KeyCode::Down);
+        assert_eq!(state.popup_selected, 2, "Down clamps at the last match");
+        handle_key(&mut state, KeyCode::Tab);
+        assert_eq!(state.popup_selected, 0, "Tab still wraps past the clamp");
+        handle_key(&mut state, KeyCode::BackTab);
+        assert_eq!(
+            state.popup_selected, 2,
+            "BackTab wraps back to the last match"
+        );
+    }
+
+    #[test]
     fn popup_esc_closes_without_moving_the_cursor_or_expanding_anything() {
         let mut state = nested_fixture();
         state

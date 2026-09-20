@@ -145,14 +145,14 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
+    let match_style = if state.use_color {
+        Style::default().fg(ratatui_color(TqColor::Key))
+    } else {
+        Style::default()
+    };
     let items: Vec<ListItem> = matches
         .iter()
-        .map(|path| {
-            ListItem::new(RtLine::from(Span::styled(
-                path.join("."),
-                Style::default().fg(ratatui_color(TqColor::Key)),
-            )))
-        })
+        .map(|path| ListItem::new(RtLine::from(Span::styled(path.join("."), match_style))))
         .collect();
     let mut list_state = ListState::default()
         .with_offset(state.popup_scroll_offset.get())
@@ -734,7 +734,75 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("item25"));
-        assert!(!text.contains("item0\n"));
+        assert!(!text.contains("item0"));
+    }
+
+    #[test]
+    fn popup_scrolls_back_up_after_selection_returns_to_the_top() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.popup_query = "item".to_string();
+        state.all_paths = (0..30)
+            .map(|i| (vec![format!("item{i}")], format!("item{i}")))
+            .collect();
+        state.popup_selected = 25;
+        let mut terminal = Terminal::new(TestBackend::new(60, 15)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+
+        state.popup_selected = 0;
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains("item0"),
+            "scrolling the selection back to the top must bring item0 back into view"
+        );
+    }
+
+    fn find_match_row_fg(buffer: &Buffer, expected_text: &str) -> Color {
+        let area = buffer.area;
+        for y in 0..area.height {
+            let row: String = (0..area.width).map(|x| buffer[(x, y)].symbol()).collect();
+            if let Some(col) = row.find(expected_text) {
+                return buffer[(col as u16, y)].fg;
+            }
+        }
+        panic!("no row contained {expected_text:?}");
+    }
+
+    #[test]
+    fn popup_matches_are_plain_without_color() {
+        let mut state = state_with(vec![line("root", true, None, 0, &["root"])], 0);
+        state.use_color = false;
+        state.popup_visible = true;
+        state.popup_query = "zq".to_string();
+        state.all_paths = vec![(
+            vec!["zqx".to_string(), "leaf".to_string()],
+            "zqx.leaf".to_string(),
+        )];
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        assert_eq!(
+            find_match_row_fg(terminal.backend().buffer(), "zqx.leaf"),
+            Color::Reset
+        );
+    }
+
+    #[test]
+    fn popup_matches_are_colored_when_color_is_enabled() {
+        let mut state = state_with(vec![line("root", true, None, 0, &["root"])], 0);
+        state.use_color = true;
+        state.popup_visible = true;
+        state.popup_query = "zq".to_string();
+        state.all_paths = vec![(
+            vec!["zqx".to_string(), "leaf".to_string()],
+            "zqx.leaf".to_string(),
+        )];
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        assert_eq!(
+            find_match_row_fg(terminal.backend().buffer(), "zqx.leaf"),
+            ratatui_color(TqColor::Key)
+        );
     }
 
     #[test]
