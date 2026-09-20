@@ -136,7 +136,11 @@ treeq file.xml                        # XML works the same way
 | `e` | Expand all |
 | `/` | Incremental search |
 | `y` | Yank current node's path to clipboard (OSC 52) |
+| `?` | Toggle the in-app keybinding help overlay |
 | `q` / `Esc` | Quit |
+
+The status bar always shows a `?: help` hint, so you don't need to
+remember this table while using the TUI.
 
 ## Roadmap
 

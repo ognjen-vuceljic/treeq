@@ -22,7 +22,23 @@ pub(super) struct AppState {
     pub(super) searching: bool,
     pub(super) use_color: bool,
     pub(super) status_message: Option<String>,
+    pub(super) help_visible: bool,
 }
+
+/// The keybinding legend shown when help is toggled on, as
+/// (key, description) pairs, in display order. The single source of truth
+/// for both the in-app overlay and (via a doc-test / generation step, if
+/// added) the README's keybindings table, so they can't drift apart.
+pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
+    ("↑ / ↓", "move cursor"),
+    ("Enter / Space", "collapse / expand"),
+    ("/", "search"),
+    ("y", "yank current path"),
+    ("c", "collapse all"),
+    ("e", "expand all"),
+    ("?", "toggle this help"),
+    ("q / Esc", "quit"),
+];
 
 pub(super) fn rebuild_json_lines(state: &mut AppState, node: &JsonNode) {
     let mut lines = Vec::new();
@@ -76,6 +92,7 @@ mod tests {
             searching: false,
             use_color: false,
             status_message: None,
+            help_visible: false,
         }
     }
 
