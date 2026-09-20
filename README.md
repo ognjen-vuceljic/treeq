@@ -75,7 +75,9 @@ bounded slices instead of dumping the whole thing into a tool result.
   *every* match across the whole document in one screen — including
   nodes buried under a collapsed ancestor or past an array's 200-item
   preview limit — and jumps straight there on `Enter`, auto-expanding
-  whatever was in the way.
+  whatever was in the way. Matches on the key, the value, or a fragment
+  spanning both, exactly as the line is rendered (e.g. `author: "user`
+  finds `author: "user0"`), not just the key.
 - **Fast keyboard navigation** — arrows to move, `g` for vim/tmux-style
   count-prefixed jumps (type digits, then `↑`/`↓` — `g20↓` jumps 20 lines
   at once), `Tab`/`Space` to collapse/expand, `Backspace` to collapse the

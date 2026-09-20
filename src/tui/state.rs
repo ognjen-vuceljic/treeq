@@ -83,10 +83,11 @@ pub(super) struct AppState {
     /// `render()` just for this.
     pub(super) scroll_offset: Cell<usize>,
     /// Every node's path in the whole document (containers and leaves),
-    /// computed once at startup and unaffected by collapse state. Lets
-    /// search reach into collapsed subtrees instead of being limited to
-    /// `lines` (see issue #30).
-    pub(super) all_paths: Vec<Vec<String>>,
+    /// paired with its search text (dotted path, plus `: value` for a leaf
+    /// — see issue #50), computed once at startup and unaffected by
+    /// collapse state. Lets search reach into collapsed subtrees instead of
+    /// being limited to `lines` (see issue #30) and match key/value combos.
+    pub(super) all_paths: Vec<(Vec<String>, String)>,
     /// Set by a search match found outside the currently-visible lines: the
     /// path to select once `lines` has been rebuilt after expanding its
     /// ancestors (see issue #30). Consumed and cleared by

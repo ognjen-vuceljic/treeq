@@ -37,7 +37,7 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
     let n = state.lines.len();
     for offset in 1..=n {
         let idx = (state.cursor + offset) % n;
-        if fuzzy_matches(&state.lines[idx].path.join("."), &state.search) {
+        if fuzzy_matches(&line_search_text(&state.lines[idx]), &state.search) {
             state.cursor = idx;
             return;
         }
@@ -45,12 +45,30 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
     if let Some(path) = state
         .all_paths
         .iter()
-        .find(|path| fuzzy_matches(&path.join("."), &state.search))
-        .cloned()
+        .find(|(_, text)| fuzzy_matches(text, &state.search))
+        .map(|(path, _)| path.clone())
     {
         expand_path_into_view(state, &path);
         state.pending_cursor_path = Some(path);
     }
+}
+
+/// A visible line's search text: its dotted path, plus `: value` for a leaf
+/// (see issue #50) — the exact same format `all_paths`' entries use (see
+/// `flatten::search_text`, which this delegates to so the two can't drift
+/// apart), so a query spanning both the key and the value (e.g.
+/// `author: "user`) can find a currently-visible line the same way it finds
+/// one in a collapsed subtree. The array-truncation summary line is an
+/// exception: its "value" is synthetic UI boilerplate ("N more (Tab to show
+/// all)"), not document data, so it's excluded to avoid a generic word like
+/// "show" or "tab" accidentally matching it.
+pub(super) fn line_search_text(line: &super::state::Line) -> String {
+    let value = if line.is_array_summary {
+        None
+    } else {
+        line.value.as_ref().map(|(v, _)| v.as_str())
+    };
+    super::flatten::search_text(&line.path, value)
 }
 
 /// Expands just enough ancestors — and lifts any array-preview truncation
@@ -85,8 +103,8 @@ pub(super) fn popup_matches(state: &AppState) -> Vec<Vec<String>> {
     state
         .all_paths
         .iter()
-        .filter(|path| fuzzy_matches(&path.join("."), &state.popup_query))
-        .cloned()
+        .filter(|(_, text)| fuzzy_matches(text, &state.popup_query))
+        .map(|(path, _)| path.clone())
         .collect()
 }
 
@@ -479,9 +497,15 @@ mod tests {
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
             all_paths: vec![
-                vec!["user".to_string()],
-                vec!["user".to_string(), "name".to_string()],
-                vec!["user".to_string(), "age".to_string()],
+                (vec!["user".to_string()], "user".to_string()),
+                (
+                    vec!["user".to_string(), "name".to_string()],
+                    "user.name".to_string(),
+                ),
+                (
+                    vec!["user".to_string(), "age".to_string()],
+                    "user.age".to_string(),
+                ),
             ],
             pending_cursor_path: None,
             count_buffer: None,
@@ -629,19 +653,28 @@ mod tests {
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
             all_paths: vec![
-                vec!["root".to_string()],
-                vec!["root".to_string(), "user".to_string()],
-                vec![
-                    "root".to_string(),
-                    "user".to_string(),
-                    "address".to_string(),
-                ],
-                vec![
-                    "root".to_string(),
-                    "user".to_string(),
-                    "address".to_string(),
-                    "city".to_string(),
-                ],
+                (vec!["root".to_string()], "root".to_string()),
+                (
+                    vec!["root".to_string(), "user".to_string()],
+                    "root.user".to_string(),
+                ),
+                (
+                    vec![
+                        "root".to_string(),
+                        "user".to_string(),
+                        "address".to_string(),
+                    ],
+                    "root.user.address".to_string(),
+                ),
+                (
+                    vec![
+                        "root".to_string(),
+                        "user".to_string(),
+                        "address".to_string(),
+                        "city".to_string(),
+                    ],
+                    "root.user.address.city".to_string(),
+                ),
             ],
             pending_cursor_path: None,
             count_buffer: None,
@@ -803,6 +836,20 @@ mod tests {
         assert_eq!(state.popup_selected, 0);
         let matches = popup_matches(&state);
         assert_eq!(matches, vec![vec!["user".to_string(), "age".to_string()]]);
+    }
+
+    #[test]
+    fn popup_matches_a_key_value_combo_reaching_a_collapsed_or_off_screen_node() {
+        // Issue #50: the popup searches `all_paths`, which now carries
+        // search text (not just the dotted path), so a query spanning a
+        // node's key and its value must find it even though it's not one
+        // of `fixture()`'s visible lines.
+        let mut state = fixture();
+        state
+            .all_paths
+            .push((vec!["author".to_string()], "author: \"user0\"".to_string()));
+        state.popup_query = "author: \"user".to_string();
+        assert_eq!(popup_matches(&state), vec![vec!["author".to_string()]]);
     }
 
     #[test]
@@ -1135,6 +1182,42 @@ mod tests {
     }
 
     #[test]
+    fn jump_to_next_match_finds_a_visible_lines_key_value_combo() {
+        // Issue #50: a query spanning both the key and the value (as
+        // rendered, "key: value") must match, not just the dotted path.
+        let mut state = fixture();
+        state.lines.push(Line {
+            depth: 0,
+            key: "author".to_string(),
+            value: Some(("\"user0\"".to_string(), TqColor::Str)),
+            path: vec!["author".to_string()],
+            has_children: false,
+            is_array_summary: false,
+            type_label: "string (5 chars)".to_string(),
+        });
+        state.search = "author: \"user".to_string();
+        jump_to_next_match(&mut state);
+        assert_eq!(state.cursor, 3, "the author line must be reached");
+    }
+
+    #[test]
+    fn search_ignores_the_array_summary_lines_synthetic_boilerplate_value() {
+        // Issue #50's fix-review: the "…more" summary line's value is UI
+        // chrome ("N more (Tab to show all)"), not document data, so a
+        // generic word from it must not become searchable.
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.search = "tab to show".to_string();
+        jump_to_next_match(&mut state);
+        assert_eq!(
+            state.cursor, 0,
+            "the synthetic summary text must not be searchable"
+        );
+    }
+
+    #[test]
     fn jump_to_next_match_reaches_into_a_collapsed_subtree() {
         let mut state = nested_fixture();
         // Only "root" and "user" are visible; "address" (and "city" beneath
@@ -1192,9 +1275,10 @@ mod tests {
 
         // 300 items is well past the 200-item array preview limit (issue
         // #5), so item [250] isn't in `lines` until the array is expanded.
-        let items: Vec<serde_json::Value> = (0..300)
-            .map(|i| serde_json::json!(format!("event-{i}")))
-            .collect();
+        // Values are digit-free ("x") so the "250" query can only match the
+        // array index itself, not bleed across the key/value boundary of a
+        // combined search text (see issue #50) into some other item's value.
+        let items: Vec<serde_json::Value> = (0..300).map(|_| serde_json::json!("x")).collect();
         let value = serde_json::json!({ "logs": items });
         let node = JsonNode::from_value(&value);
 
@@ -1210,9 +1294,7 @@ mod tests {
             array_overrides: HashSet::new(),
             tags: HashMap::new(),
             cursor: 0,
-            // Search matches keys/paths, not scalar values, so this targets
-            // the array index "[250]" itself rather than its "event-250"
-            // string content.
+            // Targets the array index "[250]" itself.
             search: "250".to_string(),
             searching: true,
             use_color: false,
