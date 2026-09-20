@@ -39,12 +39,16 @@ fn run_treeq(args: &[&str], stdin_data: &str) -> (String, String, i32) {
         .stderr(Stdio::piped())
         .spawn()
         .expect("failed to start treeq");
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(stdin_data.as_bytes())
-        .unwrap();
+    // The CLI can exit (and close its stdin) before consuming all input on
+    // early-exit paths (e.g. a flag-conflict error checked before input is
+    // read), so a BrokenPipe here is expected, not a test-harness bug.
+    if let Err(e) = child.stdin.take().unwrap().write_all(stdin_data.as_bytes()) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::BrokenPipe,
+            "unexpected write error: {e}"
+        );
+    }
     let output = child.wait_with_output().unwrap();
     (
         String::from_utf8_lossy(&output.stdout).to_string(),
