@@ -97,6 +97,15 @@ pub(super) fn move_cursor_to_path(state: &mut AppState, path: &[String]) {
 /// (see issue #41); empty query intentionally yields no matches rather
 /// than dumping the entire document.
 pub(super) fn popup_matches(state: &AppState) -> Vec<Vec<String>> {
+    popup_match_entries(state)
+        .into_iter()
+        .map(|(path, _)| path.clone())
+        .collect()
+}
+
+/// Same matches as `popup_matches`, paired with their search text (used to
+/// render the value alongside the path — see issue #51).
+pub(super) fn popup_match_entries(state: &AppState) -> Vec<&(Vec<String>, String)> {
     if state.popup_query.is_empty() {
         return Vec::new();
     }
@@ -104,7 +113,6 @@ pub(super) fn popup_matches(state: &AppState) -> Vec<Vec<String>> {
         .all_paths
         .iter()
         .filter(|(_, text)| fuzzy_matches(text, &state.popup_query))
-        .map(|(path, _)| path.clone())
         .collect()
 }
 

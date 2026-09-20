@@ -1,4 +1,6 @@
-use super::keys::{array_path_for_summary_line, fuzzy_matches, line_search_text, popup_matches};
+use super::keys::{
+    array_path_for_summary_line, fuzzy_matches, line_search_text, popup_match_entries,
+};
 use super::state::{AppState, HELP_LEGEND, Line, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
@@ -51,7 +53,7 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         // full-screen replacement like the help overlay: the popup is meant
         // to feel like picking from a list layered on top of context that's
         // still visible around its edges.
-        let popup_area = centered_rect(70, 60, area);
+        let popup_area = centered_rect(90, 70, area);
         frame.render_widget(Clear, popup_area);
         render_search_popup(frame, popup_area, state);
     }
@@ -116,6 +118,47 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     .split(vertical[1])[1]
 }
 
+fn match_spans(path: &[String], text: &str, is_json: bool, use_color: bool) -> Vec<Span<'static>> {
+    let path_text = path.join(".");
+    let value_text = text.strip_prefix(&format!("{path_text}: "));
+    let path_style = if use_color {
+        Style::default()
+            .fg(ratatui_color(TqColor::Key))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let mut spans = vec![Span::styled(path_text, path_style)];
+    if let Some(value) = value_text {
+        let color = if is_json {
+            infer_json_value_color(value)
+        } else {
+            TqColor::Str
+        };
+        let value_style = if use_color {
+            Style::default().fg(ratatui_color(color))
+        } else {
+            Style::default()
+        };
+        spans.push(Span::raw(": "));
+        spans.push(Span::styled(value.to_string(), value_style));
+    }
+    spans
+}
+
+/// Guesses a JSON scalar's type from its already-rendered display text
+/// (see `JsonScalar::display`): strings are always quoted, bools/null are
+/// fixed literals, everything else is a number. XML text is always a plain
+/// string (see `flatten_xml`) so callers must not use this for XML.
+fn infer_json_value_color(value: &str) -> TqColor {
+    match value {
+        "true" | "false" => TqColor::Bool,
+        "null" => TqColor::Null,
+        v if v.starts_with('"') => TqColor::Str,
+        _ => TqColor::Number,
+    }
+}
+
 fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -132,7 +175,7 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
         chunks[0],
     );
 
-    let matches = popup_matches(state);
+    let entries = popup_match_entries(state);
     if state.popup_query.is_empty() {
         frame.render_widget(
             Paragraph::new("type to search the whole document"),
@@ -140,19 +183,21 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
         );
         return;
     }
-    if matches.is_empty() {
+    if entries.is_empty() {
         frame.render_widget(Paragraph::new("no matches"), chunks[1]);
         return;
     }
 
-    let match_style = if state.use_color {
-        Style::default().fg(ratatui_color(TqColor::Key))
-    } else {
-        Style::default()
-    };
-    let items: Vec<ListItem> = matches
+    let items: Vec<ListItem> = entries
         .iter()
-        .map(|path| ListItem::new(RtLine::from(Span::styled(path.join("."), match_style))))
+        .map(|(path, text)| {
+            ListItem::new(RtLine::from(match_spans(
+                path,
+                text,
+                state.is_json,
+                state.use_color,
+            )))
+        })
         .collect();
     let mut list_state = ListState::default()
         .with_offset(state.popup_scroll_offset.get())
@@ -349,6 +394,41 @@ mod tests {
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
         }
+    }
+
+    #[test]
+    fn infer_value_color_covers_every_json_scalar_kind() {
+        assert_eq!(infer_json_value_color("\"hi\""), TqColor::Str);
+        assert_eq!(infer_json_value_color("42"), TqColor::Number);
+        assert_eq!(infer_json_value_color("-1.5"), TqColor::Number);
+        assert_eq!(infer_json_value_color("true"), TqColor::Bool);
+        assert_eq!(infer_json_value_color("false"), TqColor::Bool);
+        assert_eq!(infer_json_value_color("null"), TqColor::Null);
+    }
+
+    #[test]
+    fn match_spans_splits_path_and_value_with_a_colon_only_when_a_value_exists() {
+        let path = vec!["a".to_string(), "b".to_string()];
+        let with_value = match_spans(&path, "a.b: \"x\"", true, true);
+        assert_eq!(with_value.len(), 3);
+        assert_eq!(with_value[0].content.as_ref(), "a.b");
+        assert_eq!(with_value[1].content.as_ref(), ": ");
+        assert_eq!(with_value[2].content.as_ref(), "\"x\"");
+
+        let without_value = match_spans(&path, "a.b", true, true);
+        assert_eq!(without_value.len(), 1);
+        assert_eq!(without_value[0].content.as_ref(), "a.b");
+    }
+
+    #[test]
+    fn xml_values_are_always_treated_as_strings_never_json_scalar_types() {
+        // Issue #51's fix-review: an XML leaf's text is always rendered
+        // as a plain string in the tree (see flatten_xml), regardless of
+        // whether it looks like a number or boolean, so the popup must
+        // match that instead of guessing a JSON scalar kind from shape.
+        let path = vec!["active".to_string()];
+        let spans = match_spans(&path, "active: true", false, true);
+        assert_eq!(spans[2].style.fg, Some(ratatui_color(TqColor::Str)));
     }
 
     #[test]
@@ -758,12 +838,22 @@ mod tests {
         );
     }
 
+    /// Cell-by-cell substring search: `buffer[(x, y)].symbol()` isn't
+    /// necessarily one byte (box-drawing borders, "▸", etc.), so a plain
+    /// `String::find` on a joined row returns a byte offset that doesn't
+    /// line up with the cell's actual column.
     fn find_match_row_fg(buffer: &Buffer, expected_text: &str) -> Color {
+        let expected: Vec<char> = expected_text.chars().collect();
         let area = buffer.area;
         for y in 0..area.height {
-            let row: String = (0..area.width).map(|x| buffer[(x, y)].symbol()).collect();
-            if let Some(col) = row.find(expected_text) {
-                return buffer[(col as u16, y)].fg;
+            let row: Vec<char> = (0..area.width)
+                .map(|x| buffer[(x, y)].symbol().chars().next().unwrap_or(' '))
+                .collect();
+            if let Some(start) = row
+                .windows(expected.len())
+                .position(|window| window == expected.as_slice())
+            {
+                return buffer[(start as u16, y)].fg;
             }
         }
         panic!("no row contained {expected_text:?}");
@@ -803,6 +893,87 @@ mod tests {
             find_match_row_fg(terminal.backend().buffer(), "zqx.leaf"),
             ratatui_color(TqColor::Key)
         );
+    }
+
+    #[test]
+    fn popup_match_value_is_colored_by_its_inferred_type() {
+        let mut state = state_with(vec![line("root", true, None, 0, &["root"])], 0);
+        state.use_color = true;
+        state.popup_visible = true;
+        state.popup_query = "zq".to_string();
+        state.all_paths = vec![
+            (vec!["zq1".to_string()], "zq1: \"hello\"".to_string()),
+            (vec!["zq2".to_string()], "zq2: 42".to_string()),
+            (vec!["zq3".to_string()], "zq3: true".to_string()),
+            (vec!["zq4".to_string()], "zq4: null".to_string()),
+        ];
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            find_match_row_fg(buffer, "\"hello\""),
+            ratatui_color(TqColor::Str)
+        );
+        assert_eq!(
+            find_match_row_fg(buffer, "42"),
+            ratatui_color(TqColor::Number)
+        );
+        assert_eq!(
+            find_match_row_fg(buffer, "true"),
+            ratatui_color(TqColor::Bool)
+        );
+        assert_eq!(
+            find_match_row_fg(buffer, "null"),
+            ratatui_color(TqColor::Null)
+        );
+    }
+
+    #[test]
+    fn popup_for_an_xml_document_colors_numeric_looking_text_as_a_string() {
+        let mut state = state_with(vec![line("root", true, None, 0, &["root"])], 0);
+        state.is_json = false;
+        state.use_color = true;
+        state.popup_visible = true;
+        state.popup_query = "zq".to_string();
+        state.all_paths = vec![(vec!["zqcount".to_string()], "zqcount: 42".to_string())];
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        assert_eq!(
+            find_match_row_fg(terminal.backend().buffer(), "42"),
+            ratatui_color(TqColor::Str),
+            "XML text must render as a string color, matching the tree, not a guessed JSON type"
+        );
+    }
+
+    #[test]
+    fn popup_shows_a_long_match_line_in_full_without_truncation() {
+        let mut state = state_with(vec![line("root", true, None, 0, &["root"])], 0);
+        state.use_color = true;
+        state.popup_visible = true;
+        state.popup_query = "zq".to_string();
+        let long_value = "\"a fairly long value that used to get cut off by a narrow popup\"";
+        state.all_paths = vec![(vec!["zqlong".to_string()], format!("zqlong: {long_value}"))];
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains(&long_value.replace('"', "")),
+            "the full match line must fit without being cut off: {text}"
+        );
+    }
+
+    #[test]
+    fn popup_match_without_a_value_shows_only_the_path() {
+        let mut state = state_with(vec![line("root", true, None, 0, &["root"])], 0);
+        state.use_color = true;
+        state.popup_visible = true;
+        state.popup_query = "zq".to_string();
+        state.all_paths = vec![(vec!["zqcontainer".to_string()], "zqcontainer".to_string())];
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("zqcontainer"));
+        assert!(!text.contains("zqcontainer:"));
     }
 
     #[test]
