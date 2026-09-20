@@ -3,13 +3,21 @@
 [![CI](https://github.com/ognjen-vuceljic/treeq/actions/workflows/ci.yml/badge.svg)](https://github.com/ognjen-vuceljic/treeq/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Fast, readable JSON/XML tree visualization in the terminal — for you, and
-for coding agents.
+**A keyboard-driven tree view for JSON and XML, in your terminal.** Built
+for humans who are tired of squinting at minified blobs, and for coding
+agents that need to explore a large document without dumping the whole
+thing into a tool result.
 
 Minified, deeply-nested API responses and config files are hard to read in
-a plain terminal. `treeq` parses JSON or XML and gives you a real tree —
-either a static, scriptable render, or an interactive TUI — instead of a
-wall of brackets.
+a plain terminal. `treeq` parses JSON or XML and gives you a real,
+navigable tree — either a static, scriptable render, or a fast interactive
+TUI — instead of a wall of brackets.
+
+**Recently added:** an fzf-style popup that searches the *entire* document
+at once — including collapsed subtrees and truncated arrays — an
+8-color tagging palette, and vim/tmux-style count-prefixed jumps
+(`g5` + `↓` moves 5 lines down). See [TUI keybindings](#tui-keybindings)
+below.
 
 ## See it
 
@@ -63,16 +71,25 @@ bounded slices instead of dumping the whole thing into a tool result.
 ## Features
 
 - **Two input formats**, auto-detected: JSON and XML.
-- **Interactive TUI** — arrow-key navigation, collapse/expand (`Tab`/`Space`),
-  collapse-nearest-parent (`Backspace`), collapse-all-ancestors (`Shift+C`),
-  collapse-all/expand-all (`c`/`e`), incremental fuzzy search over the
-  currently visible (expanded) node names (`/`, matches non-contiguous
-  characters in order — e.g. "nme" finds "name", and every match is
-  underlined while searching, not just the one under the cursor),
-  node tagging (`1`-`8`) with a distinct background color layered on
-  top of the type-based palette, yank current path to clipboard (`y`,
-  via OSC 52 — works over SSH), or as a ready-to-run jq filter (`Y`,
-  e.g. `.user.tags[0]`, JSON/YAML only).
+- **Search that actually finds things** — incremental fuzzy search (`/`,
+  matches non-contiguous characters in order, e.g. "nme" finds "name") for
+  quick one-at-a-time jumps, plus an fzf-style popup (`F`) that lists
+  *every* match across the whole document in one screen — including
+  nodes buried under a collapsed ancestor or past an array's 200-item
+  preview limit — and jumps straight there on `Enter`, auto-expanding
+  whatever was in the way.
+- **Fast keyboard navigation** — arrows to move, `g` for vim/tmux-style
+  count-prefixed jumps (type digits, then `↑`/`↓` — `g20↓` jumps 20 lines
+  at once), `Tab`/`Space` to collapse/expand, `Backspace` to collapse the
+  nearest parent, `Shift+C` to collapse every ancestor in one keystroke,
+  `c`/`e` to collapse/expand everything.
+- **8-color node tagging** (`1`-`8`) for marking up spots you care about
+  mid-investigation, layered on top of the type-based syntax colors without
+  clashing with them.
+- **Copy what you're looking at** — yank the current node's dotted path to
+  the clipboard (`y`, via OSC 52 — works over SSH with no extra config),
+  or as a ready-to-run jq filter (`Y`, e.g. `.user.tags[0]`, JSON/YAML
+  only).
 - **Static, scriptable output** (`--static`) for piping into other tools or
   reading in a Claude Code / agent tool result.
 - **`--path <dotted.path>`** — render only a subtree.
