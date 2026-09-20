@@ -16,7 +16,7 @@ use flatten::{
 use keys::handle_key;
 use ratatui::prelude::*;
 use render::render as render_frame;
-use state::AppState;
+use state::{AppState, rebuild_json_lines, rebuild_xml_lines};
 use std::collections::HashSet;
 use std::io;
 
@@ -62,12 +62,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         use_color,
         status_message: None,
     };
-    run_loop(state, |s| {
-        let mut lines = Vec::new();
-        flatten_json(node, &[], 0, &s.collapsed, &mut lines);
-        s.lines = lines;
-        s.cursor = s.cursor.min(s.lines.len().saturating_sub(1));
-    })
+    run_loop(state, |s| rebuild_json_lines(s, node))
 }
 
 pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
@@ -86,10 +81,5 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         use_color,
         status_message: None,
     };
-    run_loop(state, |s| {
-        let mut lines = Vec::new();
-        flatten_xml(node, &[], 0, &s.collapsed, &mut lines);
-        s.lines = lines;
-        s.cursor = s.cursor.min(s.lines.len().saturating_sub(1));
-    })
+    run_loop(state, |s| rebuild_xml_lines(s, node))
 }
