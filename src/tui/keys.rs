@@ -324,6 +324,7 @@ mod tests {
             status_message: None,
             help_visible: false,
             is_json: true,
+            scroll_offset: std::cell::Cell::new(0),
         }
     }
 
@@ -462,6 +463,7 @@ mod tests {
             status_message: None,
             help_visible: false,
             is_json: true,
+            scroll_offset: std::cell::Cell::new(0),
         }
     }
 

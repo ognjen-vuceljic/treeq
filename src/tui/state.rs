@@ -3,6 +3,7 @@ use crate::color::Color as TqColor;
 use crate::json_tree::JsonNode;
 use crate::xml_tree::XmlNode;
 use ratatui::style::Color;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 /// One of the 4 tag colors a node can be marked with via the `1`-`4` keys
@@ -52,6 +53,12 @@ pub(super) struct AppState {
     /// for XML. Gates the `Y` (yank as jq path) binding, since jq has no
     /// XML equivalent (see issue #8).
     pub(super) is_json: bool,
+    /// The list viewport's scroll offset, carried over between frames so
+    /// the cursor can move within an already-scrolled view instead of
+    /// re-pinning to the window's edge every render (see issue #36's
+    /// fix-review). `Cell` avoids threading `&mut AppState` through
+    /// `render()` just for this.
+    pub(super) scroll_offset: Cell<usize>,
 }
 
 /// The keybinding legend shown when help is toggled on, as
@@ -137,6 +144,7 @@ mod tests {
             status_message: None,
             help_visible: false,
             is_json: true,
+            scroll_offset: std::cell::Cell::new(0),
         }
     }
 

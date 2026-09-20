@@ -3,7 +3,7 @@ use super::state::{AppState, HELP_LEGEND, Line, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
 use ratatui::text::Line as RtLine;
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
     let indent = "  ".repeat(line.depth);
@@ -67,10 +67,22 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         })
         .collect();
     let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(area);
-    frame.render_widget(
+    // `ListState` seeded from the offset persisted since the last frame:
+    // ratatui only grows/shrinks the window enough to keep the selection
+    // visible, so starting from the prior offset (rather than 0 every time)
+    // lets the cursor move freely within an already-scrolled viewport
+    // instead of re-pinning to the window's last row on every keystroke
+    // (see issue #36's fix-review). The resulting offset is saved back for
+    // the next frame.
+    let mut list_state = ListState::default()
+        .with_offset(state.scroll_offset.get())
+        .with_selected(Some(state.cursor));
+    frame.render_stateful_widget(
         List::new(items).block(Block::default().borders(Borders::ALL)),
         chunks[0],
+        &mut list_state,
     );
+    state.scroll_offset.set(list_state.offset());
     let status = if state.searching {
         format!("/{}", state.search)
     } else if let Some(msg) = &state.status_message {
@@ -194,6 +206,7 @@ mod tests {
             status_message: None,
             help_visible: false,
             is_json: true,
+            scroll_offset: std::cell::Cell::new(0),
         }
     }
 
@@ -308,6 +321,133 @@ mod tests {
         assert!(text.contains("user"));
         assert!(text.contains("Alice"));
         assert!(text.contains("user.name"));
+    }
+
+    /// The row a cell's symbol matching `needle` first appears on, scanning
+    /// left-to-right, top-to-bottom. Lets a test assert on the row a scrolled
+    /// item landed on without hardcoding ratatui's scroll-offset math.
+    fn row_containing(buffer: &Buffer, needle: &str) -> Option<u16> {
+        let area = buffer.area;
+        for y in 0..area.height {
+            let mut row = String::new();
+            for x in 0..area.width {
+                row.push_str(buffer[(x, y)].symbol());
+            }
+            if row.contains(needle) {
+                return Some(y);
+            }
+        }
+        None
+    }
+
+    fn tall_list(len: usize) -> Vec<Line> {
+        (0..len)
+            .map(|i| line(&format!("item{i}"), false, None, 0, &["item"]))
+            .collect()
+    }
+
+    #[test]
+    fn viewport_scrolls_to_keep_a_cursor_far_down_a_tall_list_visible() {
+        // A plain (non-stateful) List render never scrolls, so on a
+        // document taller than the terminal the cursor could sit far below
+        // the visible area with no on-screen indication (see issue #36).
+        let state = state_with(tall_list(200), 150);
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains("item150"),
+            "the selected line must be visible on screen: {text}"
+        );
+        assert!(
+            !text.contains("item0"),
+            "the viewport must have scrolled past the very first line: {text}"
+        );
+    }
+
+    #[test]
+    fn viewport_shows_the_top_of_the_list_when_cursor_is_at_the_first_line() {
+        let state = state_with(tall_list(200), 0);
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains("item0"),
+            "top of list must be visible: {text}"
+        );
+    }
+
+    #[test]
+    fn viewport_shows_the_bottom_of_the_list_when_cursor_is_at_the_last_line() {
+        let state = state_with(tall_list(200), 199);
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains("item199"),
+            "bottom of list must be visible: {text}"
+        );
+    }
+
+    #[test]
+    fn render_does_not_panic_on_an_empty_document() {
+        let state = state_with(vec![], 0);
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+    }
+
+    #[test]
+    fn scrolled_cursor_line_still_gets_the_reversed_cursor_style() {
+        let state = state_with(tall_list(200), 150);
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let y = row_containing(buffer, "item150").expect("cursor line must be on screen");
+        assert!(buffer[(1, y)].modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn tag_background_and_search_underline_still_work_after_scrolling() {
+        let mut lines = tall_list(200);
+        lines[180] = line("findme", false, None, 0, &["item", "180"]);
+        let mut state = state_with(lines, 185);
+        state.use_color = true;
+        state
+            .tags
+            .insert(vec!["item".to_string(), "180".to_string()], 3);
+        state.searching = true;
+        state.search = "findme".to_string();
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let y = row_containing(buffer, "findme").expect("tagged line must be on screen");
+        assert_eq!(buffer[(1, y)].bg, tag_color(3));
+        assert!(buffer[(1, y)].modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
+    fn scroll_offset_persists_across_frames_instead_of_resetting_to_zero() {
+        // Regression for the fix-review's finding: rebuilding `ListState`
+        // from offset 0 every frame re-pins the cursor to the viewport's
+        // last row on every render past one screenful, instead of letting
+        // the cursor move within an already-scrolled window. Rendering the
+        // same tall list at two adjacent cursor positions should therefore
+        // produce the *same* persisted offset, not two independently
+        // recomputed ones that both happen to end at the window's edge.
+        let mut state = state_with(tall_list(200), 150);
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let offset_at_150 = state.scroll_offset.get();
+
+        state.cursor = 149;
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let offset_at_149 = state.scroll_offset.get();
+
+        assert_eq!(
+            offset_at_150, offset_at_149,
+            "moving the cursor up by one within an already-scrolled viewport \
+             must not reset the scroll offset"
+        );
     }
 
     #[test]
