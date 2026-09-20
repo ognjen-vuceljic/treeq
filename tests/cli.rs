@@ -238,3 +238,64 @@ fn agent_flag_takes_precedence_over_stats_and_paths() {
         "--agent must take precedence over --paths too, got: {agent_paths}"
     );
 }
+
+#[test]
+fn parses_ndjson_input_as_array() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--static", "--ndjson"],
+        "{\"name\": \"Alice\"}\n{\"name\": \"Bob\"}\n",
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "root\n├── [0]\n│   └── name: Alice\n└── [1]\n    └── name: Bob\n"
+    );
+}
+
+#[test]
+fn reports_invalid_ndjson_line() {
+    let (_stdout, stderr, code) = run_treeq(&["--static", "--ndjson"], "{\"a\": 1}\nnot json\n");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("line 2"));
+}
+
+#[test]
+fn rejects_ndjson_with_xml_format() {
+    let (_stdout, stderr, code) =
+        run_treeq(&["--static", "--ndjson", "--format", "xml"], "{\"a\": 1}\n");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("--ndjson"));
+}
+
+#[test]
+fn ndjson_ignores_format_auto_detection_even_when_input_looks_like_xml() {
+    // A malformed/garbage first line starting with '<' would normally
+    // auto-detect as XML; --ndjson must force JSON parsing regardless.
+    let (_stdout, stderr, code) = run_treeq(&["--static", "--ndjson"], "<not>\nvalid\n");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("invalid NDJSON"), "got: {stderr}");
+}
+
+#[test]
+fn ndjson_empty_input_yields_an_empty_tree_instead_of_an_empty_input_error() {
+    let (stdout, stderr, code) = run_treeq(&["--static", "--ndjson"], "");
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "root\n");
+}
+
+#[test]
+fn ndjson_stats_and_path_flags_compose() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--stats", "--ndjson"],
+        "{\"name\": \"Alice\"}\n{\"name\": \"Bob\"}\n",
+    );
+    assert_eq!(code, 0);
+    assert!(stdout.contains("arrays: 1"));
+
+    let (stdout, _stderr, code) = run_treeq(
+        &["--static", "--ndjson", "--path", "0"],
+        "{\"name\": \"Alice\"}\n{\"name\": \"Bob\"}\n",
+    );
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "root\n└── name: Alice\n");
+}
