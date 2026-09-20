@@ -48,14 +48,16 @@ where
 
 pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
     let collapsed = HashSet::new();
+    let array_overrides = HashSet::new();
     let mut lines = Vec::new();
-    flatten_json(node, &[], 0, &collapsed, &mut lines);
+    flatten_json(node, &[], 0, &collapsed, &array_overrides, &mut lines);
     let mut all_container_paths = HashSet::new();
     collect_container_paths_json(node, &[], &mut all_container_paths);
     let state = AppState {
         lines,
         collapsed,
         all_container_paths,
+        array_overrides,
         cursor: 0,
         search: String::new(),
         searching: false,
@@ -76,6 +78,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         lines,
         collapsed,
         all_container_paths,
+        array_overrides: HashSet::new(),
         cursor: 0,
         search: String::new(),
         searching: false,

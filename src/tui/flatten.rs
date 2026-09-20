@@ -4,13 +4,25 @@ use crate::json_tree::JsonNode;
 use crate::xml_tree::XmlNode;
 use std::collections::HashSet;
 
+/// Arrays longer than this are truncated to a preview in the TUI, with a
+/// synthetic summary line (`Line::is_array_summary`) that expands the array
+/// back to full via `array_overrides` (see issue #5).
+const ARRAY_PREVIEW_LIMIT: usize = 200;
+
+/// Display key for the synthetic array-truncation summary line. This is
+/// cosmetic only — `Line::is_array_summary`, not this text, is what
+/// `keys::handle_key` checks, so it can never collide with a real key.
+const ARRAY_TRUNCATION_LABEL: &str = "\u{2026}more";
+
 pub(super) fn flatten_json(
     node: &JsonNode,
     path: &[String],
     depth: usize,
     collapsed: &HashSet<Vec<String>>,
+    array_overrides: &HashSet<Vec<String>>,
     out: &mut Vec<Line>,
 ) {
+    let is_array = matches!(node, JsonNode::Array(_));
     let entries: Vec<(String, &JsonNode)> = match node {
         JsonNode::Object(fields) => fields.iter().map(|(k, v)| (k.clone(), v)).collect(),
         JsonNode::Array(items) => items
@@ -20,7 +32,14 @@ pub(super) fn flatten_json(
             .collect(),
         JsonNode::Scalar(_) => return,
     };
-    for (label, child) in entries {
+    let total = entries.len();
+    let visible = if is_array && !array_overrides.contains(path) {
+        ARRAY_PREVIEW_LIMIT.min(total)
+    } else {
+        total
+    };
+    let truncated = total - visible;
+    for (label, child) in entries.into_iter().take(visible) {
         let mut child_path = path.to_vec();
         child_path.push(label.clone());
         let (value, has_children) = match child {
@@ -33,10 +52,33 @@ pub(super) fn flatten_json(
             value,
             path: child_path.clone(),
             has_children,
+            is_array_summary: false,
         });
         if has_children && !collapsed.contains(&child_path) {
-            flatten_json(child, &child_path, depth + 1, collapsed, out);
+            flatten_json(
+                child,
+                &child_path,
+                depth + 1,
+                collapsed,
+                array_overrides,
+                out,
+            );
         }
+    }
+    if truncated > 0 {
+        let mut marker_path = path.to_vec();
+        marker_path.push(ARRAY_TRUNCATION_LABEL.to_string());
+        out.push(Line {
+            depth,
+            key: ARRAY_TRUNCATION_LABEL.to_string(),
+            value: Some((
+                format!("{truncated} more (Tab to show all)"),
+                TqColor::Structural,
+            )),
+            path: marker_path,
+            has_children: false,
+            is_array_summary: true,
+        });
     }
 }
 
@@ -58,6 +100,7 @@ pub(super) fn flatten_xml(
             value,
             path: child_path.clone(),
             has_children,
+            is_array_summary: false,
         });
         if has_children && !collapsed.contains(&child_path) {
             flatten_xml(child, &child_path, depth + 1, collapsed, out);
@@ -120,7 +163,7 @@ mod tests {
         let value = json!({"user": {"name": "Alice", "tags": ["admin", "user"]}});
         let node = JsonNode::from_value(&value);
         let mut out = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &mut out);
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut out);
 
         // "user" + "name" + "tags" + the array's own two elements, since
         // flattening recurses into an expanded array just like an object.
@@ -154,12 +197,63 @@ mod tests {
         let mut collapsed = HashSet::new();
         collapsed.insert(path(&["user"]));
         let mut out = Vec::new();
-        flatten_json(&node, &[], 0, &collapsed, &mut out);
+        flatten_json(&node, &[], 0, &collapsed, &HashSet::new(), &mut out);
 
         // The collapsed container's own line is still shown, just not its children.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].key, "user");
         assert!(out[0].has_children);
+    }
+
+    #[test]
+    fn truncates_a_large_array_with_a_summary_line() {
+        let items: Vec<serde_json::Value> = (0..ARRAY_PREVIEW_LIMIT + 5)
+            .map(|i| serde_json::json!(i))
+            .collect();
+        let value = json!({ "tags": items });
+        let node = JsonNode::from_value(&value);
+        let mut out = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut out);
+
+        // "tags" + ARRAY_PREVIEW_LIMIT visible elements + 1 summary line.
+        assert_eq!(out.len(), 1 + ARRAY_PREVIEW_LIMIT + 1);
+        let summary = out.last().unwrap();
+        assert_eq!(summary.key, ARRAY_TRUNCATION_LABEL);
+        assert!(!summary.has_children);
+        assert!(summary.is_array_summary);
+        assert_eq!(
+            summary.value.as_ref().unwrap().0,
+            "5 more (Tab to show all)"
+        );
+        assert_eq!(summary.path, path(&["tags", ARRAY_TRUNCATION_LABEL]));
+    }
+
+    #[test]
+    fn array_override_shows_every_element_and_no_summary_line() {
+        let items: Vec<serde_json::Value> = (0..ARRAY_PREVIEW_LIMIT + 5)
+            .map(|i| serde_json::json!(i))
+            .collect();
+        let value = json!({ "tags": items });
+        let node = JsonNode::from_value(&value);
+        let mut array_overrides = HashSet::new();
+        array_overrides.insert(path(&["tags"]));
+        let mut out = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &array_overrides, &mut out);
+
+        // "tags" + every element, no summary line.
+        assert_eq!(out.len(), 1 + ARRAY_PREVIEW_LIMIT + 5);
+        assert!(out.iter().all(|l| !l.is_array_summary));
+    }
+
+    #[test]
+    fn small_arrays_are_never_truncated() {
+        let value = json!({"tags": ["a", "b"]});
+        let node = JsonNode::from_value(&value);
+        let mut out = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut out);
+
+        assert_eq!(out.len(), 3); // "tags" + 2 elements, no summary line
+        assert!(out.iter().all(|l| !l.is_array_summary));
     }
 
     #[test]

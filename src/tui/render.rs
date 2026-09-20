@@ -151,6 +151,7 @@ mod tests {
             value: value.map(|(v, c)| (v.to_string(), c)),
             path: path.iter().map(|s| s.to_string()).collect(),
             has_children,
+            is_array_summary: false,
         }
     }
 
@@ -171,6 +172,7 @@ mod tests {
             lines,
             collapsed: HashSet::new(),
             all_container_paths: HashSet::new(),
+            array_overrides: HashSet::new(),
             cursor,
             search: String::new(),
             searching: false,

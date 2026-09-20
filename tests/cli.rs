@@ -82,6 +82,34 @@ fn applies_path_and_depth() {
 }
 
 #[test]
+fn array_limit_truncates_large_arrays_in_static_output() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--static", "--array-limit", "2"],
+        r#"{"tags": ["a", "b", "c", "d"]}"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "root\n└── tags\n    ├── [0]: \"a\"\n    ├── [1]: \"b\"\n    └── … (2 more)\n"
+    );
+}
+
+#[test]
+fn array_limit_defaults_to_no_truncation() {
+    let (stdout, _stderr, code) = run_treeq(&["--static"], r#"{"tags": ["a", "b", "c", "d"]}"#);
+    assert_eq!(code, 0);
+    assert!(!stdout.contains("more"));
+}
+
+#[test]
+fn array_limit_is_rejected_for_xml_input() {
+    let (_stdout, stderr, code) =
+        run_treeq(&["--static", "--array-limit", "1"], "<r><a/><a/><a/></r>");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("--array-limit"));
+}
+
+#[test]
 fn reports_invalid_json() {
     let (_stdout, stderr, code) = run_treeq(&["--static"], "{not json");
     assert_eq!(code, 1);
