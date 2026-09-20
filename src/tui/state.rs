@@ -32,7 +32,7 @@ pub(super) struct AppState {
 /// two can't silently drift apart.
 pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("↑ / ↓", "move cursor"),
-    ("Enter / Space", "collapse / expand"),
+    ("Tab / Space", "collapse / expand"),
     ("/", "search"),
     ("y", "yank current path"),
     ("c", "collapse all"),

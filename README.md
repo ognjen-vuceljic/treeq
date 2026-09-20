@@ -63,7 +63,7 @@ bounded slices instead of dumping the whole thing into a tool result.
 ## Features
 
 - **Two input formats**, auto-detected: JSON and XML.
-- **Interactive TUI** — arrow-key navigation, collapse/expand (`Enter`/`Space`),
+- **Interactive TUI** — arrow-key navigation, collapse/expand (`Tab`/`Space`),
   collapse-all/expand-all (`c`/`e`), incremental search (`/`), yank current
   path to clipboard (`y`, via OSC 52 — works over SSH).
 - **Static, scriptable output** (`--static`) for piping into other tools or
@@ -131,7 +131,7 @@ treeq file.xml                        # XML works the same way
 | Key | Action |
 |---|---|
 | `↑` / `↓` | Move cursor |
-| `Enter` / `Space` | Collapse/expand current node |
+| `Tab` / `Space` | Collapse/expand current node |
 | `c` | Collapse all |
 | `e` | Expand all |
 | `/` | Incremental search |

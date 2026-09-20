@@ -49,7 +49,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('?') => state.help_visible = true,
         KeyCode::Down => state.cursor = (state.cursor + 1).min(state.lines.len().saturating_sub(1)),
         KeyCode::Up => state.cursor = state.cursor.saturating_sub(1),
-        KeyCode::Enter | KeyCode::Char(' ') => {
+        KeyCode::Tab | KeyCode::Char(' ') => {
             if let Some(line) = state.lines.get(state.cursor)
                 && line.has_children
                 && !state.collapsed.remove(&line.path)
@@ -143,20 +143,39 @@ mod tests {
     }
 
     #[test]
-    fn enter_collapses_and_expands_a_container_line() {
+    fn tab_collapses_and_expands_a_container_line() {
         let mut state = fixture();
-        handle_key(&mut state, KeyCode::Enter);
+        handle_key(&mut state, KeyCode::Tab);
         assert!(state.collapsed.contains(&vec!["user".to_string()]));
-        handle_key(&mut state, KeyCode::Enter);
+        handle_key(&mut state, KeyCode::Tab);
         assert!(!state.collapsed.contains(&vec!["user".to_string()]));
     }
 
     #[test]
-    fn enter_on_a_leaf_line_does_nothing() {
+    fn space_also_collapses_and_expands_a_container_line() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char(' '));
+        assert!(state.collapsed.contains(&vec!["user".to_string()]));
+        handle_key(&mut state, KeyCode::Char(' '));
+        assert!(!state.collapsed.contains(&vec!["user".to_string()]));
+    }
+
+    #[test]
+    fn tab_on_a_leaf_line_does_nothing() {
         let mut state = fixture();
         state.cursor = 1; // "name" has no children
-        handle_key(&mut state, KeyCode::Enter);
+        handle_key(&mut state, KeyCode::Tab);
         assert!(state.collapsed.is_empty());
+    }
+
+    #[test]
+    fn enter_no_longer_collapses_a_container_line() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Enter);
+        assert!(
+            state.collapsed.is_empty(),
+            "Enter is unbound outside search mode; only Tab/Space collapse"
+        );
     }
 
     #[test]
