@@ -59,6 +59,16 @@ pub(super) struct AppState {
     /// fix-review). `Cell` avoids threading `&mut AppState` through
     /// `render()` just for this.
     pub(super) scroll_offset: Cell<usize>,
+    /// Every node's path in the whole document (containers and leaves),
+    /// computed once at startup and unaffected by collapse state. Lets
+    /// search reach into collapsed subtrees instead of being limited to
+    /// `lines` (see issue #30).
+    pub(super) all_paths: Vec<Vec<String>>,
+    /// Set by a search match found outside the currently-visible lines: the
+    /// path to select once `lines` has been rebuilt after expanding its
+    /// ancestors (see issue #30). Consumed and cleared by
+    /// `rebuild_json_lines` / `rebuild_xml_lines`.
+    pub(super) pending_cursor_path: Option<Vec<String>>,
 }
 
 /// The keybinding legend shown when help is toggled on, as
@@ -81,6 +91,16 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("q / Esc", "quit"),
 ];
 
+/// If a search jump left a path pending selection, resolves it to the
+/// freshly-rebuilt `lines`' index and clears it (see issue #30). Falls back
+/// to leaving the cursor untouched if the path isn't visible after all
+/// (shouldn't happen, since the caller expands its ancestors first).
+fn apply_pending_cursor_path(state: &mut AppState) {
+    if let Some(path) = state.pending_cursor_path.take() {
+        super::keys::move_cursor_to_path(state, &path);
+    }
+}
+
 pub(super) fn rebuild_json_lines(state: &mut AppState, node: &JsonNode) {
     let mut lines = Vec::new();
     flatten_json(
@@ -92,6 +112,7 @@ pub(super) fn rebuild_json_lines(state: &mut AppState, node: &JsonNode) {
         &mut lines,
     );
     state.lines = lines;
+    apply_pending_cursor_path(state);
     state.cursor = state.cursor.min(state.lines.len().saturating_sub(1));
 }
 
@@ -99,6 +120,7 @@ pub(super) fn rebuild_xml_lines(state: &mut AppState, node: &XmlNode) {
     let mut lines = Vec::new();
     flatten_xml(node, &[], 0, &state.collapsed, &mut lines);
     state.lines = lines;
+    apply_pending_cursor_path(state);
     state.cursor = state.cursor.min(state.lines.len().saturating_sub(1));
 }
 
@@ -145,6 +167,8 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            all_paths: Vec::new(),
+            pending_cursor_path: None,
         }
     }
 
@@ -177,5 +201,28 @@ mod tests {
         rebuild_xml_lines(&mut state, &node);
         assert_eq!(state.lines.len(), 2);
         assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn rebuild_resolves_a_pending_cursor_path_to_its_new_index() {
+        let node = JsonNode::from_value(&serde_json::json!({"a": {"b": 1}, "c": 2}));
+        let mut state = state_with_cursor(0);
+        state.pending_cursor_path = Some(vec!["c".to_string()]);
+        rebuild_json_lines(&mut state, &node);
+        assert_eq!(state.lines[state.cursor].path, vec!["c".to_string()]);
+        assert!(
+            state.pending_cursor_path.is_none(),
+            "a resolved pending path must be cleared"
+        );
+    }
+
+    #[test]
+    fn rebuild_leaves_cursor_alone_when_the_pending_path_is_not_present() {
+        let node = JsonNode::from_value(&serde_json::json!({"a": 1}));
+        let mut state = state_with_cursor(0);
+        state.pending_cursor_path = Some(vec!["missing".to_string()]);
+        rebuild_json_lines(&mut state, &node);
+        assert_eq!(state.cursor, 0);
+        assert!(state.pending_cursor_path.is_none());
     }
 }
