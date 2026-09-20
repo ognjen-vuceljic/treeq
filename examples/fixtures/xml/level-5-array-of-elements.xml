@@ -1,0 +1,131 @@
+<users count="20">
+  <user id="0" active="true">
+    <name>user0</name>
+    <roles>
+      <role>viewer</role>
+      <role>billing</role>
+    </roles>
+  </user>
+  <user id="1" active="true">
+    <name>user1</name>
+    <roles>
+      <role>editor</role>
+      <role>viewer</role>
+    </roles>
+  </user>
+  <user id="2" active="false">
+    <name>user2</name>
+    <roles>
+      <role>admin</role>
+    </roles>
+  </user>
+  <user id="3" active="true">
+    <name>user3</name>
+    <roles>
+      <role>editor</role>
+      <role>billing</role>
+    </roles>
+  </user>
+  <user id="4" active="true">
+    <name>user4</name>
+    <roles>
+      <role>admin</role>
+    </roles>
+  </user>
+  <user id="5" active="false">
+    <name>user5</name>
+    <roles>
+      <role>viewer</role>
+      <role>admin</role>
+    </roles>
+  </user>
+  <user id="6" active="true">
+    <name>user6</name>
+    <roles>
+      <role>admin</role>
+    </roles>
+  </user>
+  <user id="7" active="true">
+    <name>user7</name>
+    <roles>
+      <role>editor</role>
+      <role>admin</role>
+    </roles>
+  </user>
+  <user id="8" active="true">
+    <name>user8</name>
+    <roles>
+      <role>editor</role>
+    </roles>
+  </user>
+  <user id="9" active="false">
+    <name>user9</name>
+    <roles>
+      <role>editor</role>
+    </roles>
+  </user>
+  <user id="10" active="true">
+    <name>user10</name>
+    <roles>
+      <role>editor</role>
+      <role>viewer</role>
+    </roles>
+  </user>
+  <user id="11" active="false">
+    <name>user11</name>
+    <roles>
+      <role>editor</role>
+    </roles>
+  </user>
+  <user id="12" active="false">
+    <name>user12</name>
+    <roles>
+      <role>admin</role>
+      <role>editor</role>
+    </roles>
+  </user>
+  <user id="13" active="false">
+    <name>user13</name>
+    <roles>
+      <role>editor</role>
+    </roles>
+  </user>
+  <user id="14" active="false">
+    <name>user14</name>
+    <roles>
+      <role>viewer</role>
+    </roles>
+  </user>
+  <user id="15" active="true">
+    <name>user15</name>
+    <roles>
+      <role>viewer</role>
+    </roles>
+  </user>
+  <user id="16" active="false">
+    <name>user16</name>
+    <roles>
+      <role>viewer</role>
+      <role>editor</role>
+    </roles>
+  </user>
+  <user id="17" active="false">
+    <name>user17</name>
+    <roles>
+      <role>editor</role>
+      <role>billing</role>
+    </roles>
+  </user>
+  <user id="18" active="false">
+    <name>user18</name>
+    <roles>
+      <role>admin</role>
+    </roles>
+  </user>
+  <user id="19" active="false">
+    <name>user19</name>
+    <roles>
+      <role>viewer</role>
+    </roles>
+  </user>
+</users>

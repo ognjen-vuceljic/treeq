@@ -1,0 +1,9 @@
+<user>
+  <name>Alice</name>
+  <email>alice@example.com</email>
+  <address>
+    <city>Berlin</city>
+    <zip>10115</zip>
+  </address>
+  <createdAt>2026-01-15T10:00:00Z</createdAt>
+</user>

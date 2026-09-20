@@ -1,0 +1,174 @@
+{
+  "users": [
+    {
+      "id": 0,
+      "name": "user0",
+      "roles": [
+        "viewer",
+        "billing"
+      ],
+      "active": true
+    },
+    {
+      "id": 1,
+      "name": "user1",
+      "roles": [
+        "editor",
+        "viewer"
+      ],
+      "active": true
+    },
+    {
+      "id": 2,
+      "name": "user2",
+      "roles": [
+        "admin"
+      ],
+      "active": false
+    },
+    {
+      "id": 3,
+      "name": "user3",
+      "roles": [
+        "editor",
+        "billing"
+      ],
+      "active": true
+    },
+    {
+      "id": 4,
+      "name": "user4",
+      "roles": [
+        "admin"
+      ],
+      "active": true
+    },
+    {
+      "id": 5,
+      "name": "user5",
+      "roles": [
+        "viewer",
+        "admin"
+      ],
+      "active": false
+    },
+    {
+      "id": 6,
+      "name": "user6",
+      "roles": [
+        "admin"
+      ],
+      "active": true
+    },
+    {
+      "id": 7,
+      "name": "user7",
+      "roles": [
+        "editor",
+        "admin"
+      ],
+      "active": true
+    },
+    {
+      "id": 8,
+      "name": "user8",
+      "roles": [
+        "editor"
+      ],
+      "active": true
+    },
+    {
+      "id": 9,
+      "name": "user9",
+      "roles": [
+        "editor"
+      ],
+      "active": false
+    },
+    {
+      "id": 10,
+      "name": "user10",
+      "roles": [
+        "editor",
+        "viewer"
+      ],
+      "active": true
+    },
+    {
+      "id": 11,
+      "name": "user11",
+      "roles": [
+        "editor"
+      ],
+      "active": false
+    },
+    {
+      "id": 12,
+      "name": "user12",
+      "roles": [
+        "admin",
+        "editor"
+      ],
+      "active": false
+    },
+    {
+      "id": 13,
+      "name": "user13",
+      "roles": [
+        "editor"
+      ],
+      "active": false
+    },
+    {
+      "id": 14,
+      "name": "user14",
+      "roles": [
+        "viewer"
+      ],
+      "active": false
+    },
+    {
+      "id": 15,
+      "name": "user15",
+      "roles": [
+        "viewer"
+      ],
+      "active": true
+    },
+    {
+      "id": 16,
+      "name": "user16",
+      "roles": [
+        "viewer",
+        "editor"
+      ],
+      "active": false
+    },
+    {
+      "id": 17,
+      "name": "user17",
+      "roles": [
+        "editor",
+        "billing"
+      ],
+      "active": false
+    },
+    {
+      "id": 18,
+      "name": "user18",
+      "roles": [
+        "admin"
+      ],
+      "active": false
+    },
+    {
+      "id": 19,
+      "name": "user19",
+      "roles": [
+        "viewer"
+      ],
+      "active": false
+    }
+  ],
+  "count": 20
+}

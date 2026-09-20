@@ -1,0 +1,985 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- top-level stress-test document -->
+<document xmlns:ex="urn:example:stress">
+  <node id="node-0-0" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-1-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-2-0" label="">
+  <value>233</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-3-0" label="Ünïcödé">
+  <value>65</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-4-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-5-0" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-6-0" label="">
+  <value>256</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="plain">
+  <value>235</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="emoji_rocket">
+  <value>985</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="plain">
+  <value>404</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-5-1" label="Ünïcödé">
+  <value>161</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-6-0" label="Ünïcödé">
+  <value>-694</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="">
+  <value>986</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="Ünïcödé">
+  <value>-108</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-4-1" label="日本語ラベル">
+  <value>507</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-5-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-6-0" label="Ünïcödé">
+  <value>-201</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="plain">
+  <value>-464</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-2-1" label="日本語ラベル">
+  <value>350</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-3-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-4-0" label="emoji_rocket">
+  <value>-760</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-5-0" label="Ünïcödé">
+  <value>-288</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-6-0" label="">
+  <value>218</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="plain">
+  <value>706</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-2" label="日本語ラベル">
+  <value>-778</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="emoji_rocket">
+  <value>838</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-2" label="Ünïcödé">
+  <value>-711</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="">
+  <value>970</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-2" label="日本語ラベル">
+  <value>-667</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-6-1" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="Ünïcödé">
+  <value>401</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="">
+  <value>-573</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="">
+  <value>-571</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-2" label="">
+  <value>-857</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-5-1" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-6-0" label="emoji_rocket">
+  <value>202</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="plain">
+  <value>747</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="plain">
+  <value>-172</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="plain">
+  <value>855</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-6-1" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="">
+  <value>-329</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-2" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="plain">
+  <value>947</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-2" label="Ünïcödé">
+  <value>760</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="plain">
+  <value>564</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-2" label="日本語ラベル">
+  <value>157</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-4-1" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-5-0" label="">
+  <value>-796</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-6-0" label="plain">
+  <value>684</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="emoji_rocket">
+  <value>687</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="">
+  <value>892</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="emoji_rocket">
+  <value>-642</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-6-1" label="">
+  <value>-687</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="emoji_rocket">
+  <value>996</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="日本語ラベル">
+  <value>167</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-2" label="emoji_rocket">
+  <value>190</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="emoji_rocket">
+  <value>-170</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-2" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-6-2" label="日本語ラベル">
+  <value>-802</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="日本語ラベル">
+  <value>-293</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="">
+  <value>973</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-4-2" label="plain">
+  <value>-980</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-5-0" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-6-0" label="">
+  <value>-745</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="日本語ラベル">
+  <value>337</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="日本語ラベル">
+  <value>-209</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-2" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-5-1" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-6-0" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="emoji_rocket">
+  <value>184</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="">
+  <value>439</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="Ünïcödé">
+  <value>285</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="emoji_rocket">
+  <value>-457</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-2" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-6-1" label="plain">
+  <value>3</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="Ünïcödé">
+  <value>-22</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-2" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-8-1" label="emoji_rocket">
+  <value>370</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-6-2" label="Ünïcödé">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-7-0" label="plain">
+  <value>824</value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="emoji_rocket">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+<leaf id="n-9-2"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+<node id="node-7-1" label="plain">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<node id="node-8-0" label="日本語ラベル">
+  <value></value>
+  <data><![CDATA[raw <unescaped> content & special chars]]></data>
+  <children>
+<leaf id="n-9-0"/>
+<leaf id="n-9-1"/>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+</children>
+  <emptyElem/>
+</node>
+
+  <longText>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</longText>
+  <mixed>Some <b>bold</b> and <i>italic <u>nested</u></i> text with trailing content.</mixed>
+  <specialChars>line1&#10;line2&#9;tabbed&quot;quoted&quot;&amp;ampersand</specialChars>
+</document>
