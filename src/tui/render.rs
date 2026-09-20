@@ -36,7 +36,7 @@ fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
 pub(super) fn render(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
     if state.help_visible {
-        render_help(frame, area);
+        render_help(frame, area, state.use_color);
         return;
     }
     let items: Vec<ListItem> = state
@@ -73,15 +73,60 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
     frame.render_widget(Paragraph::new(status), chunks[1]);
 }
 
-fn render_help(frame: &mut Frame, area: Rect) {
-    let mut lines: Vec<RtLine> = vec![RtLine::from("Keybindings"), RtLine::from("")];
+/// Spans for one "key   description" row of the help legend: the key
+/// column styled distinctly (bold, and colored when color is enabled) from
+/// the plain description, mirroring how `line_spans` styles a tree row.
+fn help_entry_spans(key: &str, desc: &str, use_color: bool) -> Vec<Span<'static>> {
+    let key_style = if use_color {
+        Style::default()
+            .fg(ratatui_color(TqColor::Key))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    };
+    vec![
+        Span::styled(format!("{key:<14}"), key_style),
+        Span::raw(desc.to_string()),
+    ]
+}
+
+fn render_help(frame: &mut Frame, area: Rect, use_color: bool) {
+    let title_style = if use_color {
+        Style::default()
+            .fg(ratatui_color(TqColor::Str))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    };
+    let footer_style = if use_color {
+        Style::default().fg(ratatui_color(TqColor::Structural))
+    } else {
+        Style::default()
+    };
+    let border_style = if use_color {
+        Style::default().fg(ratatui_color(TqColor::Key))
+    } else {
+        Style::default()
+    };
+
+    let mut lines: Vec<RtLine> = vec![
+        RtLine::from(Span::styled("Keybindings", title_style)),
+        RtLine::from(""),
+    ];
     for (key, desc) in HELP_LEGEND {
-        lines.push(RtLine::from(format!("{key:<14} {desc}")));
+        lines.push(RtLine::from(help_entry_spans(key, desc, use_color)));
     }
     lines.push(RtLine::from(""));
-    lines.push(RtLine::from("press ? or Esc to close"));
-    let paragraph =
-        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Help"));
+    lines.push(RtLine::from(Span::styled(
+        "press ? or Esc to close",
+        footer_style,
+    )));
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Help")
+            .border_style(border_style),
+    );
     frame.render_widget(paragraph, area);
 }
 
@@ -240,6 +285,37 @@ mod tests {
         }
         // The underlying tree must not render behind the help overlay.
         assert!(!text.contains("user"));
+    }
+
+    #[test]
+    fn help_entry_key_column_is_bold_and_plain_without_color() {
+        let spans = help_entry_spans("q / Esc", "quit", false);
+        assert_eq!(spans.len(), 2);
+        assert!(spans[0].content.starts_with("q / Esc"));
+        assert!(spans[0].style.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(spans[0].style.fg, None);
+        assert_eq!(spans[1].content.as_ref(), "quit");
+        assert_eq!(spans[1].style.fg, None);
+    }
+
+    #[test]
+    fn help_entry_key_column_is_colored_when_color_is_enabled() {
+        let spans = help_entry_spans("q / Esc", "quit", true);
+        assert_eq!(spans[0].style.fg, Some(ratatui_color(TqColor::Key)));
+        // Only the key column is colored, not the description.
+        assert_eq!(spans[1].style.fg, None);
+    }
+
+    #[test]
+    fn help_overlay_uses_a_distinct_border_and_title_color_when_enabled() {
+        let mut state = state_with(vec![], 0);
+        state.help_visible = true;
+        state.use_color = true;
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        // The top-left border cell should be styled with the "Key" color.
+        assert_eq!(buffer[(0, 0)].fg, ratatui_color(TqColor::Key));
     }
 
     #[test]
