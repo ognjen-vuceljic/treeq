@@ -116,39 +116,53 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     .split(vertical[1])[1]
 }
 
-/// The interactive search-results popup (see issue #41): every match for
-/// `state.popup_query` across the whole document, not just visible lines,
-/// with the selected one reversed. `Enter`/`Esc` are handled in
-/// `keys::handle_key`; this only draws the current state.
 fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
-    let matches = popup_matches(state);
-    let mut lines: Vec<RtLine> = vec![
-        RtLine::from(Span::styled(
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title("Search results (Enter: jump, Tab: cycle, Esc: close)");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(inner);
+    frame.render_widget(
+        Paragraph::new(Span::styled(
             format!("/{}", state.popup_query),
             Style::default().add_modifier(Modifier::BOLD),
         )),
-        RtLine::from(""),
-    ];
-    if state.popup_query.is_empty() {
-        lines.push(RtLine::from("type to search the whole document"));
-    } else if matches.is_empty() {
-        lines.push(RtLine::from("no matches"));
-    } else {
-        for (i, path) in matches.iter().enumerate() {
-            let style = if i == state.popup_selected {
-                Style::default().add_modifier(Modifier::REVERSED)
-            } else {
-                Style::default()
-            };
-            lines.push(RtLine::from(Span::styled(path.join("."), style)));
-        }
-    }
-    let paragraph = Paragraph::new(lines).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Search results (Enter: jump, Esc: close)"),
+        chunks[0],
     );
-    frame.render_widget(paragraph, area);
+
+    let matches = popup_matches(state);
+    if state.popup_query.is_empty() {
+        frame.render_widget(
+            Paragraph::new("type to search the whole document"),
+            chunks[1],
+        );
+        return;
+    }
+    if matches.is_empty() {
+        frame.render_widget(Paragraph::new("no matches"), chunks[1]);
+        return;
+    }
+
+    let items: Vec<ListItem> = matches
+        .iter()
+        .map(|path| {
+            ListItem::new(RtLine::from(Span::styled(
+                path.join("."),
+                Style::default().fg(ratatui_color(TqColor::Key)),
+            )))
+        })
+        .collect();
+    let mut list_state = ListState::default()
+        .with_offset(state.popup_scroll_offset.get())
+        .with_selected(Some(state.popup_selected));
+    frame.render_stateful_widget(
+        List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+        chunks[1],
+        &mut list_state,
+    );
+    state.popup_scroll_offset.set(list_state.offset());
 }
 
 fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
@@ -333,6 +347,7 @@ mod tests {
             popup_query: String::new(),
             popup_selected: 0,
             inspect_visible: false,
+            popup_scroll_offset: std::cell::Cell::new(0),
         }
     }
 
@@ -704,6 +719,22 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("no matches"));
+    }
+
+    #[test]
+    fn popup_scrolls_to_keep_a_far_down_selection_visible() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.popup_query = "item".to_string();
+        state.all_paths = (0..30)
+            .map(|i| (vec![format!("item{i}")], format!("item{i}")))
+            .collect();
+        state.popup_selected = 25;
+        let mut terminal = Terminal::new(TestBackend::new(60, 15)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("item25"));
+        assert!(!text.contains("item0\n"));
     }
 
     #[test]

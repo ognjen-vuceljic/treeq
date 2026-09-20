@@ -177,6 +177,8 @@ fn apply_popup_key(state: &mut AppState, key: KeyCode) {
         KeyCode::Up => {
             state.popup_selected = state.popup_selected.saturating_sub(1);
         }
+        KeyCode::Tab => cycle_popup_selection(state, 1),
+        KeyCode::BackTab => cycle_popup_selection(state, -1),
         KeyCode::Char(c) => {
             state.popup_query.push(c);
             state.popup_selected = 0;
@@ -184,6 +186,17 @@ fn apply_popup_key(state: &mut AppState, key: KeyCode) {
         KeyCode::Esc => state.popup_visible = false,
         _ => {}
     }
+}
+
+/// Wraps forward/backward through the match list (`Tab`/`Shift+Tab`).
+fn cycle_popup_selection(state: &mut AppState, delta: i64) {
+    let n = popup_matches(state).len();
+    if n == 0 {
+        return;
+    }
+    let n = n as i64;
+    let cur = state.popup_selected as i64;
+    state.popup_selected = (((cur + delta) % n + n) % n) as usize;
 }
 
 /// Collapses the immediate parent container of the current node (never the
@@ -513,6 +526,7 @@ mod tests {
             popup_query: String::new(),
             popup_selected: 0,
             inspect_visible: false,
+            popup_scroll_offset: std::cell::Cell::new(0),
         }
     }
 
@@ -682,6 +696,7 @@ mod tests {
             popup_query: String::new(),
             popup_selected: 0,
             inspect_visible: false,
+            popup_scroll_offset: std::cell::Cell::new(0),
         }
     }
 
@@ -711,6 +726,7 @@ mod tests {
             popup_query: String::new(),
             popup_selected: 0,
             inspect_visible: false,
+            popup_scroll_offset: std::cell::Cell::new(0),
         }
     }
 
@@ -878,6 +894,37 @@ mod tests {
         handle_key(&mut state, KeyCode::Up);
         handle_key(&mut state, KeyCode::Up);
         assert_eq!(state.popup_selected, 0, "must clamp to the first match");
+    }
+
+    #[test]
+    fn tab_cycles_forward_and_wraps_past_the_last_match() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('u'));
+        assert_eq!(popup_matches(&state).len(), 3);
+        handle_key(&mut state, KeyCode::Tab);
+        handle_key(&mut state, KeyCode::Tab);
+        handle_key(&mut state, KeyCode::Tab);
+        assert_eq!(state.popup_selected, 0, "must wrap back to the first match");
+    }
+
+    #[test]
+    fn back_tab_cycles_backward_and_wraps_before_the_first_match() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('u'));
+        handle_key(&mut state, KeyCode::BackTab);
+        assert_eq!(state.popup_selected, 2, "must wrap to the last match");
+    }
+
+    #[test]
+    fn tab_does_nothing_when_there_are_no_matches() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('z'));
+        assert!(popup_matches(&state).is_empty());
+        handle_key(&mut state, KeyCode::Tab);
+        assert_eq!(state.popup_selected, 0);
     }
 
     #[test]
@@ -1309,6 +1356,7 @@ mod tests {
             popup_query: String::new(),
             popup_selected: 0,
             inspect_visible: false,
+            popup_scroll_offset: std::cell::Cell::new(0),
         };
 
         jump_to_next_match(&mut state);
