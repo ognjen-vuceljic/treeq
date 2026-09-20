@@ -29,6 +29,7 @@ use xml_tree::{XmlNode, find_xml_path};
 enum FormatArg {
     Json,
     Xml,
+    Yaml,
 }
 
 #[derive(Parser)]
@@ -106,15 +107,42 @@ fn run_json(input: &str, args: &Args) {
         }
     };
     let tree = JsonNode::from_value(&value);
+    run_json_tree(&tree, input, args);
+}
+
+fn parse_single_yaml_document(input: &str) -> Result<serde_yaml::Value, String> {
+    serde_yaml::from_str::<serde_yaml::Value>(input).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("more than one document") {
+            "multi-document YAML is not supported yet".to_string()
+        } else {
+            msg
+        }
+    })
+}
+
+fn run_yaml(input: &str, args: &Args) {
+    let value = parse_single_yaml_document(input).unwrap_or_else(|e| {
+        eprintln!("error: invalid YAML: {e}");
+        process::exit(1);
+    });
+    let tree = JsonNode::from_yaml_value(&value).unwrap_or_else(|e| {
+        eprintln!("error: invalid YAML: {e}");
+        process::exit(1);
+    });
+    run_json_tree(&tree, input, args);
+}
+
+fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
     let target = match &args.path {
-        Some(p) => match find_json_path(&tree, p) {
+        Some(p) => match find_json_path(tree, p) {
             Ok(t) => t,
             Err(seg) => {
                 eprintln!("error: path segment '{seg}' not found");
                 process::exit(1);
             }
         },
-        None => &tree,
+        None => tree,
     };
     if args.agent {
         let s = json_stats(target);
@@ -220,6 +248,7 @@ fn main() {
         .map(|f| match f {
             FormatArg::Json => Format::Json,
             FormatArg::Xml => Format::Xml,
+            FormatArg::Yaml => Format::Yaml,
         })
         .or_else(|| detect_format(&input))
         .unwrap_or_else(|| {
@@ -229,5 +258,6 @@ fn main() {
     match format {
         Format::Json => run_json(&input, &args),
         Format::Xml => run_xml(&input, &args),
+        Format::Yaml => run_yaml(&input, &args),
     }
 }

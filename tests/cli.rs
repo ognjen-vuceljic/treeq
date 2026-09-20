@@ -367,3 +367,31 @@ fn schema_of_nullable_array_element_keeps_field_info() {
         "items: array<object|null>\n  a: number\n  b: number\n"
     );
 }
+
+#[test]
+fn renders_yaml_from_stdin() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--static", "--format", "yaml"],
+        "name: Alice\ntags:\n  - admin\n  - user\n",
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "root\n├── name: Alice\n└── tags\n    ├── [0]: admin\n    └── [1]: user\n"
+    );
+}
+
+#[test]
+fn reports_invalid_yaml() {
+    let (_stdout, stderr, code) =
+        run_treeq(&["--static", "--format", "yaml"], "key: [unterminated");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("invalid YAML"));
+}
+
+#[test]
+fn reports_multi_document_yaml_as_unsupported() {
+    let (_stdout, stderr, code) = run_treeq(&["--static", "--format", "yaml"], "a: 1\n---\nb: 2\n");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("multi-document YAML is not supported yet"));
+}
