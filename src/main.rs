@@ -13,7 +13,7 @@ use detect::{Format, detect_format};
 use json_tree::{JsonNode, find_json_path};
 use paths::{json_paths, xml_paths};
 use render::{render_json, render_xml};
-use stats::{json_stats, xml_stats};
+use stats::{JsonStats, XmlStats, json_stats, xml_stats};
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::{fs, io, process};
@@ -41,7 +41,13 @@ struct Args {
     stats: bool,
     #[arg(long)]
     paths: bool,
+    #[arg(long)]
+    agent: bool,
 }
+
+/// Default tree-render depth used by `--agent` when the user hasn't
+/// explicitly passed `--depth`.
+const AGENT_DEFAULT_DEPTH: usize = 3;
 
 fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
     match file {
@@ -56,6 +62,22 @@ fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
 
 fn use_color() -> bool {
     io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn print_json_stats(s: &JsonStats, input_len: usize) {
+    println!("input_bytes: {input_len}");
+    println!("max_depth: {}", s.max_depth);
+    println!("objects: {}", s.objects);
+    println!("arrays: {}", s.arrays);
+    println!("scalars: {}", s.scalars);
+}
+
+fn print_xml_stats(s: &XmlStats, input_len: usize) {
+    println!("input_bytes: {input_len}");
+    println!("max_depth: {}", s.max_depth);
+    println!("elements: {}", s.elements);
+    println!("attributes: {}", s.attributes);
+    println!("text_nodes: {}", s.text_nodes);
 }
 
 fn run_json(input: &str, args: &Args) {
@@ -77,6 +99,14 @@ fn run_json(input: &str, args: &Args) {
         },
         None => &tree,
     };
+    if args.agent {
+        let s = json_stats(target);
+        print_json_stats(&s, input.len());
+        println!();
+        let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
+        print!("{}", render_json(target, "root", depth, use_color()));
+        return;
+    }
     if args.paths {
         for p in json_paths(target) {
             println!("{p}");
@@ -85,11 +115,7 @@ fn run_json(input: &str, args: &Args) {
     }
     if args.stats {
         let s = json_stats(target);
-        println!("input_bytes: {}", input.len());
-        println!("max_depth: {}", s.max_depth);
-        println!("objects: {}", s.objects);
-        println!("arrays: {}", s.arrays);
-        println!("scalars: {}", s.scalars);
+        print_json_stats(&s, input.len());
         return;
     }
     if !args.r#static && io::stdout().is_terminal() {
@@ -121,6 +147,14 @@ fn run_xml(input: &str, args: &Args) {
         },
         None => &tree,
     };
+    if args.agent {
+        let s = xml_stats(target);
+        print_xml_stats(&s, input.len());
+        println!();
+        let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
+        print!("{}", render_xml(target, depth, use_color()));
+        return;
+    }
     if args.paths {
         for p in xml_paths(target) {
             println!("{p}");
@@ -129,11 +163,7 @@ fn run_xml(input: &str, args: &Args) {
     }
     if args.stats {
         let s = xml_stats(target);
-        println!("input_bytes: {}", input.len());
-        println!("max_depth: {}", s.max_depth);
-        println!("elements: {}", s.elements);
-        println!("attributes: {}", s.attributes);
-        println!("text_nodes: {}", s.text_nodes);
+        print_xml_stats(&s, input.len());
         return;
     }
     if !args.r#static && io::stdout().is_terminal() {
