@@ -62,6 +62,77 @@ fn collapse_nearest_parent(state: &mut AppState) {
     move_cursor_to_path(state, &parent);
 }
 
+/// True if `s` is a valid unquoted jq object-key identifier: starts with a
+/// letter or underscore, and contains only letters, digits, or underscores.
+fn is_jq_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// True only for a segment shaped exactly like a synthesized array-index
+/// segment (`"[0]"`, `"[12]"`, ...), as `flatten_json` produces via
+/// `format!("[{i}]", ...)`. Note: a real object key that happens to be
+/// spelled identically (e.g. a JSON document with a literal `"[0]"` key)
+/// is indistinguishable from an array index in `Line.path` today — this is
+/// a pre-existing ambiguity shared with the internal dotted-path 'y' yank
+/// and `--path`, not something this jq conversion can resolve on its own.
+fn is_array_index_segment(s: &str) -> bool {
+    s.strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Escapes a string for use inside a double-quoted jq string literal:
+/// backslash, double-quote, and the common single-character escapes for
+/// control characters that would otherwise break a "ready-to-run",
+/// single-line filter when pasted (a literal newline/tab byte survives
+/// otherwise, since `str::replace` only touches the two characters it's
+/// given).
+fn escape_jq_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Converts a `Line`'s dotted-path segments into a jq filter expression,
+/// e.g. `["user", "tags", "[0]"]` -> `.user.tags[0]`. Array-index segments
+/// are already bracketed (`"[0]"`) by the flattener and pass through
+/// as-is; object keys that aren't valid unquoted jq identifiers use
+/// bracket-and-quote form instead (e.g. `.["odd key"]`).
+fn to_jq_path(path: &[String]) -> String {
+    if path.is_empty() {
+        return ".".to_string();
+    }
+    let mut out = String::new();
+    for segment in path {
+        if is_array_index_segment(segment) {
+            out.push_str(segment);
+        } else if is_jq_identifier(segment) {
+            out.push('.');
+            out.push_str(segment);
+        } else {
+            out.push_str(".[\"");
+            out.push_str(&escape_jq_string(segment));
+            out.push_str("\"]");
+        }
+    }
+    out
+}
+
 /// Tags the current node with `tag` (1-4), or untags it if it already
 /// carries that exact tag. Tagging the array-truncation summary line tags
 /// the array's real path instead, consistent with 'y' yank (see issue #5).
@@ -169,6 +240,23 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
                 });
             }
         }
+        KeyCode::Char('Y') => {
+            if !state.is_json {
+                state.status_message =
+                    Some("jq path is only available for JSON documents".to_string());
+            } else if let Some(line) = state.lines.get(state.cursor) {
+                let path = if line.is_array_summary {
+                    array_path_for_summary_line(&line.path)
+                } else {
+                    &line.path
+                };
+                let jq = to_jq_path(path);
+                state.status_message = Some(match copy_to_clipboard(&jq) {
+                    Ok(()) => format!("copied: {jq}"),
+                    Err(e) => format!("copy failed: {e}"),
+                });
+            }
+        }
         KeyCode::Backspace => collapse_nearest_parent(state),
         KeyCode::Char('C') => collapse_all_ancestors(state),
         KeyCode::Char(c @ '1'..='4') => toggle_tag(state, c as u8 - b'0'),
@@ -235,6 +323,7 @@ mod tests {
             use_color: false,
             status_message: None,
             help_visible: false,
+            is_json: true,
         }
     }
 
@@ -372,6 +461,7 @@ mod tests {
             use_color: false,
             status_message: None,
             help_visible: false,
+            is_json: true,
         }
     }
 
@@ -648,5 +738,89 @@ mod tests {
             state.tags.get(&vec!["user".to_string(), "age".to_string()]),
             Some(&1)
         );
+    }
+
+    #[test]
+    fn is_jq_identifier_accepts_plain_identifiers_and_rejects_the_rest() {
+        assert!(is_jq_identifier("user"));
+        assert!(is_jq_identifier("_private"));
+        assert!(is_jq_identifier("user2"));
+        assert!(!is_jq_identifier("2fast"), "must not start with a digit");
+        assert!(!is_jq_identifier("odd key"), "must not contain a space");
+        assert!(!is_jq_identifier(""), "must not be empty");
+    }
+
+    #[test]
+    fn to_jq_path_converts_object_keys_and_array_indices() {
+        assert_eq!(
+            to_jq_path(&["user".to_string(), "tags".to_string(), "[0]".to_string()]),
+            ".user.tags[0]"
+        );
+    }
+
+    #[test]
+    fn to_jq_path_quotes_a_key_that_is_not_a_valid_identifier() {
+        assert_eq!(to_jq_path(&["odd key".to_string()]), ".[\"odd key\"]");
+    }
+
+    #[test]
+    fn to_jq_path_escapes_embedded_quotes_and_backslashes_in_a_quoted_key() {
+        assert_eq!(
+            to_jq_path(&["say \"hi\"".to_string()]),
+            ".[\"say \\\"hi\\\"\"]"
+        );
+    }
+
+    #[test]
+    fn to_jq_path_of_the_root_is_a_bare_dot() {
+        assert_eq!(to_jq_path(&[]), ".");
+    }
+
+    #[test]
+    fn to_jq_path_escapes_control_characters_in_a_quoted_key() {
+        assert_eq!(
+            to_jq_path(&["line\nbreak".to_string()]),
+            ".[\"line\\nbreak\"]"
+        );
+        assert_eq!(to_jq_path(&["a\tb".to_string()]), ".[\"a\\tb\"]");
+    }
+
+    #[test]
+    fn a_key_shaped_like_a_bracketed_word_is_still_quoted_not_treated_as_an_index() {
+        // Only digits-in-brackets ("[0]") are treated as array indices;
+        // anything else bracketed is a real (if unusual) object key.
+        assert_eq!(to_jq_path(&["[odd]".to_string()]), ".[\"[odd]\"]");
+        assert_eq!(to_jq_path(&["[]".to_string()]), ".[\"[]\"]");
+    }
+
+    #[test]
+    fn shift_y_yanks_a_jq_path_for_json_documents() {
+        let mut state = fixture();
+        state.cursor = 1; // "user.name"
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert_eq!(state.status_message.as_deref(), Some("copied: .user.name"));
+    }
+
+    #[test]
+    fn shift_y_is_unavailable_for_xml_documents() {
+        let mut state = fixture();
+        state.is_json = false;
+        state.cursor = 1;
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("jq path is only available for JSON documents")
+        );
+    }
+
+    #[test]
+    fn shift_y_on_the_array_summary_line_yanks_the_arrays_real_jq_path() {
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.cursor = 3;
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert_eq!(state.status_message.as_deref(), Some("copied: .user.age"));
     }
 }

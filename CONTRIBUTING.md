@@ -45,3 +45,15 @@
   TTY, which is never true in a test harness. They are accepted as
   untested rather than excluded, since they're a small fraction of an
   otherwise well-covered file.
+
+## Known limitations
+
+- `Line.path` (`src/tui/state.rs`) represents both object keys and array
+  indices as plain strings, with array indices synthesized as `"[N]"`
+  (`src/tui/flatten.rs`). A real object key that happens to be spelled
+  identically to a synthesized index (e.g. a document with a literal
+  `"[0]"` key) is indistinguishable from an actual array index — this
+  affects the internal dotted-path `y` yank, `--path` resolution, and the
+  `Y` (jq filter) yank alike. Resolving it would mean tracking each path
+  segment's kind explicitly rather than as an untyped string, which is a
+  larger structural change than any single feature has needed so far.

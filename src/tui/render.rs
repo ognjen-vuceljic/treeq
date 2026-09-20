@@ -193,6 +193,7 @@ mod tests {
             use_color: false,
             status_message: None,
             help_visible: false,
+            is_json: true,
         }
     }
 
