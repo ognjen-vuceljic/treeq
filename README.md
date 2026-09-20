@@ -139,8 +139,9 @@ treeq file.xml                        # XML works the same way
 | `?` | Toggle the in-app keybinding help overlay |
 | `q` / `Esc` | Quit |
 
-The status bar always shows a `?: help` hint, so you don't need to
-remember this table while using the TUI.
+The status bar shows a `?: help` hint whenever it isn't displaying a
+search prompt or a status message, so you don't need to remember this
+table while using the TUI.
 
 ## Roadmap
 

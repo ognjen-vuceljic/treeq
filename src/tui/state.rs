@@ -26,9 +26,10 @@ pub(super) struct AppState {
 }
 
 /// The keybinding legend shown when help is toggled on, as
-/// (key, description) pairs, in display order. The single source of truth
-/// for both the in-app overlay and (via a doc-test / generation step, if
-/// added) the README's keybindings table, so they can't drift apart.
+/// (key, description) pairs, in display order. This is the source of truth
+/// for the in-app overlay; a test in `tui::render` cross-checks that every
+/// description here also appears in README.md's keybindings table so the
+/// two can't silently drift apart.
 pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("↑ / ↓", "move cursor"),
     ("Enter / Space", "collapse / expand"),

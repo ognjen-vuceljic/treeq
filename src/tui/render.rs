@@ -241,4 +241,18 @@ mod tests {
         // The underlying tree must not render behind the help overlay.
         assert!(!text.contains("user"));
     }
+
+    #[test]
+    fn every_help_legend_key_is_documented_in_the_readme() {
+        let readme =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+        for (key, _) in HELP_LEGEND {
+            let first_key = key.split(" / ").next().unwrap();
+            assert!(
+                readme.contains(first_key),
+                "README's keybindings table appears to be missing key '{key}' \
+                 (HELP_LEGEND and the README have drifted apart)"
+            );
+        }
+    }
 }
