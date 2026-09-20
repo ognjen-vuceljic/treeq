@@ -69,7 +69,7 @@ bounded slices instead of dumping the whole thing into a tool result.
   currently visible (expanded) node names (`/`, matches non-contiguous
   characters in order — e.g. "nme" finds "name", and every match is
   underlined while searching, not just the one under the cursor),
-  node tagging (`1`-`4`) with a distinct background color layered on
+  node tagging (`1`-`8`) with a distinct background color layered on
   top of the type-based palette, yank current path to clipboard (`y`,
   via OSC 52 — works over SSH), or as a ready-to-run jq filter (`Y`,
   e.g. `.user.tags[0]`, JSON/YAML only).
@@ -156,7 +156,7 @@ treeq file.xml                        # XML works the same way
 | `c` | Collapse all |
 | `e` | Expand all |
 | `/` | Incremental fuzzy search |
-| `1-4` | Tag/untag current node with a highlight color |
+| `1-8` | Tag/untag current node with a highlight color |
 | `y` | Yank current node's dotted path to clipboard (OSC 52) |
 | `Y` | Yank current node as a jq filter, e.g. `.user.tags[0]` (JSON/YAML only) |
 | `?` | Toggle the in-app keybinding help overlay |
