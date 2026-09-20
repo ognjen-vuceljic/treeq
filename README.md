@@ -13,15 +13,15 @@ a plain terminal. `treeq` parses JSON or XML and gives you a real,
 navigable tree — either a static, scriptable render, or a fast interactive
 TUI — instead of a wall of brackets.
 
-**Recently added:** an fzf-style popup that searches the *entire* document
-at once — including collapsed subtrees and truncated arrays — an
-8-color tagging palette, and vim/tmux-style count-prefixed jumps
-(`g5` + `↓` moves 5 lines down). See [TUI keybindings](#tui-keybindings)
-below.
+**Recently added:** an inspect mode (`i`) for a node's type/size/path/tag,
+key/value-combo search (finds `author: "user` as easily as `author`), and
+a syntax-colored, scrollable, Tab-cyclable search popup that reaches the
+*entire* document at once — including collapsed subtrees and truncated
+arrays. See [TUI keybindings](#tui-keybindings) below.
 
 ## See it
 
-![treeq interactive TUI demo: collapsing/expanding, tagging nodes with colors, yanking a path, count-prefixed jumps, the fzf-style search popup, and full-document search reaching a collapsed subtree](assets/demo.gif)
+![treeq interactive TUI demo: piping JSON into treeq for a colorized static render, tagging nodes with the polished dim-tint palette, count-prefixed jumps with viewport scrolling, the inspect popup, the syntax-colored fzf-style search popup with Tab-cycling, and a key/value combo search](assets/demo.gif)
 
 ```sh
 $ treeq --static sample.json
