@@ -1,4 +1,5 @@
-use super::state::{AppState, HELP_LEGEND, Line, ratatui_color};
+use super::keys::fuzzy_matches;
+use super::state::{AppState, HELP_LEGEND, Line, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
 use ratatui::text::Line as RtLine;
@@ -45,11 +46,23 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         .enumerate()
         .map(|(i, line)| {
             let spans = line_spans(line, state.use_color);
-            let style = if i == state.cursor {
-                Style::default().add_modifier(Modifier::REVERSED)
-            } else {
-                Style::default()
-            };
+            let mut style = Style::default();
+            if i == state.cursor {
+                // The cursor's own reversed-video highlight takes priority;
+                // a tag background would clash visually, so skip it here.
+                style = style.add_modifier(Modifier::REVERSED);
+            } else if state.use_color
+                && !line.is_array_summary
+                && let Some(&tag) = state.tags.get(&line.path)
+            {
+                style = style.bg(tag_color(tag));
+            }
+            if state.searching
+                && !state.search.is_empty()
+                && fuzzy_matches(&line.key, &state.search)
+            {
+                style = style.add_modifier(Modifier::UNDERLINED);
+            }
             ListItem::new(RtLine::from(spans)).style(style)
         })
         .collect();
@@ -136,7 +149,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     fn line(
         key: &str,
@@ -173,6 +186,7 @@ mod tests {
             collapsed: HashSet::new(),
             all_container_paths: HashSet::new(),
             array_overrides: HashSet::new(),
+            tags: HashMap::new(),
             cursor,
             search: String::new(),
             searching: false,
@@ -212,6 +226,64 @@ mod tests {
         let l = line("x", false, Some(("1", TqColor::Number)), 3, &["x"]);
         let spans = line_spans(&l, false);
         assert!(spans[0].content.as_ref().starts_with("      "));
+    }
+
+    #[test]
+    fn tagged_node_renders_with_the_tags_background_color() {
+        // Cursor is off this line (index 1) so the tag background isn't
+        // masked by the reversed-cursor style.
+        let mut state = state_with(
+            vec![
+                line("root", true, None, 0, &["root"]),
+                line("user", true, None, 0, &["user"]),
+            ],
+            0,
+        );
+        state.use_color = true;
+        state.tags.insert(vec!["user".to_string()], 2);
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        // +1 on both axes: the list widget's border occupies row/col 0.
+        assert_eq!(buffer[(1, 2)].bg, tag_color(2));
+    }
+
+    #[test]
+    fn a_tag_is_skipped_on_the_cursors_own_line_to_avoid_clashing_with_reversed_video() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.use_color = true;
+        state.tags.insert(vec!["user".to_string()], 2);
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_ne!(buffer[(1, 1)].bg, tag_color(2));
+    }
+
+    #[test]
+    fn every_fuzzy_search_match_is_underlined_not_just_the_cursors() {
+        let mut state = state_with(
+            vec![
+                line("name", false, Some(("Alice", TqColor::Str)), 0, &["name"]),
+                line(
+                    "nickname",
+                    false,
+                    Some(("Al", TqColor::Str)),
+                    0,
+                    &["nickname"],
+                ),
+                line("age", false, Some(("30", TqColor::Number)), 0, &["age"]),
+            ],
+            0,
+        );
+        state.searching = true;
+        state.search = "name".to_string();
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        // +1 on both axes: the list widget's border occupies row/col 0.
+        assert!(buffer[(1, 1)].modifier.contains(Modifier::UNDERLINED));
+        assert!(buffer[(1, 2)].modifier.contains(Modifier::UNDERLINED));
+        assert!(!buffer[(1, 3)].modifier.contains(Modifier::UNDERLINED));
     }
 
     #[test]

@@ -3,7 +3,19 @@ use crate::color::Color as TqColor;
 use crate::json_tree::JsonNode;
 use crate::xml_tree::XmlNode;
 use ratatui::style::Color;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+/// One of the 4 tag colors a node can be marked with via the `1`-`4` keys
+/// (see issue #6); additive to the type-based palette, applied as a
+/// background rather than overriding a scalar's foreground color.
+pub(super) fn tag_color(tag: u8) -> Color {
+    match tag {
+        1 => Color::Red,
+        2 => Color::Blue,
+        3 => Color::Magenta,
+        _ => Color::Green,
+    }
+}
 
 pub(super) struct Line {
     pub(super) depth: usize,
@@ -27,6 +39,9 @@ pub(super) struct AppState {
     /// line (Tab/Space) also clears its entry here, so re-expanding it
     /// later starts truncated again — the way back to the fast preview.
     pub(super) array_overrides: HashSet<Vec<String>>,
+    /// Nodes explicitly tagged (`1`-`4`) with a highlight color, keyed by
+    /// path; in-memory only, reset each session like everything else here.
+    pub(super) tags: HashMap<Vec<String>, u8>,
     pub(super) cursor: usize,
     pub(super) search: String,
     pub(super) searching: bool,
@@ -46,6 +61,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
     ("/", "fuzzy search"),
+    ("1-4", "tag / untag node"),
     ("y", "yank current path"),
     ("c", "collapse all"),
     ("e", "expand all"),
@@ -108,6 +124,7 @@ mod tests {
             collapsed: HashSet::new(),
             all_container_paths: HashSet::new(),
             array_overrides: HashSet::new(),
+            tags: HashMap::new(),
             cursor,
             search: String::new(),
             searching: false,
