@@ -1,4 +1,4 @@
-use super::keys::{fuzzy_matches, popup_matches};
+use super::keys::{array_path_for_summary_line, fuzzy_matches, popup_matches};
 use super::state::{AppState, HELP_LEGEND, Line, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
@@ -50,6 +50,48 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         frame.render_widget(Clear, popup_area);
         render_search_popup(frame, popup_area, state);
     }
+    if state.inspect_visible {
+        let popup_area = centered_rect(50, 30, area);
+        frame.render_widget(Clear, popup_area);
+        render_inspect_popup(frame, popup_area, state);
+    }
+}
+
+/// The inspect popup (see issue #42): a small floating card with the
+/// current node's type/size, full path, and tag — details visible in the
+/// tree only indirectly (via color) or not at all (e.g. a string's length).
+fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
+    let lines: Vec<RtLine> = match state.lines.get(state.cursor) {
+        Some(line) => {
+            let real_path = if line.is_array_summary {
+                array_path_for_summary_line(&line.path)
+            } else {
+                &line.path
+            };
+            let tag_text = match state.tags.get(real_path) {
+                Some(tag) => format!("{tag}"),
+                None => "none".to_string(),
+            };
+            vec![
+                RtLine::from(vec![
+                    Span::styled("type: ", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(line.type_label.clone()),
+                ]),
+                RtLine::from(vec![
+                    Span::styled("path: ", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(real_path.join(".")),
+                ]),
+                RtLine::from(vec![
+                    Span::styled("tag:  ", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(tag_text),
+                ]),
+            ]
+        }
+        None => vec![RtLine::from("no node under the cursor")],
+    };
+    let paragraph =
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Inspect"));
+    frame.render_widget(paragraph, area);
 }
 
 /// A `percent_x` x `percent_y` rect centered within `area` (standard
@@ -244,6 +286,11 @@ mod tests {
             path: path.iter().map(|s| s.to_string()).collect(),
             has_children,
             is_array_summary: false,
+            type_label: if has_children {
+                "object (0 fields)".to_string()
+            } else {
+                "string (0 chars)".to_string()
+            },
         }
     }
 
@@ -280,6 +327,7 @@ mod tests {
             popup_visible: false,
             popup_query: String::new(),
             popup_selected: 0,
+            inspect_visible: false,
         }
     }
 
@@ -584,6 +632,66 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("no matches"));
+    }
+
+    #[test]
+    fn inspect_popup_renders_as_a_centered_card_showing_type_path_and_tag() {
+        let mut state = state_with(
+            vec![line(
+                "name",
+                false,
+                Some(("\"Alice\"", TqColor::Str)),
+                0,
+                &["user", "name"],
+            )],
+            0,
+        );
+        state.inspect_visible = true;
+        state
+            .tags
+            .insert(vec!["user".to_string(), "name".to_string()], 3);
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Inspect"));
+        assert!(text.contains("string (0 chars)"));
+        assert!(text.contains("user.name"));
+        assert!(text.contains("3"));
+    }
+
+    #[test]
+    fn inspect_popup_on_an_array_summary_line_uses_the_arrays_real_path_and_tag() {
+        let summary = Line {
+            depth: 0,
+            key: "…more".to_string(),
+            value: Some(("3 more (Tab to show all)".to_string(), TqColor::Structural)),
+            path: vec!["tags".to_string(), "…more".to_string()],
+            has_children: false,
+            is_array_summary: true,
+            type_label: "array preview marker".to_string(),
+        };
+        let mut state = state_with(vec![summary], 0);
+        state.inspect_visible = true;
+        state.tags.insert(vec!["tags".to_string()], 5);
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            !text.contains("path: tags.…more"),
+            "inspect popup must show the array's real path, not the synthetic marker segment"
+        );
+        assert!(text.contains("path: tags"));
+        assert!(text.contains("5"));
+    }
+
+    #[test]
+    fn inspect_popup_shows_none_when_the_node_has_no_tag() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.inspect_visible = true;
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("none"));
     }
 
     #[test]

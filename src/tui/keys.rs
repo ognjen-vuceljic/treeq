@@ -5,7 +5,7 @@ use crossterm::event::KeyCode;
 /// The array-truncation summary line's own path always ends with its own
 /// synthetic label segment; strip it to get the array's real path (used to
 /// key `array_overrides`, and to yank a real, pastable path with 'y').
-fn array_path_for_summary_line(path: &[String]) -> &[String] {
+pub(super) fn array_path_for_summary_line(path: &[String]) -> &[String] {
     path.split_last().map_or(path, |(_, rest)| rest)
 }
 
@@ -324,6 +324,14 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         apply_popup_key(state, key);
         return false;
     }
+    if state.inspect_visible {
+        match key {
+            KeyCode::Char('q') => return true,
+            KeyCode::Char('i') | KeyCode::Esc => state.inspect_visible = false,
+            _ => {}
+        }
+        return false;
+    }
     if state.count_buffer.is_some() {
         apply_count_jump(state, key);
         return false;
@@ -365,6 +373,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
             state.popup_query = state.search.clone();
             state.popup_selected = 0;
         }
+        KeyCode::Char('i') => state.inspect_visible = true,
         KeyCode::Char('y') => {
             if let Some(line) = state.lines.get(state.cursor) {
                 let path = if line.is_array_summary {
@@ -430,6 +439,11 @@ mod tests {
             path: path.iter().map(|s| s.to_string()).collect(),
             has_children,
             is_array_summary: false,
+            type_label: if has_children {
+                "object (0 fields)".to_string()
+            } else {
+                "string (0 chars)".to_string()
+            },
         }
     }
 
@@ -441,6 +455,7 @@ mod tests {
             path: path.iter().map(|s| s.to_string()).collect(),
             has_children: false,
             is_array_summary: true,
+            type_label: "array preview marker".to_string(),
         }
     }
 
@@ -473,6 +488,7 @@ mod tests {
             popup_visible: false,
             popup_query: String::new(),
             popup_selected: 0,
+            inspect_visible: false,
         }
     }
 
@@ -632,6 +648,7 @@ mod tests {
             popup_visible: false,
             popup_query: String::new(),
             popup_selected: 0,
+            inspect_visible: false,
         }
     }
 
@@ -660,6 +677,7 @@ mod tests {
             popup_visible: false,
             popup_query: String::new(),
             popup_selected: 0,
+            inspect_visible: false,
         }
     }
 
@@ -1208,6 +1226,7 @@ mod tests {
             popup_visible: false,
             popup_query: String::new(),
             popup_selected: 0,
+            inspect_visible: false,
         };
 
         jump_to_next_match(&mut state);
@@ -1414,5 +1433,44 @@ mod tests {
         state.cursor = 3;
         handle_key(&mut state, KeyCode::Char('Y'));
         assert_eq!(state.status_message.as_deref(), Some("copied: .user.age"));
+    }
+
+    #[test]
+    fn i_opens_the_inspect_popup() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('i'));
+        assert!(state.inspect_visible);
+    }
+
+    #[test]
+    fn i_closes_the_inspect_popup_when_already_open() {
+        let mut state = fixture();
+        state.inspect_visible = true;
+        handle_key(&mut state, KeyCode::Char('i'));
+        assert!(!state.inspect_visible);
+    }
+
+    #[test]
+    fn esc_closes_the_inspect_popup_instead_of_quitting() {
+        let mut state = fixture();
+        state.inspect_visible = true;
+        assert!(!handle_key(&mut state, KeyCode::Esc));
+        assert!(!state.inspect_visible);
+    }
+
+    #[test]
+    fn q_still_quits_while_the_inspect_popup_is_open() {
+        let mut state = fixture();
+        state.inspect_visible = true;
+        assert!(handle_key(&mut state, KeyCode::Char('q')));
+    }
+
+    #[test]
+    fn other_keys_are_ignored_while_the_inspect_popup_is_open() {
+        let mut state = fixture();
+        state.inspect_visible = true;
+        handle_key(&mut state, KeyCode::Down);
+        assert_eq!(state.cursor, 0, "cursor must not move while inspecting");
+        assert!(state.inspect_visible);
     }
 }

@@ -1,8 +1,55 @@
 use super::state::Line;
 use crate::color::Color as TqColor;
-use crate::json_tree::JsonNode;
+use crate::json_tree::{JsonNode, JsonScalar};
 use crate::xml_tree::XmlNode;
 use std::collections::HashSet;
+
+/// "s" for anything but exactly 1, for pluralizing a count in a type label
+/// (see issue #42's inspect popup).
+fn plural_suffix(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
+}
+
+/// A human-readable type/size description for a JSON node (see issue #42's
+/// inspect popup), e.g. "object (3 fields)", "array (12 items)", "string (5
+/// chars)".
+fn json_type_label(node: &JsonNode) -> String {
+    match node {
+        JsonNode::Object(fields) => {
+            format!(
+                "object ({} field{})",
+                fields.len(),
+                plural_suffix(fields.len())
+            )
+        }
+        JsonNode::Array(items) => {
+            format!("array ({} item{})", items.len(), plural_suffix(items.len()))
+        }
+        JsonNode::Scalar(JsonScalar::Str(s)) => {
+            let len = s.chars().count();
+            format!("string ({len} char{})", plural_suffix(len))
+        }
+        JsonNode::Scalar(JsonScalar::Number(_)) => "number".to_string(),
+        JsonNode::Scalar(JsonScalar::Bool(_)) => "boolean".to_string(),
+        JsonNode::Scalar(JsonScalar::Null) => "null".to_string(),
+    }
+}
+
+/// A human-readable type/size description for an XML node (see issue #42's
+/// inspect popup). XML has no array/object distinction, so a node is either
+/// an element with children, a leaf with text content, or an empty element.
+fn xml_type_label(node: &XmlNode) -> String {
+    if !node.children.is_empty() {
+        let n = node.children.len();
+        let word = if n == 1 { "child" } else { "children" };
+        format!("element ({n} {word})")
+    } else if let Some(text) = &node.text {
+        let len = text.chars().count();
+        format!("string ({len} char{})", plural_suffix(len))
+    } else {
+        "empty element".to_string()
+    }
+}
 
 /// Arrays longer than this are truncated to a preview in the TUI, with a
 /// synthetic summary line (`Line::is_array_summary`) that expands the array
@@ -53,6 +100,7 @@ pub(super) fn flatten_json(
             path: child_path.clone(),
             has_children,
             is_array_summary: false,
+            type_label: json_type_label(child),
         });
         if has_children && !collapsed.contains(&child_path) {
             flatten_json(
@@ -78,6 +126,7 @@ pub(super) fn flatten_json(
             path: marker_path,
             has_children: false,
             is_array_summary: true,
+            type_label: "array preview marker".to_string(),
         });
     }
 }
@@ -101,6 +150,7 @@ pub(super) fn flatten_xml(
             path: child_path.clone(),
             has_children,
             is_array_summary: false,
+            type_label: xml_type_label(child),
         });
         if has_children && !collapsed.contains(&child_path) {
             flatten_xml(child, &child_path, depth + 1, collapsed, out);
@@ -383,5 +433,52 @@ mod tests {
         assert!(out.contains(&path(&["user"])));
         assert!(out.contains(&path(&["user", "name"])));
         assert!(out.contains(&path(&["flag"])));
+    }
+
+    #[test]
+    fn json_type_label_describes_each_kind_of_node() {
+        assert_eq!(
+            json_type_label(&JsonNode::from_value(&json!({"a": 1, "b": 2}))),
+            "object (2 fields)"
+        );
+        assert_eq!(
+            json_type_label(&JsonNode::from_value(&json!({"a": 1}))),
+            "object (1 field)"
+        );
+        assert_eq!(
+            json_type_label(&JsonNode::from_value(&json!([1, 2, 3]))),
+            "array (3 items)"
+        );
+        assert_eq!(
+            json_type_label(&JsonNode::from_value(&json!("hello"))),
+            "string (5 chars)"
+        );
+        assert_eq!(json_type_label(&JsonNode::from_value(&json!(42))), "number");
+        assert_eq!(
+            json_type_label(&JsonNode::from_value(&json!(true))),
+            "boolean"
+        );
+        assert_eq!(json_type_label(&JsonNode::from_value(&json!(null))), "null");
+    }
+
+    #[test]
+    fn xml_type_label_describes_each_kind_of_node() {
+        let with_children = roxmltree::Document::parse("<a><b/><c/></a>").unwrap();
+        assert_eq!(
+            xml_type_label(&XmlNode::from_document(&with_children)),
+            "element (2 children)"
+        );
+
+        let with_text = roxmltree::Document::parse("<a>hello</a>").unwrap();
+        assert_eq!(
+            xml_type_label(&XmlNode::from_document(&with_text)),
+            "string (5 chars)"
+        );
+
+        let empty = roxmltree::Document::parse("<a/>").unwrap();
+        assert_eq!(
+            xml_type_label(&XmlNode::from_document(&empty)),
+            "empty element"
+        );
     }
 }

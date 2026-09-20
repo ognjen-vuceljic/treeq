@@ -76,6 +76,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         popup_visible: false,
         popup_query: String::new(),
         popup_selected: 0,
+        inspect_visible: false,
     };
     run_loop(state, |s| rebuild_json_lines(s, node))
 }
@@ -108,6 +109,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         popup_visible: false,
         popup_query: String::new(),
         popup_selected: 0,
+        inspect_visible: false,
     };
     run_loop(state, |s| rebuild_xml_lines(s, node))
 }
