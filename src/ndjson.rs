@@ -1,27 +1,26 @@
 //! NDJSON / JSON Lines parsing.
 //!
-//! Line numbers reported in errors count only non-empty (after trim) lines,
-//! i.e. the Nth record that was attempted to be parsed, not the physical
-//! line number in the original input. This keeps the numbering simple and
-//! meaningful even when blank lines are interspersed between records.
+//! Line numbers reported in errors are the physical 1-indexed line number in
+//! the original input, so they match what a user sees in their editor. Blank
+//! lines (empty after trimming) are skipped when parsing but still count
+//! toward the line number.
 
 /// Parses NDJSON input: one JSON value per non-empty line. Blank lines
 /// (empty after trimming) are skipped. All parsed values are collected into
 /// a single `serde_json::Value::Array`.
 ///
-/// On a parse failure, returns `Err` with the 1-indexed record number
-/// (counting only non-empty lines) and the underlying parse error.
+/// On a parse failure, returns `Err` with the 1-indexed physical line number
+/// and the underlying parse error.
 pub fn parse_ndjson(input: &str) -> Result<serde_json::Value, String> {
     let mut values = Vec::new();
-    let mut record_no = 0;
-    for line in input.lines() {
+    for (idx, line) in input.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        record_no += 1;
+        let line_no = idx + 1;
         let value: serde_json::Value =
-            serde_json::from_str(trimmed).map_err(|e| format!("line {record_no}: {e}"))?;
+            serde_json::from_str(trimmed).map_err(|e| format!("line {line_no}: {e}"))?;
         values.push(value);
     }
     Ok(serde_json::Value::Array(values))
@@ -44,6 +43,13 @@ mod tests {
         let input = "{\"a\": 1}\nnot json\n{\"a\": 3}";
         let err = parse_ndjson(input).unwrap_err();
         assert!(err.starts_with("line 2:"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn reports_physical_line_number_across_blank_lines() {
+        let input = "\n{\"a\": 1}\nnot json\n";
+        let err = parse_ndjson(input).unwrap_err();
+        assert!(err.starts_with("line 3:"), "unexpected error: {err}");
     }
 
     #[test]

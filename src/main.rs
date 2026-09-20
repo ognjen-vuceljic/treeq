@@ -197,6 +197,10 @@ fn main() {
         eprintln!("error: {e}");
         process::exit(1);
     });
+    if args.ndjson {
+        run_json(&input, &args);
+        return;
+    }
     let format = args
         .format
         .map(|f| match f {

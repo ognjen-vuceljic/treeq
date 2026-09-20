@@ -266,3 +266,36 @@ fn rejects_ndjson_with_xml_format() {
     assert_eq!(code, 1);
     assert!(stderr.contains("--ndjson"));
 }
+
+#[test]
+fn ndjson_ignores_format_auto_detection_even_when_input_looks_like_xml() {
+    // A malformed/garbage first line starting with '<' would normally
+    // auto-detect as XML; --ndjson must force JSON parsing regardless.
+    let (_stdout, stderr, code) = run_treeq(&["--static", "--ndjson"], "<not>\nvalid\n");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("invalid NDJSON"), "got: {stderr}");
+}
+
+#[test]
+fn ndjson_empty_input_yields_an_empty_tree_instead_of_an_empty_input_error() {
+    let (stdout, stderr, code) = run_treeq(&["--static", "--ndjson"], "");
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "root\n");
+}
+
+#[test]
+fn ndjson_stats_and_path_flags_compose() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--stats", "--ndjson"],
+        "{\"name\": \"Alice\"}\n{\"name\": \"Bob\"}\n",
+    );
+    assert_eq!(code, 0);
+    assert!(stdout.contains("arrays: 1"));
+
+    let (stdout, _stderr, code) = run_treeq(
+        &["--static", "--ndjson", "--path", "0"],
+        "{\"name\": \"Alice\"}\n{\"name\": \"Bob\"}\n",
+    );
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "root\n└── name: Alice\n");
+}
