@@ -149,6 +149,35 @@ pub(super) fn collect_container_paths_xml(
     }
 }
 
+/// Every node's path (containers and leaves alike), independent of collapse
+/// state — lets search reach into collapsed subtrees (see issue #30).
+pub(super) fn collect_all_paths_json(node: &JsonNode, path: &[String], out: &mut Vec<Vec<String>>) {
+    let entries: Vec<(String, &JsonNode)> = match node {
+        JsonNode::Object(fields) => fields.iter().map(|(k, v)| (k.clone(), v)).collect(),
+        JsonNode::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (format!("[{i}]"), v))
+            .collect(),
+        JsonNode::Scalar(_) => return,
+    };
+    for (label, child) in entries {
+        let mut child_path = path.to_vec();
+        child_path.push(label);
+        out.push(child_path.clone());
+        collect_all_paths_json(child, &child_path, out);
+    }
+}
+
+pub(super) fn collect_all_paths_xml(node: &XmlNode, path: &[String], out: &mut Vec<Vec<String>>) {
+    for child in &node.children {
+        let mut child_path = path.to_vec();
+        child_path.push(child.name.clone());
+        out.push(child_path.clone());
+        collect_all_paths_xml(child, &child_path, out);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,5 +356,32 @@ mod tests {
         assert!(out.contains(&path(&["user"])));
         assert!(!out.contains(&path(&["user", "name"])));
         assert!(!out.contains(&path(&["flag"])));
+    }
+
+    #[test]
+    fn collects_every_json_node_path_including_leaves() {
+        let value = json!({"user": {"name": "Alice", "tags": ["admin"]}, "flag": true});
+        let node = JsonNode::from_value(&value);
+        let mut out = Vec::new();
+        collect_all_paths_json(&node, &[], &mut out);
+
+        assert!(out.contains(&path(&["user"])));
+        assert!(out.contains(&path(&["user", "name"])));
+        assert!(out.contains(&path(&["user", "tags"])));
+        assert!(out.contains(&path(&["user", "tags", "[0]"])));
+        assert!(out.contains(&path(&["flag"])));
+    }
+
+    #[test]
+    fn collects_every_xml_node_path_including_leaves() {
+        let xml = r#"<root><user><name>Alice</name></user><flag>true</flag></root>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = XmlNode::from_document(&doc);
+        let mut out = Vec::new();
+        collect_all_paths_xml(&node, &[], &mut out);
+
+        assert!(out.contains(&path(&["user"])));
+        assert!(out.contains(&path(&["user", "name"])));
+        assert!(out.contains(&path(&["flag"])));
     }
 }

@@ -22,10 +22,14 @@ pub(super) fn fuzzy_matches(text: &str, pattern: &str) -> bool {
         .all(|p| chars.any(|c| c == p))
 }
 
-/// Matches against each visible line's own key, not the full dotted path,
-/// and only among currently-expanded lines (`state.lines` excludes anything
-/// under a collapsed ancestor) — searching into collapsed subtrees, or by
-/// full path, is out of scope here (see issue #3).
+/// Matches against each currently-visible line's full dotted path, cycling
+/// forward from the cursor. If nothing visible matches, falls back to
+/// searching every node in the document — including collapsed subtrees —
+/// and, on a match there, expands just enough ancestors to bring it into
+/// view (see issue #30). The actual cursor move for that fallback case
+/// happens once `lines` is rebuilt after this returns (see
+/// `state::apply_pending_cursor_path`), since expanding a collapsed
+/// ancestor doesn't take effect until then.
 pub(super) fn jump_to_next_match(state: &mut AppState) {
     if state.search.is_empty() {
         return;
@@ -33,15 +37,31 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
     let n = state.lines.len();
     for offset in 1..=n {
         let idx = (state.cursor + offset) % n;
-        if fuzzy_matches(&state.lines[idx].key, &state.search) {
+        if fuzzy_matches(&state.lines[idx].path.join("."), &state.search) {
             state.cursor = idx;
             return;
         }
     }
+    if let Some(path) = state
+        .all_paths
+        .iter()
+        .find(|path| fuzzy_matches(&path.join("."), &state.search))
+        .cloned()
+    {
+        for i in 1..path.len() {
+            let ancestor = path[..i].to_vec();
+            state.collapsed.remove(&ancestor);
+            // Also lift any array-preview truncation an ancestor might be
+            // under (see issue #5): harmless to set on a non-array ancestor,
+            // since `flatten_json` only consults it for arrays.
+            state.array_overrides.insert(ancestor);
+        }
+        state.pending_cursor_path = Some(path);
+    }
 }
 
 /// Moves the cursor to the line at `path`, if one is currently visible.
-fn move_cursor_to_path(state: &mut AppState, path: &[String]) {
+pub(super) fn move_cursor_to_path(state: &mut AppState, path: &[String]) {
     if let Some(idx) = state.lines.iter().position(|l| l.path == path) {
         state.cursor = idx;
     }
@@ -325,6 +345,12 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            all_paths: vec![
+                vec!["user".to_string()],
+                vec!["user".to_string(), "name".to_string()],
+                vec!["user".to_string(), "age".to_string()],
+            ],
+            pending_cursor_path: None,
         }
     }
 
@@ -464,6 +490,22 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            all_paths: vec![
+                vec!["root".to_string()],
+                vec!["root".to_string(), "user".to_string()],
+                vec![
+                    "root".to_string(),
+                    "user".to_string(),
+                    "address".to_string(),
+                ],
+                vec![
+                    "root".to_string(),
+                    "user".to_string(),
+                    "address".to_string(),
+                    "city".to_string(),
+                ],
+            ],
+            pending_cursor_path: None,
         }
     }
 
@@ -660,6 +702,130 @@ mod tests {
             state.cursor, 1,
             "must fuzzy-match \"name\" via non-contiguous chars"
         );
+    }
+
+    #[test]
+    fn jump_to_next_match_matches_against_the_full_dotted_path_not_just_the_own_key() {
+        let mut state = fixture();
+        // "usag" is not a subsequence of "age" alone, only of the full path
+        // "user.age" — confirms matching now looks at the whole path.
+        state.search = "usag".to_string();
+        jump_to_next_match(&mut state);
+        assert_eq!(state.cursor, 2, "\"user.age\" line must be reached");
+    }
+
+    #[test]
+    fn jump_to_next_match_reaches_into_a_collapsed_subtree() {
+        let mut state = nested_fixture();
+        // Only "root" and "user" are visible; "address" (and "city" beneath
+        // it) is hidden behind a collapsed ancestor.
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        state.lines = vec![
+            line("root", true, &["root"]),
+            line("user", true, &["root", "user"]),
+        ];
+        state.cursor = 0;
+        state.search = "city".to_string();
+
+        jump_to_next_match(&mut state);
+
+        assert!(
+            !state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()]),
+            "the collapsed ancestor must be expanded so the match becomes reachable"
+        );
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(
+                vec![
+                    "root".to_string(),
+                    "user".to_string(),
+                    "address".to_string(),
+                    "city".to_string(),
+                ]
+                .as_slice()
+            ),
+            "the matched path must be queued for cursor placement once lines rebuild"
+        );
+    }
+
+    #[test]
+    fn jump_to_next_match_prefers_a_visible_match_over_the_full_document_search() {
+        let mut state = nested_fixture();
+        state.search = "user".to_string();
+        jump_to_next_match(&mut state);
+        assert_eq!(
+            state.cursor, 1,
+            "a match already visible must win without touching collapsed state"
+        );
+        assert!(state.pending_cursor_path.is_none());
+    }
+
+    #[test]
+    fn jump_to_next_match_reaches_a_leaf_beyond_the_array_preview_truncation() {
+        use super::super::flatten::{collect_all_paths_json, flatten_json};
+        use super::super::state::rebuild_json_lines;
+        use crate::json_tree::JsonNode;
+
+        // 300 items is well past the 200-item array preview limit (issue
+        // #5), so item [250] isn't in `lines` until the array is expanded.
+        let items: Vec<serde_json::Value> = (0..300)
+            .map(|i| serde_json::json!(format!("event-{i}")))
+            .collect();
+        let value = serde_json::json!({ "logs": items });
+        let node = JsonNode::from_value(&value);
+
+        let mut all_paths = Vec::new();
+        collect_all_paths_json(&node, &[], &mut all_paths);
+        let mut lines = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+
+        let mut state = AppState {
+            lines,
+            collapsed: HashSet::new(),
+            all_container_paths: HashSet::from([vec!["logs".to_string()]]),
+            array_overrides: HashSet::new(),
+            tags: HashMap::new(),
+            cursor: 0,
+            // Search matches keys/paths, not scalar values, so this targets
+            // the array index "[250]" itself rather than its "event-250"
+            // string content.
+            search: "250".to_string(),
+            searching: true,
+            use_color: false,
+            status_message: None,
+            help_visible: false,
+            is_json: true,
+            scroll_offset: std::cell::Cell::new(0),
+            all_paths,
+            pending_cursor_path: None,
+        };
+
+        jump_to_next_match(&mut state);
+        rebuild_json_lines(&mut state, &node);
+
+        assert!(
+            state.array_overrides.contains(&vec!["logs".to_string()]),
+            "the array must be lifted out of preview-truncation for the match to be reachable"
+        );
+        assert_eq!(
+            state.lines[state.cursor].path,
+            vec!["logs".to_string(), "[250]".to_string()]
+        );
+    }
+
+    #[test]
+    fn jump_to_next_match_leaves_state_untouched_when_nothing_matches_anywhere() {
+        let mut state = nested_fixture();
+        state.cursor = 0;
+        state.search = "zzz".to_string();
+        jump_to_next_match(&mut state);
+        assert_eq!(state.cursor, 0);
+        assert!(state.pending_cursor_path.is_none());
+        assert!(state.collapsed.is_empty());
     }
 
     #[test]

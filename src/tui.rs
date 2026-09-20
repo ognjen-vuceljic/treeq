@@ -11,7 +11,8 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use flatten::{
-    collect_container_paths_json, collect_container_paths_xml, flatten_json, flatten_xml,
+    collect_all_paths_json, collect_all_paths_xml, collect_container_paths_json,
+    collect_container_paths_xml, flatten_json, flatten_xml,
 };
 use keys::handle_key;
 use ratatui::prelude::*;
@@ -53,6 +54,8 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
     flatten_json(node, &[], 0, &collapsed, &array_overrides, &mut lines);
     let mut all_container_paths = HashSet::new();
     collect_container_paths_json(node, &[], &mut all_container_paths);
+    let mut all_paths = Vec::new();
+    collect_all_paths_json(node, &[], &mut all_paths);
     let state = AppState {
         lines,
         collapsed,
@@ -67,6 +70,8 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         help_visible: false,
         is_json: true,
         scroll_offset: std::cell::Cell::new(0),
+        all_paths,
+        pending_cursor_path: None,
     };
     run_loop(state, |s| rebuild_json_lines(s, node))
 }
@@ -77,6 +82,8 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
     flatten_xml(node, &[], 0, &collapsed, &mut lines);
     let mut all_container_paths = HashSet::new();
     collect_container_paths_xml(node, &[], &mut all_container_paths);
+    let mut all_paths = Vec::new();
+    collect_all_paths_xml(node, &[], &mut all_paths);
     let state = AppState {
         lines,
         collapsed,
@@ -91,6 +98,8 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         help_visible: false,
         is_json: false,
         scroll_offset: std::cell::Cell::new(0),
+        all_paths,
+        pending_cursor_path: None,
     };
     run_loop(state, |s| rebuild_xml_lines(s, node))
 }

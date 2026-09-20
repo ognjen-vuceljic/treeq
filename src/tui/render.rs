@@ -59,7 +59,7 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
             }
             if state.searching
                 && !state.search.is_empty()
-                && fuzzy_matches(&line.key, &state.search)
+                && fuzzy_matches(&line.path.join("."), &state.search)
             {
                 style = style.add_modifier(Modifier::UNDERLINED);
             }
@@ -207,6 +207,8 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            all_paths: Vec::new(),
+            pending_cursor_path: None,
         }
     }
 
@@ -409,12 +411,12 @@ mod tests {
     #[test]
     fn tag_background_and_search_underline_still_work_after_scrolling() {
         let mut lines = tall_list(200);
-        lines[180] = line("findme", false, None, 0, &["item", "180"]);
+        lines[180] = line("findme", false, None, 0, &["item", "findme"]);
         let mut state = state_with(lines, 185);
         state.use_color = true;
         state
             .tags
-            .insert(vec!["item".to_string(), "180".to_string()], 3);
+            .insert(vec!["item".to_string(), "findme".to_string()], 3);
         state.searching = true;
         state.search = "findme".to_string();
         let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
