@@ -1,6 +1,7 @@
 mod clipboard;
 mod color;
 mod detect;
+mod error_context;
 mod json_tree;
 mod ndjson;
 mod paths;
@@ -11,6 +12,7 @@ mod xml_tree;
 
 use clap::Parser;
 use detect::{Format, detect_format};
+use error_context::{json_error_context, xml_error_context};
 use json_tree::{JsonNode, find_json_path};
 use ndjson::parse_ndjson;
 use paths::{json_paths, xml_paths};
@@ -94,7 +96,7 @@ fn run_json(input: &str, args: &Args) {
         match serde_json::from_str(input) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("error: invalid JSON: {e}");
+                eprintln!("{}", json_error_context(input, &e));
                 process::exit(1);
             }
         }
@@ -143,7 +145,7 @@ fn run_xml(input: &str, args: &Args) {
     let doc = match roxmltree::Document::parse(input) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("error: invalid XML: {e}");
+            eprintln!("{}", xml_error_context(input, &e));
             process::exit(1);
         }
     };
