@@ -85,6 +85,8 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
     state.scroll_offset.set(list_state.offset());
     let status = if state.searching {
         format!("/{}", state.search)
+    } else if let Some(buf) = &state.count_buffer {
+        format!("g{buf}")
     } else if let Some(msg) = &state.status_message {
         msg.clone()
     } else {
@@ -209,6 +211,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            count_buffer: None,
         }
     }
 
@@ -461,6 +464,16 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("/ali"));
+    }
+
+    #[test]
+    fn render_shows_the_pending_count_buffer_in_the_status_bar() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.count_buffer = Some("12".to_string());
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("g12"));
     }
 
     #[test]

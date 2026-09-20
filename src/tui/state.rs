@@ -85,6 +85,12 @@ pub(super) struct AppState {
     /// ancestors (see issue #30). Consumed and cleared by
     /// `rebuild_json_lines` / `rebuild_xml_lines`.
     pub(super) pending_cursor_path: Option<Vec<String>>,
+    /// While `Some`, a count-prefixed jump is being entered (`g`, then
+    /// digits, then an arrow key — see issue #39): the digits typed so far,
+    /// shown in the status bar. `None` means normal key handling applies.
+    /// Capped at 6 digits while accumulating to keep it representable as a
+    /// `usize` without needing overflow-checked parsing.
+    pub(super) count_buffer: Option<String>,
 }
 
 /// The keybinding legend shown when help is toggled on, as
@@ -94,6 +100,7 @@ pub(super) struct AppState {
 /// two can't silently drift apart.
 pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("↑ / ↓", "move cursor"),
+    ("g", "count-prefixed jump: type digits, then ↑/↓"),
     ("Tab / Space", "collapse / expand"),
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
@@ -213,6 +220,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            count_buffer: None,
         }
     }
 

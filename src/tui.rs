@@ -72,6 +72,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         scroll_offset: std::cell::Cell::new(0),
         all_paths,
         pending_cursor_path: None,
+        count_buffer: None,
     };
     run_loop(state, |s| rebuild_json_lines(s, node))
 }
@@ -100,6 +101,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         scroll_offset: std::cell::Cell::new(0),
         all_paths,
         pending_cursor_path: None,
+        count_buffer: None,
     };
     run_loop(state, |s| rebuild_xml_lines(s, node))
 }
