@@ -35,9 +35,18 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         return false;
     }
+    if state.help_visible {
+        match key {
+            KeyCode::Char('q') => return true,
+            KeyCode::Char('?') | KeyCode::Esc => state.help_visible = false,
+            _ => {}
+        }
+        return false;
+    }
     state.status_message = None;
     match key {
         KeyCode::Char('q') | KeyCode::Esc => return true,
+        KeyCode::Char('?') => state.help_visible = true,
         KeyCode::Down => state.cursor = (state.cursor + 1).min(state.lines.len().saturating_sub(1)),
         KeyCode::Up => state.cursor = state.cursor.saturating_sub(1),
         KeyCode::Enter | KeyCode::Char(' ') => {
@@ -109,6 +118,7 @@ mod tests {
             searching: false,
             use_color: false,
             status_message: None,
+            help_visible: false,
         }
     }
 
@@ -241,5 +251,40 @@ mod tests {
         state.cursor = 1;
         jump_to_next_match(&mut state);
         assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn question_mark_toggles_help_visibility() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('?'));
+        assert!(state.help_visible);
+        handle_key(&mut state, KeyCode::Char('?'));
+        assert!(!state.help_visible);
+    }
+
+    #[test]
+    fn while_help_is_visible_other_keys_are_swallowed_except_dismiss() {
+        let mut state = fixture();
+        state.help_visible = true;
+        let quit = handle_key(&mut state, KeyCode::Down);
+        assert!(!quit);
+        assert_eq!(state.cursor, 0, "cursor must not move while help is shown");
+        assert!(state.help_visible, "an unrelated key must not dismiss help");
+    }
+
+    #[test]
+    fn esc_dismisses_help_without_quitting() {
+        let mut state = fixture();
+        state.help_visible = true;
+        let quit = handle_key(&mut state, KeyCode::Esc);
+        assert!(!quit);
+        assert!(!state.help_visible);
+    }
+
+    #[test]
+    fn q_quits_even_while_help_is_visible() {
+        let mut state = fixture();
+        state.help_visible = true;
+        assert!(handle_key(&mut state, KeyCode::Char('q')));
     }
 }

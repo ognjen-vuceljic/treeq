@@ -1,4 +1,4 @@
-use super::state::{AppState, Line, ratatui_color};
+use super::state::{AppState, HELP_LEGEND, Line, ratatui_color};
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
 use ratatui::text::Line as RtLine;
@@ -35,6 +35,10 @@ fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
 
 pub(super) fn render(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
+    if state.help_visible {
+        render_help(frame, area);
+        return;
+    }
     let items: Vec<ListItem> = state
         .lines
         .iter()
@@ -59,13 +63,26 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
     } else if let Some(msg) = &state.status_message {
         msg.clone()
     } else {
-        state
+        let path = state
             .lines
             .get(state.cursor)
             .map(|l| l.path.join("."))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        format!("{path}  (?: help)")
     };
     frame.render_widget(Paragraph::new(status), chunks[1]);
+}
+
+fn render_help(frame: &mut Frame, area: Rect) {
+    let mut lines: Vec<RtLine> = vec![RtLine::from("Keybindings"), RtLine::from("")];
+    for (key, desc) in HELP_LEGEND {
+        lines.push(RtLine::from(format!("{key:<14} {desc}")));
+    }
+    lines.push(RtLine::from(""));
+    lines.push(RtLine::from("press ? or Esc to close"));
+    let paragraph =
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Help"));
+    frame.render_widget(paragraph, area);
 }
 
 #[cfg(test)]
@@ -114,6 +131,7 @@ mod tests {
             searching: false,
             use_color: false,
             status_message: None,
+            help_visible: false,
         }
     }
 
@@ -191,5 +209,50 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("copied: user"));
+    }
+
+    #[test]
+    fn status_bar_hints_at_the_help_key() {
+        let state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("?: help"));
+    }
+
+    #[test]
+    fn render_shows_help_overlay_with_every_keybinding_when_visible() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.help_visible = true;
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Keybindings"));
+        for (key, desc) in HELP_LEGEND {
+            assert!(
+                text.contains(key.split(' ').next().unwrap()),
+                "missing key '{key}' in help overlay: {text}"
+            );
+            assert!(
+                text.contains(desc),
+                "missing description '{desc}' in help overlay: {text}"
+            );
+        }
+        // The underlying tree must not render behind the help overlay.
+        assert!(!text.contains("user"));
+    }
+
+    #[test]
+    fn every_help_legend_key_is_documented_in_the_readme() {
+        let readme =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+        for (key, _) in HELP_LEGEND {
+            let first_key = key.split(" / ").next().unwrap();
+            assert!(
+                readme.contains(first_key),
+                "README's keybindings table appears to be missing key '{key}' \
+                 (HELP_LEGEND and the README have drifted apart)"
+            );
+        }
     }
 }
