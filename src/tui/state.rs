@@ -44,6 +44,10 @@ pub(super) struct Line {
     /// so a real key that happens to be spelled like the sentinel marker
     /// text is never mistaken for one (see issue #5's array truncation).
     pub(super) is_array_summary: bool,
+    /// A human-readable type/size description (e.g. "object (3 fields)",
+    /// "string (5 chars)"), computed once at flatten time for the inspect
+    /// popup (`i`, see issue #42) rather than re-walking the source tree.
+    pub(super) type_label: String,
 }
 
 pub(super) struct AppState {
@@ -104,6 +108,10 @@ pub(super) struct AppState {
     /// `popup_query` each frame, not stored). Clamped whenever the query or
     /// match count changes.
     pub(super) popup_selected: usize,
+    /// True while the inspect popup is open (`i`, see issue #42): shows the
+    /// current node's type/size, full path, and any tag, all otherwise not
+    /// visible in the tree view at a glance.
+    pub(super) inspect_visible: bool,
 }
 
 /// The keybinding legend shown when help is toggled on, as
@@ -119,6 +127,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Shift+C", "collapse ancestors"),
     ("/", "fuzzy search"),
     ("F", "search-results popup (whole document)"),
+    ("i", "inspect node (type, size, path, tag)"),
     ("1-8", "tag / untag node"),
     ("y", "yank current path"),
     ("Y", "yank as jq path (JSON only)"),
@@ -238,6 +247,7 @@ mod tests {
             popup_visible: false,
             popup_query: String::new(),
             popup_selected: 0,
+            inspect_visible: false,
         }
     }
 
