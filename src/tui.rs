@@ -66,6 +66,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         status_message: None,
         help_visible: false,
         is_json: true,
+        scroll_offset: std::cell::Cell::new(0),
     };
     run_loop(state, |s| rebuild_json_lines(s, node))
 }
@@ -89,6 +90,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         status_message: None,
         help_visible: false,
         is_json: false,
+        scroll_offset: std::cell::Cell::new(0),
     };
     run_loop(state, |s| rebuild_xml_lines(s, node))
 }
