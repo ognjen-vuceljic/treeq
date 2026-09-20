@@ -91,6 +91,19 @@ pub(super) struct AppState {
     /// Capped at 6 digits while accumulating to keep it representable as a
     /// `usize` without needing overflow-checked parsing.
     pub(super) count_buffer: Option<String>,
+    /// True while the interactive search-results popup is open (`F`, see
+    /// issue #41): an fzf-like list of every match across the whole
+    /// document (not just visible lines), as opposed to `/`'s one-at-a-time
+    /// incremental jump.
+    pub(super) popup_visible: bool,
+    /// The popup's own query text, separate from `search` so opening the
+    /// popup doesn't clobber (or get clobbered by) an in-progress `/`
+    /// search.
+    pub(super) popup_query: String,
+    /// Index into the popup's current match list (recomputed from
+    /// `popup_query` each frame, not stored). Clamped whenever the query or
+    /// match count changes.
+    pub(super) popup_selected: usize,
 }
 
 /// The keybinding legend shown when help is toggled on, as
@@ -105,6 +118,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
     ("/", "fuzzy search"),
+    ("F", "search-results popup (whole document)"),
     ("1-8", "tag / untag node"),
     ("y", "yank current path"),
     ("Y", "yank as jq path (JSON only)"),
@@ -221,6 +235,9 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             count_buffer: None,
+            popup_visible: false,
+            popup_query: String::new(),
+            popup_selected: 0,
         }
     }
 

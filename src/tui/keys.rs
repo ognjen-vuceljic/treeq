@@ -48,15 +48,23 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
         .find(|path| fuzzy_matches(&path.join("."), &state.search))
         .cloned()
     {
-        for i in 1..path.len() {
-            let ancestor = path[..i].to_vec();
-            state.collapsed.remove(&ancestor);
-            // Also lift any array-preview truncation an ancestor might be
-            // under (see issue #5): harmless to set on a non-array ancestor,
-            // since `flatten_json` only consults it for arrays.
-            state.array_overrides.insert(ancestor);
-        }
+        expand_path_into_view(state, &path);
         state.pending_cursor_path = Some(path);
+    }
+}
+
+/// Expands just enough ancestors — and lifts any array-preview truncation
+/// along the way — to bring `path` into view (see issues #30, #41). Doesn't
+/// move the cursor itself; the caller sets `pending_cursor_path` for that,
+/// since a collapsed ancestor doesn't take effect until `lines` rebuilds.
+pub(super) fn expand_path_into_view(state: &mut AppState, path: &[String]) {
+    for i in 1..path.len() {
+        let ancestor = path[..i].to_vec();
+        state.collapsed.remove(&ancestor);
+        // Also lift any array-preview truncation an ancestor might be
+        // under (see issue #5): harmless to set on a non-array ancestor,
+        // since `flatten_json` only consults it for arrays.
+        state.array_overrides.insert(ancestor);
     }
 }
 
@@ -65,6 +73,21 @@ pub(super) fn move_cursor_to_path(state: &mut AppState, path: &[String]) {
     if let Some(idx) = state.lines.iter().position(|l| l.path == path) {
         state.cursor = idx;
     }
+}
+
+/// Every path in the whole document matching the popup's current query
+/// (see issue #41); empty query intentionally yields no matches rather
+/// than dumping the entire document.
+pub(super) fn popup_matches(state: &AppState) -> Vec<Vec<String>> {
+    if state.popup_query.is_empty() {
+        return Vec::new();
+    }
+    state
+        .all_paths
+        .iter()
+        .filter(|path| fuzzy_matches(&path.join("."), &state.popup_query))
+        .cloned()
+        .collect()
 }
 
 /// Digits accumulated in a pending count-jump (see issue #39): enough for
@@ -107,6 +130,42 @@ fn take_count(state: &mut AppState) -> usize {
         .and_then(|buf| buf.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(1)
+}
+
+/// Handles a key while the search-results popup (`F`, see issue #41) is
+/// open: typing filters the whole-document match list live, `↑`/`↓` moves
+/// the selection, `Enter` expands the selected match into view and closes
+/// the popup, `Esc` (or anything else) just closes it without moving
+/// anything.
+fn apply_popup_key(state: &mut AppState, key: KeyCode) {
+    match key {
+        KeyCode::Enter => {
+            if let Some(path) = popup_matches(state).get(state.popup_selected).cloned() {
+                expand_path_into_view(state, &path);
+                state.pending_cursor_path = Some(path);
+            }
+            state.popup_visible = false;
+        }
+        KeyCode::Backspace => {
+            state.popup_query.pop();
+            state.popup_selected = 0;
+        }
+        KeyCode::Down => {
+            let n = popup_matches(state).len();
+            if n > 0 {
+                state.popup_selected = (state.popup_selected + 1).min(n - 1);
+            }
+        }
+        KeyCode::Up => {
+            state.popup_selected = state.popup_selected.saturating_sub(1);
+        }
+        KeyCode::Char(c) => {
+            state.popup_query.push(c);
+            state.popup_selected = 0;
+        }
+        KeyCode::Esc => state.popup_visible = false,
+        _ => {}
+    }
 }
 
 /// Collapses the immediate parent container of the current node (never the
@@ -261,6 +320,10 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         return false;
     }
+    if state.popup_visible {
+        apply_popup_key(state, key);
+        return false;
+    }
     if state.count_buffer.is_some() {
         apply_count_jump(state, key);
         return false;
@@ -294,6 +357,13 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('/') => {
             state.searching = true;
             state.search.clear();
+        }
+        KeyCode::Char('F') => {
+            state.popup_visible = true;
+            // Pre-fill from any in-progress `/` search, so hitting F right
+            // after typing a query shows all its matches immediately.
+            state.popup_query = state.search.clone();
+            state.popup_selected = 0;
         }
         KeyCode::Char('y') => {
             if let Some(line) = state.lines.get(state.cursor) {
@@ -400,6 +470,9 @@ mod tests {
             ],
             pending_cursor_path: None,
             count_buffer: None,
+            popup_visible: false,
+            popup_query: String::new(),
+            popup_selected: 0,
         }
     }
 
@@ -556,6 +629,9 @@ mod tests {
             ],
             pending_cursor_path: None,
             count_buffer: None,
+            popup_visible: false,
+            popup_query: String::new(),
+            popup_selected: 0,
         }
     }
 
@@ -581,6 +657,9 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             count_buffer: None,
+            popup_visible: false,
+            popup_query: String::new(),
+            popup_selected: 0,
         }
     }
 
@@ -670,6 +749,166 @@ mod tests {
         let mut state = fixture();
         handle_key(&mut state, KeyCode::Char('g'));
         assert!(state.tags.is_empty());
+    }
+
+    #[test]
+    fn shift_f_opens_the_popup_with_an_empty_query_by_default() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        assert!(state.popup_visible);
+        assert_eq!(state.popup_query, "");
+        assert_eq!(state.popup_selected, 0);
+    }
+
+    #[test]
+    fn shift_f_prefills_the_popup_from_an_in_progress_search() {
+        let mut state = fixture();
+        state.search = "nam".to_string();
+        handle_key(&mut state, KeyCode::Char('F'));
+        assert_eq!(state.popup_query, "nam");
+    }
+
+    #[test]
+    fn empty_popup_query_matches_nothing() {
+        let state = fixture();
+        assert!(popup_matches(&state).is_empty());
+    }
+
+    #[test]
+    fn typing_in_the_popup_filters_matches_and_resets_selection() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        state.popup_selected = 5; // pretend a prior query had selected far down
+        handle_key(&mut state, KeyCode::Char('a'));
+        handle_key(&mut state, KeyCode::Char('g'));
+        assert_eq!(state.popup_query, "ag");
+        assert_eq!(state.popup_selected, 0);
+        let matches = popup_matches(&state);
+        assert_eq!(matches, vec![vec!["user".to_string(), "age".to_string()]]);
+    }
+
+    #[test]
+    fn popup_backspace_shrinks_the_query() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('a'));
+        handle_key(&mut state, KeyCode::Backspace);
+        assert_eq!(state.popup_query, "");
+    }
+
+    #[test]
+    fn popup_down_and_up_move_the_selection_clamped_to_the_match_list() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        // "user" matches all 3 paths (user, user.name, user.age).
+        handle_key(&mut state, KeyCode::Char('u'));
+        assert_eq!(popup_matches(&state).len(), 3);
+        handle_key(&mut state, KeyCode::Down);
+        handle_key(&mut state, KeyCode::Down);
+        handle_key(&mut state, KeyCode::Down);
+        handle_key(&mut state, KeyCode::Down);
+        assert_eq!(state.popup_selected, 2, "must clamp to the last match");
+        handle_key(&mut state, KeyCode::Up);
+        handle_key(&mut state, KeyCode::Up);
+        handle_key(&mut state, KeyCode::Up);
+        handle_key(&mut state, KeyCode::Up);
+        assert_eq!(state.popup_selected, 0, "must clamp to the first match");
+    }
+
+    #[test]
+    fn popup_esc_closes_without_moving_the_cursor_or_expanding_anything() {
+        let mut state = nested_fixture();
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        state.lines = vec![
+            line("root", true, &["root"]),
+            line("user", true, &["root", "user"]),
+        ];
+        state.cursor = 0;
+        handle_key(&mut state, KeyCode::Char('F'));
+        handle_key(&mut state, KeyCode::Char('c'));
+        handle_key(&mut state, KeyCode::Char('i'));
+        handle_key(&mut state, KeyCode::Char('t'));
+        handle_key(&mut state, KeyCode::Char('y'));
+        handle_key(&mut state, KeyCode::Esc);
+        assert!(!state.popup_visible);
+        assert_eq!(state.cursor, 0);
+        assert!(
+            state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()]),
+            "closing without Enter must not expand anything"
+        );
+        assert!(state.pending_cursor_path.is_none());
+    }
+
+    #[test]
+    fn popup_enter_expands_the_selected_matchs_ancestors_and_queues_the_cursor() {
+        let mut state = nested_fixture();
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        state.lines = vec![
+            line("root", true, &["root"]),
+            line("user", true, &["root", "user"]),
+        ];
+        state.cursor = 0;
+        handle_key(&mut state, KeyCode::Char('F'));
+        for c in "city".chars() {
+            handle_key(&mut state, KeyCode::Char(c));
+        }
+        assert_eq!(
+            popup_matches(&state),
+            vec![vec![
+                "root".to_string(),
+                "user".to_string(),
+                "address".to_string(),
+                "city".to_string(),
+            ]]
+        );
+        handle_key(&mut state, KeyCode::Enter);
+        assert!(!state.popup_visible, "Enter must close the popup");
+        assert!(
+            !state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()]),
+            "the collapsed ancestor must be expanded"
+        );
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(
+                vec![
+                    "root".to_string(),
+                    "user".to_string(),
+                    "address".to_string(),
+                    "city".to_string(),
+                ]
+                .as_slice()
+            )
+        );
+    }
+
+    #[test]
+    fn popup_enter_with_no_matches_just_closes_the_popup() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        for c in "zzz".chars() {
+            handle_key(&mut state, KeyCode::Char(c));
+        }
+        assert!(popup_matches(&state).is_empty());
+        handle_key(&mut state, KeyCode::Enter);
+        assert!(!state.popup_visible);
+        assert!(state.pending_cursor_path.is_none());
+    }
+
+    #[test]
+    fn typing_q_in_the_popup_appends_to_the_query_instead_of_quitting() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('F'));
+        let quit = handle_key(&mut state, KeyCode::Char('q'));
+        assert!(!quit);
+        assert_eq!(state.popup_query, "q");
     }
 
     #[test]
@@ -966,6 +1205,9 @@ mod tests {
             all_paths,
             pending_cursor_path: None,
             count_buffer: None,
+            popup_visible: false,
+            popup_query: String::new(),
+            popup_selected: 0,
         };
 
         jump_to_next_match(&mut state);

@@ -1,9 +1,9 @@
-use super::keys::fuzzy_matches;
+use super::keys::{fuzzy_matches, popup_matches};
 use super::state::{AppState, HELP_LEGEND, Line, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
 use ratatui::text::Line as RtLine;
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
 fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
     let indent = "  ".repeat(line.depth);
@@ -40,6 +40,71 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         render_help(frame, area, state.use_color);
         return;
     }
+    render_tree(frame, area, state);
+    if state.popup_visible {
+        // A floating card centered over the tree (see issue #41), not a
+        // full-screen replacement like the help overlay: the popup is meant
+        // to feel like picking from a list layered on top of context that's
+        // still visible around its edges.
+        let popup_area = centered_rect(70, 60, area);
+        frame.render_widget(Clear, popup_area);
+        render_search_popup(frame, popup_area, state);
+    }
+}
+
+/// A `percent_x` x `percent_y` rect centered within `area` (standard
+/// ratatui popup-centering idiom).
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let vertical = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(area);
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(vertical[1])[1]
+}
+
+/// The interactive search-results popup (see issue #41): every match for
+/// `state.popup_query` across the whole document, not just visible lines,
+/// with the selected one reversed. `Enter`/`Esc` are handled in
+/// `keys::handle_key`; this only draws the current state.
+fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
+    let matches = popup_matches(state);
+    let mut lines: Vec<RtLine> = vec![
+        RtLine::from(Span::styled(
+            format!("/{}", state.popup_query),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        RtLine::from(""),
+    ];
+    if state.popup_query.is_empty() {
+        lines.push(RtLine::from("type to search the whole document"));
+    } else if matches.is_empty() {
+        lines.push(RtLine::from("no matches"));
+    } else {
+        for (i, path) in matches.iter().enumerate() {
+            let style = if i == state.popup_selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            lines.push(RtLine::from(Span::styled(path.join("."), style)));
+        }
+    }
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Search results (Enter: jump, Esc: close)"),
+    );
+    frame.render_widget(paragraph, area);
+}
+
+fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     let items: Vec<ListItem> = state
         .lines
         .iter()
@@ -212,6 +277,9 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             count_buffer: None,
+            popup_visible: false,
+            popup_query: String::new(),
+            popup_selected: 0,
         }
     }
 
@@ -474,6 +542,48 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("g12"));
+    }
+
+    #[test]
+    fn popup_renders_as_a_centered_card_over_the_tree_not_a_full_replacement() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.popup_query = "user".to_string();
+        state.all_paths = vec![vec!["user".to_string()]];
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Search results"));
+        assert!(text.contains("/user"));
+        // The underlying tree must still show around the popup's edges,
+        // unlike the full-screen help overlay.
+        assert!(
+            text.contains("user"),
+            "tree content must still be visible behind/around the popup"
+        );
+    }
+
+    #[test]
+    fn popup_shows_a_hint_instead_of_the_whole_document_when_query_is_empty() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.all_paths = vec![vec!["user".to_string()], vec!["other".to_string()]];
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("type to search"));
+    }
+
+    #[test]
+    fn popup_shows_no_matches_for_an_unmatched_query() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.popup_query = "zzz".to_string();
+        state.all_paths = vec![vec!["user".to_string()]];
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("no matches"));
     }
 
     #[test]

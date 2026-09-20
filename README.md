@@ -157,6 +157,7 @@ treeq file.xml                        # XML works the same way
 | `c` | Collapse all |
 | `e` | Expand all |
 | `/` | Incremental fuzzy search |
+| `F` | Open an fzf-style popup listing every match across the whole document (`Enter` jumps, `Esc` closes) |
 | `1-8` | Tag/untag current node with a highlight color |
 | `y` | Yank current node's dotted path to clipboard (OSC 52) |
 | `Y` | Yank current node as a jq filter, e.g. `.user.tags[0]` (JSON/YAML only) |
