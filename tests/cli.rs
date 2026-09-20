@@ -97,6 +97,15 @@ fn reports_invalid_json_with_snippet_and_caret() {
 }
 
 #[test]
+fn reports_invalid_xml_with_snippet_and_caret() {
+    let (_stdout, stderr, code) = run_treeq(&["--static"], "<root><unclosed></root>");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("invalid XML"));
+    assert!(stderr.contains("1 | <root><unclosed></root>"));
+    assert!(stderr.contains('^'));
+}
+
+#[test]
 fn prints_json_stats() {
     let (stdout, _stderr, code) = run_treeq(&["--stats"], r#"{"a": {"b": [1, 2]}}"#);
     assert_eq!(code, 0);
