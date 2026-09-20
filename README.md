@@ -65,8 +65,10 @@ bounded slices instead of dumping the whole thing into a tool result.
 - **Two input formats**, auto-detected: JSON and XML.
 - **Interactive TUI** — arrow-key navigation, collapse/expand (`Tab`/`Space`),
   collapse-nearest-parent (`Backspace`), collapse-all-ancestors (`Shift+C`),
-  collapse-all/expand-all (`c`/`e`), incremental search (`/`), yank current
-  path to clipboard (`y`, via OSC 52 — works over SSH).
+  collapse-all/expand-all (`c`/`e`), incremental fuzzy search over the
+  currently visible (expanded) node names (`/`, matches non-contiguous
+  characters in order — e.g. "nme" finds "name"), yank current path to
+  clipboard (`y`, via OSC 52 — works over SSH).
 - **Static, scriptable output** (`--static`) for piping into other tools or
   reading in a Claude Code / agent tool result.
 - **`--path <dotted.path>`** — render only a subtree.
@@ -137,7 +139,7 @@ treeq file.xml                        # XML works the same way
 | `Shift+C` | Collapse every ancestor up to the root |
 | `c` | Collapse all |
 | `e` | Expand all |
-| `/` | Incremental search |
+| `/` | Incremental fuzzy search |
 | `y` | Yank current node's path to clipboard (OSC 52) |
 | `?` | Toggle the in-app keybinding help overlay |
 | `q` / `Esc` | Quit |

@@ -2,6 +2,23 @@ use super::state::AppState;
 use crate::clipboard::copy_to_clipboard;
 use crossterm::event::KeyCode;
 
+/// Fuzzy subsequence match, case-insensitive: every character of `pattern`
+/// must appear in `text` in order, though not necessarily contiguously
+/// (e.g. "nme" matches "name"). A plain substring match is a special
+/// case of this, so this is a strict superset of the old `contains` check.
+fn fuzzy_matches(text: &str, pattern: &str) -> bool {
+    let text = text.to_lowercase();
+    let mut chars = text.chars();
+    pattern
+        .to_lowercase()
+        .chars()
+        .all(|p| chars.any(|c| c == p))
+}
+
+/// Matches against each visible line's own key, not the full dotted path,
+/// and only among currently-expanded lines (`state.lines` excludes anything
+/// under a collapsed ancestor) — searching into collapsed subtrees, or by
+/// full path, is out of scope here (see issue #3).
 pub(super) fn jump_to_next_match(state: &mut AppState) {
     if state.search.is_empty() {
         return;
@@ -9,11 +26,7 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
     let n = state.lines.len();
     for offset in 1..=n {
         let idx = (state.cursor + offset) % n;
-        if state.lines[idx]
-            .key
-            .to_lowercase()
-            .contains(&state.search.to_lowercase())
-        {
+        if fuzzy_matches(&state.lines[idx].key, &state.search) {
             state.cursor = idx;
             return;
         }
@@ -408,6 +421,27 @@ mod tests {
         state.cursor = 1;
         jump_to_next_match(&mut state);
         assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn fuzzy_matches_matches_non_contiguous_characters_in_order() {
+        assert!(fuzzy_matches("user.name", "usnm"));
+        assert!(fuzzy_matches("user.name", "user.name"));
+        assert!(fuzzy_matches("USER", "user"));
+        assert!(!fuzzy_matches("user", "usnm"));
+        assert!(!fuzzy_matches("abc", "cab"), "order must be preserved");
+    }
+
+    #[test]
+    fn jump_to_next_match_finds_a_fuzzy_non_contiguous_match() {
+        let mut state = fixture();
+        // "nme" is not a substring of "name" but is a subsequence (n-a-m-e).
+        state.search = "nme".to_string();
+        jump_to_next_match(&mut state);
+        assert_eq!(
+            state.cursor, 1,
+            "must fuzzy-match \"name\" via non-contiguous chars"
+        );
     }
 
     #[test]

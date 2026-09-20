@@ -35,7 +35,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Tab / Space", "collapse / expand"),
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
-    ("/", "search"),
+    ("/", "fuzzy search"),
     ("y", "yank current path"),
     ("c", "collapse all"),
     ("e", "expand all"),
