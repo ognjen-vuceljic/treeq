@@ -67,8 +67,11 @@ bounded slices instead of dumping the whole thing into a tool result.
   collapse-nearest-parent (`Backspace`), collapse-all-ancestors (`Shift+C`),
   collapse-all/expand-all (`c`/`e`), incremental fuzzy search over the
   currently visible (expanded) node names (`/`, matches non-contiguous
-  characters in order — e.g. "nme" finds "name"), yank current path to
-  clipboard (`y`, via OSC 52 — works over SSH).
+  characters in order — e.g. "nme" finds "name", and every match is
+  underlined while searching, not just the one under the cursor),
+  node tagging (`1`-`4`) with a distinct background color layered on
+  top of the type-based palette, yank current path to clipboard (`y`,
+  via OSC 52 — works over SSH).
 - **Static, scriptable output** (`--static`) for piping into other tools or
   reading in a Claude Code / agent tool result.
 - **`--path <dotted.path>`** — render only a subtree.
@@ -152,6 +155,7 @@ treeq file.xml                        # XML works the same way
 | `c` | Collapse all |
 | `e` | Expand all |
 | `/` | Incremental fuzzy search |
+| `1-4` | Tag/untag current node with a highlight color |
 | `y` | Yank current node's path to clipboard (OSC 52) |
 | `?` | Toggle the in-app keybinding help overlay |
 | `q` / `Esc` | Quit |

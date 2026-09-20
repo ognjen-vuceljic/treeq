@@ -17,7 +17,7 @@ use keys::handle_key;
 use ratatui::prelude::*;
 use render::render as render_frame;
 use state::{AppState, rebuild_json_lines, rebuild_xml_lines};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
 
 fn run_loop<F>(mut state: AppState, mut rebuild: F) -> io::Result<()>
@@ -58,6 +58,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         collapsed,
         all_container_paths,
         array_overrides,
+        tags: HashMap::new(),
         cursor: 0,
         search: String::new(),
         searching: false,
@@ -79,6 +80,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         collapsed,
         all_container_paths,
         array_overrides: HashSet::new(),
+        tags: HashMap::new(),
         cursor: 0,
         search: String::new(),
         searching: false,

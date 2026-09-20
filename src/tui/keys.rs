@@ -13,7 +13,7 @@ fn array_path_for_summary_line(path: &[String]) -> &[String] {
 /// must appear in `text` in order, though not necessarily contiguously
 /// (e.g. "nme" matches "name"). A plain substring match is a special
 /// case of this, so this is a strict superset of the old `contains` check.
-fn fuzzy_matches(text: &str, pattern: &str) -> bool {
+pub(super) fn fuzzy_matches(text: &str, pattern: &str) -> bool {
     let text = text.to_lowercase();
     let mut chars = text.chars();
     pattern
@@ -60,6 +60,31 @@ fn collapse_nearest_parent(state: &mut AppState) {
     let parent = path[..path.len() - 1].to_vec();
     state.collapsed.insert(parent.clone());
     move_cursor_to_path(state, &parent);
+}
+
+/// Tags the current node with `tag` (1-4), or untags it if it already
+/// carries that exact tag. Tagging the array-truncation summary line tags
+/// the array's real path instead, consistent with 'y' yank (see issue #5).
+fn toggle_tag(state: &mut AppState, tag: u8) {
+    let Some(line) = state.lines.get(state.cursor) else {
+        return;
+    };
+    let path = if line.is_array_summary {
+        array_path_for_summary_line(&line.path).to_vec()
+    } else {
+        line.path.clone()
+    };
+    // A tag's own background is suppressed on the cursor's line (it would
+    // clash with the reversed-video cursor highlight), so this status
+    // message is the only feedback when tagging the node you're on — the
+    // common case, since you tag what you're looking at.
+    if state.tags.get(&path) == Some(&tag) {
+        state.tags.remove(&path);
+        state.status_message = Some(format!("untagged: {}", path.join(".")));
+    } else {
+        state.tags.insert(path.clone(), tag);
+        state.status_message = Some(format!("tagged {tag}: {}", path.join(".")));
+    }
 }
 
 /// Collapses every ancestor of the current node up to the root in one
@@ -146,6 +171,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         KeyCode::Backspace => collapse_nearest_parent(state),
         KeyCode::Char('C') => collapse_all_ancestors(state),
+        KeyCode::Char(c @ '1'..='4') => toggle_tag(state, c as u8 - b'0'),
         KeyCode::Char('c') => {
             state.collapsed = state.all_container_paths.clone();
             state.status_message = Some("collapsed all".to_string());
@@ -164,7 +190,7 @@ mod tests {
     use super::super::state::Line;
     use super::*;
     use crate::color::Color as TqColor;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     fn line(key: &str, has_children: bool, path: &[&str]) -> Line {
         Line {
@@ -202,6 +228,7 @@ mod tests {
             collapsed: HashSet::new(),
             all_container_paths: HashSet::from([vec!["user".to_string()]]),
             array_overrides: HashSet::new(),
+            tags: HashMap::new(),
             cursor: 0,
             search: String::new(),
             searching: false,
@@ -338,6 +365,7 @@ mod tests {
                 ],
             ]),
             array_overrides: HashSet::new(),
+            tags: HashMap::new(),
             cursor: 3, // "city"
             search: String::new(),
             searching: false,
@@ -575,5 +603,50 @@ mod tests {
         let mut state = fixture();
         state.help_visible = true;
         assert!(handle_key(&mut state, KeyCode::Char('q')));
+    }
+
+    #[test]
+    fn digit_key_tags_the_current_node() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('2'));
+        assert_eq!(state.tags.get(&vec!["user".to_string()]), Some(&2));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("tagged 2: user"),
+            "tagging the cursor's own line has no visible background change, \
+             so the status message is the only feedback"
+        );
+    }
+
+    #[test]
+    fn pressing_the_same_digit_again_untags_the_node() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('3'));
+        handle_key(&mut state, KeyCode::Char('3'));
+        assert!(state.tags.is_empty());
+        assert_eq!(state.status_message.as_deref(), Some("untagged: user"));
+    }
+
+    #[test]
+    fn pressing_a_different_digit_replaces_the_existing_tag() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('1'));
+        handle_key(&mut state, KeyCode::Char('4'));
+        assert_eq!(state.tags.get(&vec!["user".to_string()]), Some(&4));
+        assert_eq!(state.tags.len(), 1);
+    }
+
+    #[test]
+    fn tagging_the_array_summary_line_tags_the_arrays_real_path() {
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.cursor = 3;
+        handle_key(&mut state, KeyCode::Char('1'));
+        assert_eq!(
+            state.tags.get(&vec!["user".to_string(), "age".to_string()]),
+            Some(&1)
+        );
     }
 }
