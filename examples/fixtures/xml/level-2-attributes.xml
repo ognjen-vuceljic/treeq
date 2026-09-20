@@ -1,0 +1,8 @@
+<person id="42" role="admin">
+  <name>Alice</name>
+  <tags>
+    <tag>admin</tag>
+    <tag>beta-tester</tag>
+    <tag>verified</tag>
+  </tags>
+</person>

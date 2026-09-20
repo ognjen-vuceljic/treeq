@@ -1,0 +1,16 @@
+<order id="ORD-9931" paid="false">
+  <total currency="EUR">142.75</total>
+  <items>
+    <item sku="A1" qty="2">
+      <price>19.99</price>
+    </item>
+    <item sku="B7" qty="1">
+      <price>102.77</price>
+    </item>
+  </items>
+  <customer vip="true">
+    <name>Bob</name>
+    <loyaltyPoints>0</loyaltyPoints>
+    <note>Called to confirm <b>shipping address</b> before dispatch.</note>
+  </customer>
+</order>

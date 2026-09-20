@@ -1,0 +1,17 @@
+{
+  "order": {
+    "id": "ORD-9931",
+    "total": 142.75,
+    "paid": false,
+    "discount": null,
+    "items": [
+      { "sku": "A1", "qty": 2, "price": 19.99 },
+      { "sku": "B7", "qty": 1, "price": 102.77 }
+    ],
+    "customer": {
+      "name": "Bob",
+      "vip": true,
+      "loyaltyPoints": 0
+    }
+  }
+}

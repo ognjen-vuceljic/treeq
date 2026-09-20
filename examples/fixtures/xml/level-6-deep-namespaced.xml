@@ -1,0 +1,27 @@
+<svc:service xmlns:svc="urn:example:service" xmlns:cfg="urn:example:config" name="checkout-api">
+  <svc:env>
+    <cfg:production replicas="6">
+      <cfg:resources cpu="2" memory="4Gi">
+        <cfg:limits cpu="4" memory="" />
+      </cfg:resources>
+      <cfg:featureFlags>
+        <cfg:flag name="newPricing" enabled="true"/>
+        <cfg:flag name="fastCheckout" enabled="false"/>
+        <cfg:experiments>
+          <cfg:experiment name="a"/>
+          <cfg:experiment name="b" enabled="true" rolloutPercent="25"/>
+        </cfg:experiments>
+      </cfg:featureFlags>
+    </cfg:production>
+    <cfg:staging replicas="1">
+      <cfg:resources cpu="0.5" memory="1Gi">
+        <cfg:limits/>
+      </cfg:resources>
+      <cfg:featureFlags>
+        <cfg:flag name="newPricing" enabled="true"/>
+        <cfg:flag name="fastCheckout" enabled="true"/>
+        <cfg:experiments/>
+      </cfg:featureFlags>
+    </cfg:staging>
+  </svc:env>
+</svc:service>

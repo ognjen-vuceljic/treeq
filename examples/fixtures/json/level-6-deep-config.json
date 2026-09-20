@@ -1,0 +1,42 @@
+{
+  "service": {
+    "name": "checkout-api",
+    "env": {
+      "production": {
+        "replicas": 6,
+        "resources": {
+          "cpu": "2",
+          "memory": "4Gi",
+          "limits": {
+            "cpu": "4",
+            "memory": null
+          }
+        },
+        "featureFlags": {
+          "newPricing": true,
+          "fastCheckout": false,
+          "experiments": {
+            "a": null,
+            "b": {
+              "enabled": true,
+              "rolloutPercent": 25
+            }
+          }
+        }
+      },
+      "staging": {
+        "replicas": 1,
+        "resources": {
+          "cpu": "0.5",
+          "memory": "1Gi",
+          "limits": null
+        },
+        "featureFlags": {
+          "newPricing": true,
+          "fastCheckout": true,
+          "experiments": {}
+        }
+      }
+    }
+  }
+}

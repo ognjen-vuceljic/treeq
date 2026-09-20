@@ -1,0 +1,1251 @@
+<catalog page="1" totalPages="12">
+  <product id="P0000" inStock="true">
+    <name>Product 0</name>
+    <price>165.3</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>featured</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.4" count="1193"/>
+  </product>
+  <product id="P0001" inStock="true">
+    <name>Product 1</name>
+    <price>33.71</price>
+    <tags/>
+    <rating average="1.3" count="856"/>
+  </product>
+  <product id="P0002" inStock="true">
+    <name>Product 2</name>
+    <price>39.58</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>featured</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="3.5" count="1193"/>
+  </product>
+  <product id="P0003" inStock="false">
+    <name>Product 3</name>
+    <price>474.12</price>
+    <tags/>
+    <rating average="4.9" count="95"/>
+  </product>
+  <product id="P0004" inStock="true">
+    <name>Product 4</name>
+    <price>280.55</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="3.2" count="1169"/>
+  </product>
+  <product id="P0005" inStock="true">
+    <name>Product 5</name>
+    <price>157.7</price>
+    <tags/>
+    <rating average="3.3" count="1308"/>
+  </product>
+  <product id="P0006" inStock="true">
+    <name>Product 6</name>
+    <price>98.0</price>
+    <tags/>
+    <rating average="3.3" count="1267"/>
+  </product>
+  <product id="P0007" inStock="false">
+    <name>Product 7</name>
+    <price>106.95</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="2.4" count="508"/>
+  </product>
+  <product id="P0008" inStock="true">
+    <name>Product 8</name>
+    <price>398.22</price>
+    <tags/>
+    <rating average="3.3" count="1075"/>
+  </product>
+  <product id="P0009" inStock="false">
+    <name>Product 9</name>
+    <price>250.08</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="3.0" count="337"/>
+  </product>
+  <product id="P0010" inStock="true">
+    <name>Product 10</name>
+    <price>379.78</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.3" count="1142"/>
+  </product>
+  <product id="P0011" inStock="false">
+    <name>Product 11</name>
+    <price>288.65</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="3.3" count="934"/>
+  </product>
+  <product id="P0012" inStock="true">
+    <name>Product 12</name>
+    <price>39.04</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="1.2" count="1436"/>
+  </product>
+  <product id="P0013" inStock="false">
+    <name>Product 13</name>
+    <price>158.26</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.1" count="945"/>
+  </product>
+  <product id="P0014" inStock="true">
+    <name>Product 14</name>
+    <price>180.95</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>new</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.5" count="507"/>
+  </product>
+  <product id="P0015" inStock="false">
+    <name>Product 15</name>
+    <price>201.96</price>
+    <tags/>
+    <rating average="1.7" count="822"/>
+  </product>
+  <product id="P0016" inStock="true">
+    <name>Product 16</name>
+    <price>276.97</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>limited</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="2.7" count="734"/>
+  </product>
+  <product id="P0017" inStock="false">
+    <name>Product 17</name>
+    <price>342.95</price>
+    <tags>
+      <tag>new</tag>
+    </tags>
+    <rating average="1.3" count="309"/>
+  </product>
+  <product id="P0018" inStock="true">
+    <name>Product 18</name>
+    <price>119.82</price>
+    <tags/>
+    <rating average="2.9" count="1206"/>
+  </product>
+  <product id="P0019" inStock="false">
+    <name>Product 19</name>
+    <price>95.26</price>
+    <tags/>
+    <rating average="1.6" count="1094"/>
+  </product>
+  <product id="P0020" inStock="false">
+    <name>Product 20</name>
+    <price>187.78</price>
+    <tags>
+      <tag>featured</tag>
+    </tags>
+    <rating average="4.8" count="1341"/>
+  </product>
+  <product id="P0021" inStock="true">
+    <name>Product 21</name>
+    <price>339.72</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>clearance</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="2.6" count="212"/>
+  </product>
+  <product id="P0022" inStock="false">
+    <name>Product 22</name>
+    <price>243.35</price>
+    <tags/>
+    <rating average="1.8" count="427"/>
+  </product>
+  <product id="P0023" inStock="true">
+    <name>Product 23</name>
+    <price>223.11</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="1.4" count="1160"/>
+  </product>
+  <product id="P0024" inStock="true">
+    <name>Product 24</name>
+    <price>79.88</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="1.3" count="425"/>
+  </product>
+  <product id="P0025" inStock="true">
+    <name>Product 25</name>
+    <price>308.96</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="2.9" count="236"/>
+  </product>
+  <product id="P0026" inStock="false">
+    <name>Product 26</name>
+    <price>425.22</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>limited</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="1.6" count="1535"/>
+  </product>
+  <product id="P0027" inStock="false">
+    <name>Product 27</name>
+    <price>174.6</price>
+    <tags>
+      <tag>new</tag>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="4.8" count="1081"/>
+  </product>
+  <product id="P0028" inStock="true">
+    <name>Product 28</name>
+    <price>184.07</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="3.1" count="1860"/>
+  </product>
+  <product id="P0029" inStock="true">
+    <name>Product 29</name>
+    <price>87.69</price>
+    <tags>
+      <tag>new</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="4.2" count="1675"/>
+  </product>
+  <product id="P0030" inStock="true">
+    <name>Product 30</name>
+    <price>203.34</price>
+    <tags>
+      <tag>featured</tag>
+    </tags>
+    <rating average="3.0" count="1497"/>
+  </product>
+  <product id="P0031" inStock="true">
+    <name>Product 31</name>
+    <price>19.35</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.8" count="1239"/>
+  </product>
+  <product id="P0032" inStock="false">
+    <name>Product 32</name>
+    <price>478.47</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="1.9" count="464"/>
+  </product>
+  <product id="P0033" inStock="false">
+    <name>Product 33</name>
+    <price>237.69</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="3.5" count="1843"/>
+  </product>
+  <product id="P0034" inStock="true">
+    <name>Product 34</name>
+    <price>307.08</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>sale</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="1.5" count="795"/>
+  </product>
+  <product id="P0035" inStock="true">
+    <name>Product 35</name>
+    <price>392.24</price>
+    <tags>
+      <tag>new</tag>
+      <tag>clearance</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="2.3" count="1640"/>
+  </product>
+  <product id="P0036" inStock="false">
+    <name>Product 36</name>
+    <price>473.35</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.6" count="260"/>
+  </product>
+  <product id="P0037" inStock="false">
+    <name>Product 37</name>
+    <price>18.64</price>
+    <tags>
+      <tag>featured</tag>
+    </tags>
+    <rating average="4.3" count="971"/>
+  </product>
+  <product id="P0038" inStock="false">
+    <name>Product 38</name>
+    <price>330.35</price>
+    <tags>
+      <tag>featured</tag>
+    </tags>
+    <rating average="3.2" count="43"/>
+  </product>
+  <product id="P0039" inStock="true">
+    <name>Product 39</name>
+    <price>12.05</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="4.9" count="398"/>
+  </product>
+  <product id="P0040" inStock="true">
+    <name>Product 40</name>
+    <price>413.95</price>
+    <tags/>
+    <rating average="2.0" count="599"/>
+  </product>
+  <product id="P0041" inStock="false">
+    <name>Product 41</name>
+    <price>253.08</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="4.3" count="124"/>
+  </product>
+  <product id="P0042" inStock="false">
+    <name>Product 42</name>
+    <price>455.46</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>clearance</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.5" count="310"/>
+  </product>
+  <product id="P0043" inStock="true">
+    <name>Product 43</name>
+    <price>264.14</price>
+    <tags>
+      <tag>new</tag>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.7" count="969"/>
+  </product>
+  <product id="P0044" inStock="true">
+    <name>Product 44</name>
+    <price>311.46</price>
+    <tags/>
+    <rating average="2.3" count="1061"/>
+  </product>
+  <product id="P0045" inStock="false">
+    <name>Product 45</name>
+    <price>267.71</price>
+    <tags/>
+    <rating average="4.5" count="116"/>
+  </product>
+  <product id="P0046" inStock="false">
+    <name>Product 46</name>
+    <price>128.0</price>
+    <tags/>
+    <rating average="4.1" count="1039"/>
+  </product>
+  <product id="P0047" inStock="true">
+    <name>Product 47</name>
+    <price>228.83</price>
+    <tags/>
+    <rating average="2.8" count="1254"/>
+  </product>
+  <product id="P0048" inStock="true">
+    <name>Product 48</name>
+    <price>486.81</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="3.0" count="507"/>
+  </product>
+  <product id="P0049" inStock="false">
+    <name>Product 49</name>
+    <price>351.11</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.5" count="249"/>
+  </product>
+  <product id="P0050" inStock="false">
+    <name>Product 50</name>
+    <price>199.22</price>
+    <tags/>
+    <rating average="3.7" count="877"/>
+  </product>
+  <product id="P0051" inStock="false">
+    <name>Product 51</name>
+    <price>41.19</price>
+    <tags/>
+    <rating average="4.6" count="316"/>
+  </product>
+  <product id="P0052" inStock="false">
+    <name>Product 52</name>
+    <price>470.05</price>
+    <tags>
+      <tag>limited</tag>
+    </tags>
+    <rating average="4.5" count="1981"/>
+  </product>
+  <product id="P0053" inStock="true">
+    <name>Product 53</name>
+    <price>236.53</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>new</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="4.3" count="330"/>
+  </product>
+  <product id="P0054" inStock="false">
+    <name>Product 54</name>
+    <price>354.63</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="2.4" count="188"/>
+  </product>
+  <product id="P0055" inStock="true">
+    <name>Product 55</name>
+    <price>362.46</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="2.8" count="37"/>
+  </product>
+  <product id="P0056" inStock="false">
+    <name>Product 56</name>
+    <price>195.25</price>
+    <tags/>
+    <rating average="1.5" count="1881"/>
+  </product>
+  <product id="P0057" inStock="true">
+    <name>Product 57</name>
+    <price>395.24</price>
+    <tags/>
+    <rating average="2.1" count="81"/>
+  </product>
+  <product id="P0058" inStock="true">
+    <name>Product 58</name>
+    <price>453.42</price>
+    <tags>
+      <tag>new</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="4.4" count="1384"/>
+  </product>
+  <product id="P0059" inStock="false">
+    <name>Product 59</name>
+    <price>410.39</price>
+    <tags>
+      <tag>new</tag>
+      <tag>clearance</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="2.3" count="571"/>
+  </product>
+  <product id="P0060" inStock="true">
+    <name>Product 60</name>
+    <price>33.48</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>limited</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="3.5" count="1641"/>
+  </product>
+  <product id="P0061" inStock="true">
+    <name>Product 61</name>
+    <price>133.97</price>
+    <tags/>
+    <rating average="2.1" count="249"/>
+  </product>
+  <product id="P0062" inStock="false">
+    <name>Product 62</name>
+    <price>229.62</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>new</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="3.1" count="488"/>
+  </product>
+  <product id="P0063" inStock="true">
+    <name>Product 63</name>
+    <price>469.37</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="1.8" count="638"/>
+  </product>
+  <product id="P0064" inStock="true">
+    <name>Product 64</name>
+    <price>316.19</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="2.1" count="1645"/>
+  </product>
+  <product id="P0065" inStock="false">
+    <name>Product 65</name>
+    <price>13.99</price>
+    <tags/>
+    <rating average="1.1" count="1501"/>
+  </product>
+  <product id="P0066" inStock="true">
+    <name>Product 66</name>
+    <price>255.3</price>
+    <tags>
+      <tag>new</tag>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="3.6" count="1331"/>
+  </product>
+  <product id="P0067" inStock="false">
+    <name>Product 67</name>
+    <price>218.93</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>limited</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.9" count="470"/>
+  </product>
+  <product id="P0068" inStock="true">
+    <name>Product 68</name>
+    <price>174.64</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.1" count="1280"/>
+  </product>
+  <product id="P0069" inStock="false">
+    <name>Product 69</name>
+    <price>371.74</price>
+    <tags>
+      <tag>new</tag>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="3.7" count="780"/>
+  </product>
+  <product id="P0070" inStock="false">
+    <name>Product 70</name>
+    <price>435.92</price>
+    <tags>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.2" count="379"/>
+  </product>
+  <product id="P0071" inStock="false">
+    <name>Product 71</name>
+    <price>82.98</price>
+    <tags/>
+    <rating average="2.1" count="1969"/>
+  </product>
+  <product id="P0072" inStock="false">
+    <name>Product 72</name>
+    <price>167.82</price>
+    <tags>
+      <tag>sale</tag>
+    </tags>
+    <rating average="4.9" count="633"/>
+  </product>
+  <product id="P0073" inStock="true">
+    <name>Product 73</name>
+    <price>112.84</price>
+    <tags/>
+    <rating average="2.3" count="171"/>
+  </product>
+  <product id="P0074" inStock="true">
+    <name>Product 74</name>
+    <price>239.95</price>
+    <tags>
+      <tag>featured</tag>
+    </tags>
+    <rating average="4.1" count="186"/>
+  </product>
+  <product id="P0075" inStock="true">
+    <name>Product 75</name>
+    <price>135.76</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="3.3" count="806"/>
+  </product>
+  <product id="P0076" inStock="false">
+    <name>Product 76</name>
+    <price>16.13</price>
+    <tags>
+      <tag>sale</tag>
+    </tags>
+    <rating average="3.3" count="1083"/>
+  </product>
+  <product id="P0077" inStock="true">
+    <name>Product 77</name>
+    <price>427.36</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="2.1" count="1267"/>
+  </product>
+  <product id="P0078" inStock="true">
+    <name>Product 78</name>
+    <price>323.39</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>new</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="4.0" count="1164"/>
+  </product>
+  <product id="P0079" inStock="true">
+    <name>Product 79</name>
+    <price>418.29</price>
+    <tags>
+      <tag>sale</tag>
+    </tags>
+    <rating average="1.1" count="272"/>
+  </product>
+  <product id="P0080" inStock="true">
+    <name>Product 80</name>
+    <price>320.37</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.1" count="1088"/>
+  </product>
+  <product id="P0081" inStock="false">
+    <name>Product 81</name>
+    <price>341.93</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="4.2" count="1532"/>
+  </product>
+  <product id="P0082" inStock="true">
+    <name>Product 82</name>
+    <price>466.59</price>
+    <tags/>
+    <rating average="4.0" count="970"/>
+  </product>
+  <product id="P0083" inStock="true">
+    <name>Product 83</name>
+    <price>129.84</price>
+    <tags>
+      <tag>new</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="1.9" count="1331"/>
+  </product>
+  <product id="P0084" inStock="false">
+    <name>Product 84</name>
+    <price>487.99</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="2.1" count="95"/>
+  </product>
+  <product id="P0085" inStock="true">
+    <name>Product 85</name>
+    <price>310.4</price>
+    <tags/>
+    <rating average="3.4" count="679"/>
+  </product>
+  <product id="P0086" inStock="false">
+    <name>Product 86</name>
+    <price>130.7</price>
+    <tags>
+      <tag>sale</tag>
+    </tags>
+    <rating average="2.9" count="994"/>
+  </product>
+  <product id="P0087" inStock="true">
+    <name>Product 87</name>
+    <price>138.04</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="2.2" count="1057"/>
+  </product>
+  <product id="P0088" inStock="false">
+    <name>Product 88</name>
+    <price>146.34</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>new</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="4.9" count="1917"/>
+  </product>
+  <product id="P0089" inStock="false">
+    <name>Product 89</name>
+    <price>239.11</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="2.5" count="1877"/>
+  </product>
+  <product id="P0090" inStock="true">
+    <name>Product 90</name>
+    <price>473.07</price>
+    <tags/>
+    <rating average="3.3" count="290"/>
+  </product>
+  <product id="P0091" inStock="false">
+    <name>Product 91</name>
+    <price>375.01</price>
+    <tags>
+      <tag>new</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="4.5" count="1440"/>
+  </product>
+  <product id="P0092" inStock="false">
+    <name>Product 92</name>
+    <price>185.77</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="1.0" count="1006"/>
+  </product>
+  <product id="P0093" inStock="false">
+    <name>Product 93</name>
+    <price>342.39</price>
+    <tags>
+      <tag>new</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="2.4" count="647"/>
+  </product>
+  <product id="P0094" inStock="false">
+    <name>Product 94</name>
+    <price>64.85</price>
+    <tags/>
+    <rating average="2.3" count="692"/>
+  </product>
+  <product id="P0095" inStock="true">
+    <name>Product 95</name>
+    <price>420.36</price>
+    <tags>
+      <tag>sale</tag>
+    </tags>
+    <rating average="4.6" count="593"/>
+  </product>
+  <product id="P0096" inStock="true">
+    <name>Product 96</name>
+    <price>130.34</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="4.7" count="1547"/>
+  </product>
+  <product id="P0097" inStock="true">
+    <name>Product 97</name>
+    <price>141.2</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="4.3" count="584"/>
+  </product>
+  <product id="P0098" inStock="true">
+    <name>Product 98</name>
+    <price>319.31</price>
+    <tags>
+      <tag>limited</tag>
+    </tags>
+    <rating average="2.7" count="646"/>
+  </product>
+  <product id="P0099" inStock="false">
+    <name>Product 99</name>
+    <price>98.98</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="3.2" count="1473"/>
+  </product>
+  <product id="P0100" inStock="false">
+    <name>Product 100</name>
+    <price>44.89</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>new</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="4.5" count="994"/>
+  </product>
+  <product id="P0101" inStock="true">
+    <name>Product 101</name>
+    <price>29.24</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="2.7" count="577"/>
+  </product>
+  <product id="P0102" inStock="false">
+    <name>Product 102</name>
+    <price>152.4</price>
+    <tags>
+      <tag>new</tag>
+      <tag>limited</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="3.2" count="807"/>
+  </product>
+  <product id="P0103" inStock="true">
+    <name>Product 103</name>
+    <price>64.27</price>
+    <tags/>
+    <rating average="1.8" count="1855"/>
+  </product>
+  <product id="P0104" inStock="true">
+    <name>Product 104</name>
+    <price>406.85</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>clearance</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="1.6" count="394"/>
+  </product>
+  <product id="P0105" inStock="true">
+    <name>Product 105</name>
+    <price>125.82</price>
+    <tags>
+      <tag>featured</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="2.3" count="754"/>
+  </product>
+  <product id="P0106" inStock="true">
+    <name>Product 106</name>
+    <price>132.89</price>
+    <tags/>
+    <rating average="4.0" count="845"/>
+  </product>
+  <product id="P0107" inStock="true">
+    <name>Product 107</name>
+    <price>194.5</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>featured</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="3.0" count="1176"/>
+  </product>
+  <product id="P0108" inStock="true">
+    <name>Product 108</name>
+    <price>484.0</price>
+    <tags>
+      <tag>sale</tag>
+    </tags>
+    <rating average="2.1" count="508"/>
+  </product>
+  <product id="P0109" inStock="false">
+    <name>Product 109</name>
+    <price>195.36</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.1" count="1453"/>
+  </product>
+  <product id="P0110" inStock="false">
+    <name>Product 110</name>
+    <price>383.03</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>featured</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="4.7" count="1900"/>
+  </product>
+  <product id="P0111" inStock="false">
+    <name>Product 111</name>
+    <price>413.67</price>
+    <tags>
+      <tag>new</tag>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.6" count="1069"/>
+  </product>
+  <product id="P0112" inStock="true">
+    <name>Product 112</name>
+    <price>486.08</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>featured</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="4.1" count="476"/>
+  </product>
+  <product id="P0113" inStock="true">
+    <name>Product 113</name>
+    <price>286.84</price>
+    <tags>
+      <tag>new</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="3.1" count="895"/>
+  </product>
+  <product id="P0114" inStock="true">
+    <name>Product 114</name>
+    <price>350.8</price>
+    <tags/>
+    <rating average="1.3" count="1074"/>
+  </product>
+  <product id="P0115" inStock="true">
+    <name>Product 115</name>
+    <price>472.05</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>new</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="1.0" count="1100"/>
+  </product>
+  <product id="P0116" inStock="false">
+    <name>Product 116</name>
+    <price>154.25</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="2.9" count="480"/>
+  </product>
+  <product id="P0117" inStock="true">
+    <name>Product 117</name>
+    <price>275.77</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>sale</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.8" count="1812"/>
+  </product>
+  <product id="P0118" inStock="false">
+    <name>Product 118</name>
+    <price>338.86</price>
+    <tags/>
+    <rating average="2.0" count="1366"/>
+  </product>
+  <product id="P0119" inStock="false">
+    <name>Product 119</name>
+    <price>215.04</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.1" count="692"/>
+  </product>
+  <product id="P0120" inStock="false">
+    <name>Product 120</name>
+    <price>360.57</price>
+    <tags>
+      <tag>new</tag>
+      <tag>sale</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="4.0" count="1033"/>
+  </product>
+  <product id="P0121" inStock="false">
+    <name>Product 121</name>
+    <price>38.38</price>
+    <tags>
+      <tag>limited</tag>
+    </tags>
+    <rating average="4.1" count="397"/>
+  </product>
+  <product id="P0122" inStock="true">
+    <name>Product 122</name>
+    <price>119.25</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="4.8" count="1015"/>
+  </product>
+  <product id="P0123" inStock="true">
+    <name>Product 123</name>
+    <price>307.0</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>sale</tag>
+      <tag>limited</tag>
+    </tags>
+    <rating average="1.6" count="805"/>
+  </product>
+  <product id="P0124" inStock="true">
+    <name>Product 124</name>
+    <price>31.91</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.2" count="123"/>
+  </product>
+  <product id="P0125" inStock="false">
+    <name>Product 125</name>
+    <price>96.13</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="4.7" count="674"/>
+  </product>
+  <product id="P0126" inStock="false">
+    <name>Product 126</name>
+    <price>99.39</price>
+    <tags/>
+    <rating average="2.2" count="1485"/>
+  </product>
+  <product id="P0127" inStock="false">
+    <name>Product 127</name>
+    <price>192.42</price>
+    <tags>
+      <tag>clearance</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="1.4" count="160"/>
+  </product>
+  <product id="P0128" inStock="false">
+    <name>Product 128</name>
+    <price>143.5</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>new</tag>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="2.4" count="1682"/>
+  </product>
+  <product id="P0129" inStock="false">
+    <name>Product 129</name>
+    <price>157.81</price>
+    <tags/>
+    <rating average="1.2" count="969"/>
+  </product>
+  <product id="P0130" inStock="false">
+    <name>Product 130</name>
+    <price>101.88</price>
+    <tags>
+      <tag>limited</tag>
+    </tags>
+    <rating average="2.5" count="1837"/>
+  </product>
+  <product id="P0131" inStock="false">
+    <name>Product 131</name>
+    <price>239.89</price>
+    <tags>
+      <tag>clearance</tag>
+    </tags>
+    <rating average="1.2" count="71"/>
+  </product>
+  <product id="P0132" inStock="true">
+    <name>Product 132</name>
+    <price>234.71</price>
+    <tags>
+      <tag>new</tag>
+      <tag>sale</tag>
+    </tags>
+    <rating average="4.6" count="694"/>
+  </product>
+  <product id="P0133" inStock="false">
+    <name>Product 133</name>
+    <price>184.67</price>
+    <tags/>
+    <rating average="2.0" count="1467"/>
+  </product>
+  <product id="P0134" inStock="false">
+    <name>Product 134</name>
+    <price>346.34</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="1.1" count="478"/>
+  </product>
+  <product id="P0135" inStock="false">
+    <name>Product 135</name>
+    <price>58.09</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>clearance</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="1.5" count="1016"/>
+  </product>
+  <product id="P0136" inStock="false">
+    <name>Product 136</name>
+    <price>95.55</price>
+    <tags>
+      <tag>featured</tag>
+    </tags>
+    <rating average="1.9" count="1763"/>
+  </product>
+  <product id="P0137" inStock="false">
+    <name>Product 137</name>
+    <price>163.18</price>
+    <tags/>
+    <rating average="3.0" count="802"/>
+  </product>
+  <product id="P0138" inStock="true">
+    <name>Product 138</name>
+    <price>377.68</price>
+    <tags>
+      <tag>sale</tag>
+      <tag>featured</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="3.2" count="667"/>
+  </product>
+  <product id="P0139" inStock="false">
+    <name>Product 139</name>
+    <price>84.54</price>
+    <tags/>
+    <rating average="5.0" count="542"/>
+  </product>
+  <product id="P0140" inStock="true">
+    <name>Product 140</name>
+    <price>314.18</price>
+    <tags/>
+    <rating average="2.7" count="1453"/>
+  </product>
+  <product id="P0141" inStock="true">
+    <name>Product 141</name>
+    <price>486.2</price>
+    <tags>
+      <tag>new</tag>
+    </tags>
+    <rating average="2.7" count="1270"/>
+  </product>
+  <product id="P0142" inStock="true">
+    <name>Product 142</name>
+    <price>446.17</price>
+    <tags/>
+    <rating average="4.1" count="601"/>
+  </product>
+  <product id="P0143" inStock="false">
+    <name>Product 143</name>
+    <price>150.42</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="1.8" count="506"/>
+  </product>
+  <product id="P0144" inStock="true">
+    <name>Product 144</name>
+    <price>96.94</price>
+    <tags>
+      <tag>limited</tag>
+    </tags>
+    <rating average="4.5" count="1184"/>
+  </product>
+  <product id="P0145" inStock="true">
+    <name>Product 145</name>
+    <price>98.18</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>new</tag>
+      <tag>featured</tag>
+    </tags>
+    <rating average="3.1" count="1330"/>
+  </product>
+  <product id="P0146" inStock="false">
+    <name>Product 146</name>
+    <price>405.18</price>
+    <tags/>
+    <rating average="1.4" count="972"/>
+  </product>
+  <product id="P0147" inStock="true">
+    <name>Product 147</name>
+    <price>442.0</price>
+    <tags>
+      <tag>limited</tag>
+      <tag>sale</tag>
+      <tag>new</tag>
+    </tags>
+    <rating average="1.9" count="103"/>
+  </product>
+  <product id="P0148" inStock="true">
+    <name>Product 148</name>
+    <price>98.84</price>
+    <tags/>
+    <rating average="2.5" count="1773"/>
+  </product>
+  <product id="P0149" inStock="false">
+    <name>Product 149</name>
+    <price>92.99</price>
+    <tags/>
+    <rating average="1.4" count="1220"/>
+  </product>
+</catalog>
