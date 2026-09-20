@@ -9,19 +9,22 @@ use std::collections::{HashMap, HashSet};
 /// The tag color palette, indexed by `tag - 1`. Bound to keys `1`-`8` (see
 /// issue #40); an array here (rather than a fixed-arity match) is what
 /// makes the tag count a one-line change instead of a restructuring.
-/// Deliberately 8 distinct hues rather than 9 with `Light*` variants filling
-/// the gap: several `Light*`/base pairs (e.g. `Red`/`LightRed`) render
-/// close to identical on common 16-color terminal themes, which would
-/// defeat the point of a wider palette.
+///
+/// Dim/dark RGB tints rather than raw ANSI hues (see issue #43): a
+/// full-saturation background like `Color::Green` reads as a harsh solid
+/// block and washes out the foreground text it's layered under. Each tint
+/// here targets roughly the same dark luminance so foreground text (key
+/// cyan, string green, number yellow, etc.) stays readable against every
+/// one of them, while still being clearly distinct hue-to-hue.
 const TAG_PALETTE: [Color; 8] = [
-    Color::Red,
-    Color::Blue,
-    Color::Magenta,
-    Color::Green,
-    Color::Yellow,
-    Color::Cyan,
-    Color::White,
-    Color::Gray,
+    Color::Rgb(90, 30, 30), // red
+    Color::Rgb(30, 45, 90), // blue
+    Color::Rgb(85, 30, 85), // magenta
+    Color::Rgb(30, 80, 45), // green
+    Color::Rgb(90, 80, 25), // yellow
+    Color::Rgb(25, 80, 85), // cyan
+    Color::Rgb(85, 85, 85), // white/light gray
+    Color::Rgb(60, 60, 60), // gray
 ];
 
 /// One of `TAG_PALETTE`'s colors a node can be marked with via the `1`-`8`
@@ -209,13 +212,25 @@ mod tests {
     }
 
     #[test]
-    fn tag_color_matches_the_pre_expansion_palette_for_1_through_4() {
-        // Locks in backward compatibility: expanding the palette (issue #40)
-        // must not change what a tag saved under the old 1-4 range looks like.
-        assert_eq!(tag_color(1), Color::Red);
-        assert_eq!(tag_color(2), Color::Blue);
-        assert_eq!(tag_color(3), Color::Magenta);
-        assert_eq!(tag_color(4), Color::Green);
+    fn tag_colors_are_dim_rgb_tints_not_harsh_ansi_blocks() {
+        // Issue #43: a full-saturation ANSI background (e.g. Color::Green)
+        // reads as a harsh solid block; every tag color must instead be a
+        // dark/dim Rgb tint, all within a narrow luminance band, so no tag
+        // reads noticeably brighter or dimmer than the rest (dim enough to
+        // keep foreground text readable, bright enough to still show up
+        // against a dark terminal theme's own background).
+        for tag in 1..=8 {
+            match tag_color(tag) {
+                Color::Rgb(r, g, b) => {
+                    let max_channel = r.max(g).max(b);
+                    assert!(
+                        (50..=100).contains(&max_channel),
+                        "tag {tag}'s peak channel must stay in a consistent dim band, got rgb({r}, {g}, {b})"
+                    );
+                }
+                other => panic!("tag {tag}'s color must be Rgb, got {other:?}"),
+            }
+        }
     }
 
     #[test]
