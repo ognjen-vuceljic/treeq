@@ -61,7 +61,7 @@ fn run_treeq(args: &[&str], stdin_data: &str) -> (String, String, i32) {
 fn renders_json_from_stdin() {
     let (stdout, _stderr, code) = run_treeq(&["--static"], r#"{"name": "Alice"}"#);
     assert_eq!(code, 0);
-    assert_eq!(stdout, "root\n└── name: Alice\n");
+    assert_eq!(stdout, "root\n└── name: \"Alice\"\n");
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn applies_path_and_depth() {
         r#"{"user": {"name": "Alice", "age": 30}}"#,
     );
     assert_eq!(code, 0);
-    assert_eq!(stdout, "root\n├── name: Alice\n└── age: 30\n");
+    assert_eq!(stdout, "root\n├── name: \"Alice\"\n└── age: 30\n");
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn reports_unresolved_path_segment() {
 fn reads_input_from_a_file_argument() {
     let (stdout, _stderr, code) = run_treeq_with_file(&["--static"], r#"{"name": "Alice"}"#);
     assert_eq!(code, 0);
-    assert_eq!(stdout, "root\n└── name: Alice\n");
+    assert_eq!(stdout, "root\n└── name: \"Alice\"\n");
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn explicit_format_flag_overrides_detection() {
     let (stdout, _stderr, code) =
         run_treeq(&["--static", "--format", "json"], r#"{"name": "Alice"}"#);
     assert_eq!(code, 0);
-    assert_eq!(stdout, "root\n└── name: Alice\n");
+    assert_eq!(stdout, "root\n└── name: \"Alice\"\n");
 
     let (stdout, _stderr, code) = run_treeq(
         &["--static", "--format", "xml"],
@@ -241,7 +241,7 @@ fn agent_flag_respects_path_scoping() {
         r#"{"user": {"name": "Alice"}, "other": 1}"#,
     );
     assert_eq!(code, 0);
-    assert!(stdout.contains("name: Alice"));
+    assert!(stdout.contains("name: \"Alice\""));
     assert!(!stdout.contains("other"));
 }
 
@@ -273,7 +273,7 @@ fn parses_ndjson_input_as_array() {
     assert_eq!(code, 0);
     assert_eq!(
         stdout,
-        "root\n├── [0]\n│   └── name: Alice\n└── [1]\n    └── name: Bob\n"
+        "root\n├── [0]\n│   └── name: \"Alice\"\n└── [1]\n    └── name: \"Bob\"\n"
     );
 }
 
@@ -322,7 +322,7 @@ fn ndjson_stats_and_path_flags_compose() {
         "{\"name\": \"Alice\"}\n{\"name\": \"Bob\"}\n",
     );
     assert_eq!(code, 0);
-    assert_eq!(stdout, "root\n└── name: Alice\n");
+    assert_eq!(stdout, "root\n└── name: \"Alice\"\n");
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn renders_yaml_from_stdin() {
     assert_eq!(code, 0);
     assert_eq!(
         stdout,
-        "root\n├── name: Alice\n└── tags\n    ├── [0]: admin\n    └── [1]: user\n"
+        "root\n├── name: \"Alice\"\n└── tags\n    ├── [0]: \"admin\"\n    └── [1]: \"user\"\n"
     );
 }
 
@@ -403,7 +403,7 @@ fn yaml_composes_with_path_depth_stats_and_paths_flags() {
     let (stdout, _stderr, code) =
         run_treeq(&["--static", "--format", "yaml", "--path", "user"], input);
     assert_eq!(code, 0);
-    assert_eq!(stdout, "root\n├── name: Alice\n└── age: 30\n");
+    assert_eq!(stdout, "root\n├── name: \"Alice\"\n└── age: 30\n");
 
     let (stdout, _stderr, code) =
         run_treeq(&["--static", "--format", "yaml", "--depth", "1"], input);

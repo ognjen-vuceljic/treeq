@@ -9,9 +9,15 @@ pub enum JsonScalar {
 }
 
 impl JsonScalar {
+    /// Strings are quoted so the type of a value is recoverable from plain
+    /// text alone (no ANSI color needed) — e.g. `"30"` (a string) reads
+    /// differently from `30` (a number). Numbers/bools/null are already
+    /// self-describing as bare identifiers and stay unquoted.
     pub fn display(&self) -> String {
         match self {
-            JsonScalar::Str(s) => s.clone(),
+            JsonScalar::Str(s) => {
+                format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+            }
             JsonScalar::Number(s) => s.clone(),
             JsonScalar::Bool(b) => b.to_string(),
             JsonScalar::Null => "null".to_string(),
@@ -133,6 +139,26 @@ mod tests {
                 ),
             ])
         );
+    }
+
+    #[test]
+    fn display_quotes_strings_and_escapes_embedded_quotes_and_backslashes() {
+        assert_eq!(JsonScalar::Str("Alice".to_string()).display(), "\"Alice\"");
+        assert_eq!(
+            JsonScalar::Str("He said \"hi\"".to_string()).display(),
+            "\"He said \\\"hi\\\"\""
+        );
+        assert_eq!(
+            JsonScalar::Str("back\\slash".to_string()).display(),
+            "\"back\\\\slash\""
+        );
+    }
+
+    #[test]
+    fn display_leaves_number_bool_and_null_unquoted() {
+        assert_eq!(JsonScalar::Number("30".to_string()).display(), "30");
+        assert_eq!(JsonScalar::Bool(true).display(), "true");
+        assert_eq!(JsonScalar::Null.display(), "null");
     }
 
     #[test]

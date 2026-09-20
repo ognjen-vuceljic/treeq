@@ -125,7 +125,7 @@ mod tests {
         let output = render_json(&node, "root", None, false);
         assert_eq!(
             output,
-            "root\n├── name: Alice\n└── tags\n    ├── [0]: admin\n    └── [1]: user\n"
+            "root\n├── name: \"Alice\"\n└── tags\n    ├── [0]: \"admin\"\n    └── [1]: \"user\"\n"
         );
     }
 
@@ -135,7 +135,7 @@ mod tests {
         let node = JsonNode::from_value(&value);
         let output = render_json(&node, "root", None, true);
         assert!(output.contains("\x1b[36mname\x1b[0m"));
-        assert!(output.contains("\x1b[32mAlice\x1b[0m"));
+        assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
     }
 
     #[test]
