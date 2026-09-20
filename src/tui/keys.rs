@@ -153,9 +153,10 @@ fn to_jq_path(path: &[String]) -> String {
     out
 }
 
-/// Tags the current node with `tag` (1-4), or untags it if it already
-/// carries that exact tag. Tagging the array-truncation summary line tags
-/// the array's real path instead, consistent with 'y' yank (see issue #5).
+/// Tags the current node with `tag` (1-8, see issue #40), or untags it if it
+/// already carries that exact tag. Tagging the array-truncation summary
+/// line tags the array's real path instead, consistent with 'y' yank (see
+/// issue #5).
 fn toggle_tag(state: &mut AppState, tag: u8) {
     let Some(line) = state.lines.get(state.cursor) else {
         return;
@@ -279,7 +280,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         KeyCode::Backspace => collapse_nearest_parent(state),
         KeyCode::Char('C') => collapse_all_ancestors(state),
-        KeyCode::Char(c @ '1'..='4') => toggle_tag(state, c as u8 - b'0'),
+        KeyCode::Char(c @ '1'..='8') => toggle_tag(state, c as u8 - b'0'),
         KeyCode::Char('c') => {
             state.collapsed = state.all_container_paths.clone();
             state.status_message = Some("collapsed all".to_string());
@@ -892,6 +893,24 @@ mod tests {
         handle_key(&mut state, KeyCode::Char('4'));
         assert_eq!(state.tags.get(&vec!["user".to_string()]), Some(&4));
         assert_eq!(state.tags.len(), 1);
+    }
+
+    #[test]
+    fn digit_8_tags_the_node_using_the_expanded_palette() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('8'));
+        assert_eq!(state.tags.get(&vec!["user".to_string()]), Some(&8));
+        assert_eq!(state.status_message.as_deref(), Some("tagged 8: user"));
+    }
+
+    #[test]
+    fn digit_9_is_not_bound_to_tagging() {
+        // 9 is deliberately left unbound (see issue #40): the palette tops
+        // out at 8 to avoid `Light*`/base color pairs that look identical
+        // on common terminal themes.
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('9'));
+        assert!(state.tags.is_empty());
     }
 
     #[test]

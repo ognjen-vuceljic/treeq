@@ -6,16 +6,31 @@ use ratatui::style::Color;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
-/// One of the 4 tag colors a node can be marked with via the `1`-`4` keys
-/// (see issue #6); additive to the type-based palette, applied as a
-/// background rather than overriding a scalar's foreground color.
+/// The tag color palette, indexed by `tag - 1`. Bound to keys `1`-`8` (see
+/// issue #40); an array here (rather than a fixed-arity match) is what
+/// makes the tag count a one-line change instead of a restructuring.
+/// Deliberately 8 distinct hues rather than 9 with `Light*` variants filling
+/// the gap: several `Light*`/base pairs (e.g. `Red`/`LightRed`) render
+/// close to identical on common 16-color terminal themes, which would
+/// defeat the point of a wider palette.
+const TAG_PALETTE: [Color; 8] = [
+    Color::Red,
+    Color::Blue,
+    Color::Magenta,
+    Color::Green,
+    Color::Yellow,
+    Color::Cyan,
+    Color::White,
+    Color::Gray,
+];
+
+/// One of `TAG_PALETTE`'s colors a node can be marked with via the `1`-`8`
+/// keys (see issues #6, #40); additive to the type-based palette, applied
+/// as a background rather than overriding a scalar's foreground color.
+/// `tag` is 1-based; out-of-range values wrap rather than panic.
 pub(super) fn tag_color(tag: u8) -> Color {
-    match tag {
-        1 => Color::Red,
-        2 => Color::Blue,
-        3 => Color::Magenta,
-        _ => Color::Green,
-    }
+    let idx = (tag.saturating_sub(1) as usize) % TAG_PALETTE.len();
+    TAG_PALETTE[idx]
 }
 
 pub(super) struct Line {
@@ -40,8 +55,9 @@ pub(super) struct AppState {
     /// line (Tab/Space) also clears its entry here, so re-expanding it
     /// later starts truncated again — the way back to the fast preview.
     pub(super) array_overrides: HashSet<Vec<String>>,
-    /// Nodes explicitly tagged (`1`-`4`) with a highlight color, keyed by
-    /// path; in-memory only, reset each session like everything else here.
+    /// Nodes explicitly tagged (`1`-`8`, see issue #40) with a highlight
+    /// color, keyed by path; in-memory only, reset each session like
+    /// everything else here.
     pub(super) tags: HashMap<Vec<String>, u8>,
     pub(super) cursor: usize,
     pub(super) search: String,
@@ -82,7 +98,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
     ("/", "fuzzy search"),
-    ("1-4", "tag / untag node"),
+    ("1-8", "tag / untag node"),
     ("y", "yank current path"),
     ("Y", "yank as jq path (JSON only)"),
     ("c", "collapse all"),
@@ -150,6 +166,34 @@ mod tests {
     fn null_and_structural_share_the_same_dim_color() {
         assert_eq!(ratatui_color(TqColor::Null), Color::DarkGray);
         assert_eq!(ratatui_color(TqColor::Structural), Color::DarkGray);
+    }
+
+    #[test]
+    fn all_8_tags_get_distinct_colors() {
+        let colors: HashSet<Color> = (1..=8).map(tag_color).collect();
+        assert_eq!(
+            colors.len(),
+            8,
+            "the expanded 1-8 tag palette must not repeat a color"
+        );
+    }
+
+    #[test]
+    fn tag_color_matches_the_pre_expansion_palette_for_1_through_4() {
+        // Locks in backward compatibility: expanding the palette (issue #40)
+        // must not change what a tag saved under the old 1-4 range looks like.
+        assert_eq!(tag_color(1), Color::Red);
+        assert_eq!(tag_color(2), Color::Blue);
+        assert_eq!(tag_color(3), Color::Magenta);
+        assert_eq!(tag_color(4), Color::Green);
+    }
+
+    #[test]
+    fn tag_color_wraps_instead_of_panicking_outside_the_palette() {
+        // Defensive: `tag` is only ever produced by the `1`-`8` keybinding
+        // today, but the function itself shouldn't panic on 0 or >8.
+        assert_eq!(tag_color(0), tag_color(1));
+        assert_eq!(tag_color(9), tag_color(1));
     }
 
     fn state_with_cursor(cursor: usize) -> AppState {
