@@ -71,6 +71,11 @@ impl JsonNode {
         }
     }
 
+    /// Note: YAML's `<<: *anchor` merge-key idiom is not merged — a `<<` key
+    /// is kept as a literal object field pointing at the aliased mapping,
+    /// same as any other key. Implementing real merge semantics (including
+    /// `<<: [*a, *b]` and merge-vs-explicit-key precedence) is out of scope
+    /// for this viewer; treeq shows the document's raw structure.
     fn from_yaml_mapping(map: &serde_yaml::Mapping) -> Result<JsonNode, String> {
         let mut fields = Vec::with_capacity(map.len());
         for (k, v) in map {

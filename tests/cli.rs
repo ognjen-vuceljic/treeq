@@ -395,3 +395,52 @@ fn reports_multi_document_yaml_as_unsupported() {
     assert_eq!(code, 1);
     assert!(stderr.contains("multi-document YAML is not supported yet"));
 }
+
+#[test]
+fn yaml_composes_with_path_depth_stats_and_paths_flags() {
+    let input = "user:\n  name: Alice\n  age: 30\n";
+
+    let (stdout, _stderr, code) =
+        run_treeq(&["--static", "--format", "yaml", "--path", "user"], input);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "root\n├── name: Alice\n└── age: 30\n");
+
+    let (stdout, _stderr, code) =
+        run_treeq(&["--static", "--format", "yaml", "--depth", "1"], input);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "root\n└── user: …\n");
+
+    let (stdout, _stderr, code) = run_treeq(&["--stats", "--format", "yaml"], input);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("objects: 2"));
+
+    let (stdout, _stderr, code) = run_treeq(&["--paths", "--format", "yaml"], input);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "user\nuser.name\nuser.age\n");
+}
+
+#[test]
+fn reports_non_string_yaml_key_when_nested_below_the_root() {
+    let (_stdout, stderr, code) = run_treeq(
+        &["--static", "--format", "yaml"],
+        "outer:\n  1: not-a-string-key\n",
+    );
+    assert_eq!(code, 1);
+    assert!(
+        stderr.contains("YAML mapping keys must be strings"),
+        "got: {stderr}"
+    );
+}
+
+#[test]
+fn reports_yaml_tag_when_nested_below_the_root() {
+    let (_stdout, stderr, code) = run_treeq(
+        &["--static", "--format", "yaml"],
+        "outer:\n  value: !mytag 5\n",
+    );
+    assert_eq!(code, 1);
+    assert!(
+        stderr.contains("YAML tags are not supported"),
+        "got: {stderr}"
+    );
+}

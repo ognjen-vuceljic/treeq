@@ -6,6 +6,9 @@ license = "MIT"
 
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
+# NOTE: serde_yaml is marked deprecated upstream with no actively maintained
+# successor as of writing. It's the only mature YAML crate for this use case;
+# revisit if a maintained replacement (e.g. `serde_yml` or similar) matures.
 serde_yaml = "0.9"
 roxmltree = "0.20"
 clap = { version = "4", features = ["derive"] }
