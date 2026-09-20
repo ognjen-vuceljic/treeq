@@ -71,7 +71,8 @@ bounded slices instead of dumping the whole thing into a tool result.
   underlined while searching, not just the one under the cursor),
   node tagging (`1`-`4`) with a distinct background color layered on
   top of the type-based palette, yank current path to clipboard (`y`,
-  via OSC 52 — works over SSH).
+  via OSC 52 — works over SSH), or as a ready-to-run jq filter (`Y`,
+  e.g. `.user.tags[0]`, JSON/YAML only).
 - **Static, scriptable output** (`--static`) for piping into other tools or
   reading in a Claude Code / agent tool result.
 - **`--path <dotted.path>`** — render only a subtree.
@@ -156,7 +157,8 @@ treeq file.xml                        # XML works the same way
 | `e` | Expand all |
 | `/` | Incremental fuzzy search |
 | `1-4` | Tag/untag current node with a highlight color |
-| `y` | Yank current node's path to clipboard (OSC 52) |
+| `y` | Yank current node's dotted path to clipboard (OSC 52) |
+| `Y` | Yank current node as a jq filter, e.g. `.user.tags[0]` (JSON/YAML only) |
 | `?` | Toggle the in-app keybinding help overlay |
 | `q` / `Esc` | Quit |
 

@@ -48,6 +48,10 @@ pub(super) struct AppState {
     pub(super) use_color: bool,
     pub(super) status_message: Option<String>,
     pub(super) help_visible: bool,
+    /// True for a JSON (or YAML, which is rendered as JSON) document, false
+    /// for XML. Gates the `Y` (yank as jq path) binding, since jq has no
+    /// XML equivalent (see issue #8).
+    pub(super) is_json: bool,
 }
 
 /// The keybinding legend shown when help is toggled on, as
@@ -63,6 +67,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("/", "fuzzy search"),
     ("1-4", "tag / untag node"),
     ("y", "yank current path"),
+    ("Y", "yank as jq path (JSON only)"),
     ("c", "collapse all"),
     ("e", "expand all"),
     ("?", "toggle this help"),
@@ -131,6 +136,7 @@ mod tests {
             use_color: false,
             status_message: None,
             help_visible: false,
+            is_json: true,
         }
     }
 
