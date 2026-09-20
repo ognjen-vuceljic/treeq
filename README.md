@@ -82,8 +82,9 @@ bounded slices instead of dumping the whole thing into a tool result.
   nearest parent, `Shift+C` to collapse every ancestor in one keystroke,
   `c`/`e` to collapse/expand everything.
 - **8-color node tagging** (`1`-`8`) for marking up spots you care about
-  mid-investigation, layered on top of the type-based syntax colors without
-  clashing with them.
+  mid-investigation — dim, low-saturation background tints layered on top
+  of the type-based syntax colors, tuned to stay readable rather than
+  clashing with them, plus bold keys for an extra visual anchor.
 - **Copy what you're looking at** — yank the current node's dotted path to
   the clipboard (`y`, via OSC 52 — works over SSH with no extra config),
   or as a ready-to-run jq filter (`Y`, e.g. `.user.tags[0]`, JSON/YAML

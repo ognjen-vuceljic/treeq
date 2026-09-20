@@ -14,7 +14,12 @@ fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
         Style::default()
     };
     let key_style = if use_color {
-        Style::default().fg(ratatui_color(TqColor::Key))
+        // Bold on top of the key's own color (see issue #43), so a key is
+        // distinguishable from its value by weight alone, not just hue --
+        // useful for anyone who finds cyan-vs-green hard to tell apart.
+        Style::default()
+            .fg(ratatui_color(TqColor::Key))
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
@@ -364,6 +369,18 @@ mod tests {
     }
 
     #[test]
+    fn key_span_is_bold_when_color_is_enabled_but_not_when_disabled() {
+        // Bold distinguishes a key from its value by weight, not just hue
+        // (see issue #43); it must not appear when color is off, since
+        // --no-color output should stay as plain as it was before.
+        let l = line("user", true, None, 0, &["user"]);
+        let colored = line_spans(&l, true);
+        assert!(colored[1].style.add_modifier.contains(Modifier::BOLD));
+        let plain = line_spans(&l, false);
+        assert!(!plain[1].style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
     fn tagged_node_renders_with_the_tags_background_color() {
         // Cursor is off this line (index 1) so the tag background isn't
         // masked by the reversed-cursor style.
@@ -381,6 +398,31 @@ mod tests {
         let buffer = terminal.backend().buffer();
         // +1 on both axes: the list widget's border occupies row/col 0.
         assert_eq!(buffer[(1, 2)].bg, tag_color(2));
+    }
+
+    #[test]
+    fn a_tagged_lines_key_is_still_bold_alongside_the_tag_background() {
+        // Regression guard for issue #43: the tag background is applied to
+        // the whole ListItem's style, while bold is a per-span style on the
+        // key text. Both must survive rendering together, not have one
+        // clobber the other.
+        let mut state = state_with(
+            vec![
+                line("root", true, None, 0, &["root"]),
+                line("user", true, None, 0, &["user"]),
+            ],
+            0,
+        );
+        state.use_color = true;
+        state.tags.insert(vec!["user".to_string()], 2);
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        // Row 2 is "▸ user": col 1 is the border, col 2-3 the marker "▸ ",
+        // col 4 the start of the key text "user".
+        assert_eq!(buffer[(1, 2)].bg, tag_color(2));
+        assert!(buffer[(4, 2)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buffer[(4, 2)].bg, tag_color(2));
     }
 
     #[test]
