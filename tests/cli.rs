@@ -199,3 +199,42 @@ fn agent_flag_truncates_tree_beyond_default_depth() {
     assert!(!deep_stdout.contains('…'));
     assert!(deep_stdout.contains("deep"));
 }
+
+#[test]
+fn agent_flag_works_on_xml_input() {
+    let (stdout, _stderr, code) = run_treeq(&["--agent"], "<root><a><b>1</b></a></root>");
+    assert_eq!(code, 0);
+    assert!(stdout.contains("elements:"));
+    assert!(stdout.contains("root"));
+    assert!(stdout.contains("\n\n"));
+}
+
+#[test]
+fn agent_flag_respects_path_scoping() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--agent", "--path", "user"],
+        r#"{"user": {"name": "Alice"}, "other": 1}"#,
+    );
+    assert_eq!(code, 0);
+    assert!(stdout.contains("name: Alice"));
+    assert!(!stdout.contains("other"));
+}
+
+#[test]
+fn agent_flag_takes_precedence_over_stats_and_paths() {
+    let input = r#"{"a": 1}"#;
+
+    let (agent_stats, _stderr, code) = run_treeq(&["--agent", "--stats"], input);
+    assert_eq!(code, 0);
+    assert!(
+        agent_stats.contains("root"),
+        "--agent should still render the tree"
+    );
+
+    let (agent_paths, _stderr, code) = run_treeq(&["--agent", "--paths"], input);
+    assert_eq!(code, 0);
+    assert!(
+        agent_paths.contains("root") && agent_paths.contains("max_depth:"),
+        "--agent must take precedence over --paths too, got: {agent_paths}"
+    );
+}
