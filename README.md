@@ -107,6 +107,13 @@ bounded slices instead of dumping the whole thing into a tool result.
   line, as produced by `kubectl`, `docker`, and many log streams) and view
   it as an array of records. JSON only; combining it with `--format xml`
   is an error.
+- **`--array-limit <N>`** — truncate JSON (and YAML) arrays in `--static`
+  output to their first `N` elements, folding the rest into `… (M more)`.
+  Off by default (arrays render in full); not supported for XML input
+  (which has no array concept), and combining the two is an error. In the
+  interactive TUI, arrays longer than 200 elements are always previewed
+  this way, with a summary line you can `Tab`/`Space` to expand back to
+  every element — collapsing the array again resets it to the preview.
 
 ## Install
 

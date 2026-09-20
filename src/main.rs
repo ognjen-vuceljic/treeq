@@ -41,6 +41,8 @@ struct Args {
     #[arg(long)]
     depth: Option<usize>,
     #[arg(long)]
+    array_limit: Option<usize>,
+    #[arg(long)]
     r#static: bool,
     #[arg(long, value_enum)]
     format: Option<FormatArg>,
@@ -157,7 +159,10 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
         print_json_stats(&s, input.len());
         println!();
         let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
-        print!("{}", render_json(target, "root", depth, use_color()));
+        print!(
+            "{}",
+            render_json(target, "root", depth, args.array_limit, use_color())
+        );
         return;
     }
     if args.paths {
@@ -181,7 +186,10 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
             process::exit(1);
         });
     } else {
-        print!("{}", render_json(target, "root", args.depth, use_color()));
+        print!(
+            "{}",
+            render_json(target, "root", args.depth, args.array_limit, use_color())
+        );
     }
 }
 
@@ -263,6 +271,10 @@ fn main() {
             eprintln!("error: empty input");
             process::exit(1);
         });
+    if args.array_limit.is_some() && matches!(format, Format::Xml) {
+        eprintln!("error: --array-limit is not supported for XML input");
+        process::exit(1);
+    }
     match format {
         Format::Json => run_json(&input, &args),
         Format::Xml => run_xml(&input, &args),

@@ -2,6 +2,13 @@ use super::state::AppState;
 use crate::clipboard::copy_to_clipboard;
 use crossterm::event::KeyCode;
 
+/// The array-truncation summary line's own path always ends with its own
+/// synthetic label segment; strip it to get the array's real path (used to
+/// key `array_overrides`, and to yank a real, pastable path with 'y').
+fn array_path_for_summary_line(path: &[String]) -> &[String] {
+    path.split_last().map_or(path, |(_, rest)| rest)
+}
+
 /// Fuzzy subsequence match, case-insensitive: every character of `pattern`
 /// must appear in `text` in order, though not necessarily contiguously
 /// (e.g. "nme" matches "name"). A plain substring match is a special
@@ -102,11 +109,22 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Down => state.cursor = (state.cursor + 1).min(state.lines.len().saturating_sub(1)),
         KeyCode::Up => state.cursor = state.cursor.saturating_sub(1),
         KeyCode::Tab | KeyCode::Char(' ') => {
-            if let Some(line) = state.lines.get(state.cursor)
-                && line.has_children
-                && !state.collapsed.remove(&line.path)
-            {
-                state.collapsed.insert(line.path.clone());
+            if let Some(line) = state.lines.get(state.cursor) {
+                if line.is_array_summary {
+                    let array_path = array_path_for_summary_line(&line.path).to_vec();
+                    state.array_overrides.insert(array_path);
+                } else if line.has_children {
+                    if state.collapsed.remove(&line.path) {
+                        // Nothing further: re-expanding a container doesn't
+                        // touch array_overrides.
+                    } else {
+                        state.collapsed.insert(line.path.clone());
+                        // Re-collapsing an array also resets its preview:
+                        // expanding it again later starts truncated, so a
+                        // fully-expanded huge array always has a way back.
+                        state.array_overrides.remove(&line.path);
+                    }
+                }
             }
         }
         KeyCode::Char('/') => {
@@ -115,7 +133,11 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         KeyCode::Char('y') => {
             if let Some(line) = state.lines.get(state.cursor) {
-                let path = line.path.join(".");
+                let path = if line.is_array_summary {
+                    array_path_for_summary_line(&line.path).join(".")
+                } else {
+                    line.path.join(".")
+                };
                 state.status_message = Some(match copy_to_clipboard(&path) {
                     Ok(()) => format!("copied: {path}"),
                     Err(e) => format!("copy failed: {e}"),
@@ -155,6 +177,18 @@ mod tests {
             },
             path: path.iter().map(|s| s.to_string()).collect(),
             has_children,
+            is_array_summary: false,
+        }
+    }
+
+    fn array_summary_line(path: &[&str]) -> Line {
+        Line {
+            depth: 0,
+            key: "…more".to_string(),
+            value: Some(("3 more (Tab to show all)".to_string(), TqColor::Structural)),
+            path: path.iter().map(|s| s.to_string()).collect(),
+            has_children: false,
+            is_array_summary: true,
         }
     }
 
@@ -167,6 +201,7 @@ mod tests {
             ],
             collapsed: HashSet::new(),
             all_container_paths: HashSet::from([vec!["user".to_string()]]),
+            array_overrides: HashSet::new(),
             cursor: 0,
             search: String::new(),
             searching: false,
@@ -222,6 +257,68 @@ mod tests {
         assert!(state.collapsed.is_empty());
     }
 
+    #[test]
+    fn tab_on_an_array_truncation_marker_expands_the_array_via_override() {
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.cursor = 3;
+        handle_key(&mut state, KeyCode::Tab);
+        assert!(
+            state
+                .array_overrides
+                .contains(&vec!["user".to_string(), "age".to_string()])
+        );
+        assert!(
+            state.collapsed.is_empty(),
+            "the marker line must not be treated as a collapsible container"
+        );
+    }
+
+    #[test]
+    fn a_real_key_that_looks_like_the_truncation_label_still_collapses_normally() {
+        // A real container whose key happens to be spelled "…more" must
+        // still behave as an ordinary collapsible node, not be mistaken
+        // for the synthetic array-truncation summary line.
+        let mut state = fixture();
+        state.lines.push(line("…more", true, &["user", "…more"]));
+        state.cursor = 3;
+        handle_key(&mut state, KeyCode::Tab);
+        assert!(
+            state
+                .collapsed
+                .contains(&vec!["user".to_string(), "…more".to_string()])
+        );
+        assert!(state.array_overrides.is_empty());
+    }
+
+    #[test]
+    fn yanking_the_array_summary_line_copies_the_arrays_real_path() {
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.cursor = 3;
+        handle_key(&mut state, KeyCode::Char('y'));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("copied: user.age"),
+            "yank must strip the synthetic marker segment, not include it"
+        );
+    }
+
+    #[test]
+    fn recollapsing_an_array_clears_its_expand_override() {
+        let mut state = fixture();
+        state.array_overrides.insert(vec!["user".to_string()]);
+        handle_key(&mut state, KeyCode::Tab); // collapse "user"
+        assert!(
+            !state.array_overrides.contains(&vec!["user".to_string()]),
+            "re-collapsing an array must reset it back to the truncated preview"
+        );
+    }
+
     fn nested_fixture() -> AppState {
         AppState {
             lines: vec![
@@ -240,6 +337,7 @@ mod tests {
                     "address".to_string(),
                 ],
             ]),
+            array_overrides: HashSet::new(),
             cursor: 3, // "city"
             search: String::new(),
             searching: false,

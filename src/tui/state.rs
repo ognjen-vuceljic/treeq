@@ -11,12 +11,22 @@ pub(super) struct Line {
     pub(super) value: Option<(String, TqColor)>,
     pub(super) path: Vec<String>,
     pub(super) has_children: bool,
+    /// True only for the synthetic "N more (Tab to show all)" line an
+    /// oversized array is truncated to; distinguishes it from a real node
+    /// so a real key that happens to be spelled like the sentinel marker
+    /// text is never mistaken for one (see issue #5's array truncation).
+    pub(super) is_array_summary: bool,
 }
 
 pub(super) struct AppState {
     pub(super) lines: Vec<Line>,
     pub(super) collapsed: HashSet<Vec<String>>,
     pub(super) all_container_paths: HashSet<Vec<String>>,
+    /// Paths of arrays the user has chosen to fully expand past the
+    /// default preview limit (see issue #5). Collapsing an array's own
+    /// line (Tab/Space) also clears its entry here, so re-expanding it
+    /// later starts truncated again — the way back to the fast preview.
+    pub(super) array_overrides: HashSet<Vec<String>>,
     pub(super) cursor: usize,
     pub(super) search: String,
     pub(super) searching: bool,
@@ -45,7 +55,14 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
 
 pub(super) fn rebuild_json_lines(state: &mut AppState, node: &JsonNode) {
     let mut lines = Vec::new();
-    flatten_json(node, &[], 0, &state.collapsed, &mut lines);
+    flatten_json(
+        node,
+        &[],
+        0,
+        &state.collapsed,
+        &state.array_overrides,
+        &mut lines,
+    );
     state.lines = lines;
     state.cursor = state.cursor.min(state.lines.len().saturating_sub(1));
 }
@@ -90,6 +107,7 @@ mod tests {
             lines: Vec::new(),
             collapsed: HashSet::new(),
             all_container_paths: HashSet::new(),
+            array_overrides: HashSet::new(),
             cursor,
             search: String::new(),
             searching: false,
