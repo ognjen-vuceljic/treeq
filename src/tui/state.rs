@@ -33,6 +33,8 @@ pub(super) struct AppState {
 pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("↑ / ↓", "move cursor"),
     ("Tab / Space", "collapse / expand"),
+    ("Backspace", "collapse parent"),
+    ("Shift+C", "collapse ancestors"),
     ("/", "search"),
     ("y", "yank current path"),
     ("c", "collapse all"),
