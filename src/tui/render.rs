@@ -67,3 +67,129 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
     };
     frame.render_widget(Paragraph::new(status), chunks[1]);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+    use std::collections::HashSet;
+
+    fn line(
+        key: &str,
+        has_children: bool,
+        value: Option<(&str, TqColor)>,
+        depth: usize,
+        path: &[&str],
+    ) -> Line {
+        Line {
+            depth,
+            key: key.to_string(),
+            value: value.map(|(v, c)| (v.to_string(), c)),
+            path: path.iter().map(|s| s.to_string()).collect(),
+            has_children,
+        }
+    }
+
+    fn buffer_text(buffer: &Buffer) -> String {
+        let area = buffer.area;
+        let mut out = String::new();
+        for y in 0..area.height {
+            for x in 0..area.width {
+                out.push_str(buffer[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn state_with(lines: Vec<Line>, cursor: usize) -> AppState {
+        AppState {
+            lines,
+            collapsed: HashSet::new(),
+            all_container_paths: HashSet::new(),
+            cursor,
+            search: String::new(),
+            searching: false,
+            use_color: false,
+            status_message: None,
+        }
+    }
+
+    #[test]
+    fn line_spans_for_a_container_has_no_value_segment() {
+        let l = line("user", true, None, 0, &["user"]);
+        let spans = line_spans(&l, false);
+        assert_eq!(spans.len(), 2);
+        assert!(spans[0].content.as_ref().contains('▸'));
+        assert_eq!(spans[1].content.as_ref(), "user");
+    }
+
+    #[test]
+    fn line_spans_for_a_leaf_includes_value_segment() {
+        let l = line(
+            "name",
+            false,
+            Some(("Alice", TqColor::Str)),
+            1,
+            &["user", "name"],
+        );
+        let spans = line_spans(&l, false);
+        assert_eq!(spans.len(), 4);
+        assert_eq!(spans[1].content.as_ref(), "name");
+        assert_eq!(spans[2].content.as_ref(), ": ");
+        assert_eq!(spans[3].content.as_ref(), "Alice");
+    }
+
+    #[test]
+    fn line_spans_indent_scales_with_depth() {
+        let l = line("x", false, Some(("1", TqColor::Number)), 3, &["x"]);
+        let spans = line_spans(&l, false);
+        assert!(spans[0].content.as_ref().starts_with("      "));
+    }
+
+    #[test]
+    fn render_draws_lines_and_status_bar() {
+        let state = state_with(
+            vec![
+                line("user", true, None, 0, &["user"]),
+                line(
+                    "name",
+                    false,
+                    Some(("Alice", TqColor::Str)),
+                    1,
+                    &["user", "name"],
+                ),
+            ],
+            1,
+        );
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("user"));
+        assert!(text.contains("Alice"));
+        assert!(text.contains("user.name"));
+    }
+
+    #[test]
+    fn render_shows_search_prompt_when_searching() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.searching = true;
+        state.search = "ali".to_string();
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("/ali"));
+    }
+
+    #[test]
+    fn render_shows_status_message_over_path_when_present() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.status_message = Some("copied: user".to_string());
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("copied: user"));
+    }
+}
