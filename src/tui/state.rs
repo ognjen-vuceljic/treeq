@@ -116,6 +116,8 @@ pub(super) struct AppState {
     /// current node's type/size, full path, and any tag, all otherwise not
     /// visible in the tree view at a glance.
     pub(super) inspect_visible: bool,
+    /// Scroll offset for the popup's match list, same idea as `scroll_offset`.
+    pub(super) popup_scroll_offset: Cell<usize>,
 }
 
 /// The keybinding legend shown when help is toggled on, as
@@ -264,6 +266,7 @@ mod tests {
             popup_query: String::new(),
             popup_selected: 0,
             inspect_visible: false,
+            popup_scroll_offset: std::cell::Cell::new(0),
         }
     }
 
