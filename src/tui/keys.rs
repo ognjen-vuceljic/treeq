@@ -2,17 +2,13 @@ use super::state::AppState;
 use crate::clipboard::copy_to_clipboard;
 use crossterm::event::KeyCode;
 
-/// The array-truncation summary line's own path always ends with its own
-/// synthetic label segment; strip it to get the array's real path (used to
-/// key `array_overrides`, and to yank a real, pastable path with 'y').
+/// Strips the array-truncation summary line's own synthetic segment to get
+/// the array's real path.
 pub(super) fn array_path_for_summary_line(path: &[String]) -> &[String] {
     path.split_last().map_or(path, |(_, rest)| rest)
 }
 
-/// Fuzzy subsequence match, case-insensitive: every character of `pattern`
-/// must appear in `text` in order, though not necessarily contiguously
-/// (e.g. "nme" matches "name"). A plain substring match is a special
-/// case of this, so this is a strict superset of the old `contains` check.
+/// Subsequence match, case-insensitive (e.g. "nme" matches "name").
 pub(super) fn fuzzy_matches(text: &str, pattern: &str) -> bool {
     let text = text.to_lowercase();
     let mut chars = text.chars();
@@ -22,14 +18,10 @@ pub(super) fn fuzzy_matches(text: &str, pattern: &str) -> bool {
         .all(|p| chars.any(|c| c == p))
 }
 
-/// Matches against each currently-visible line's full dotted path, cycling
-/// forward from the cursor. If nothing visible matches, falls back to
-/// searching every node in the document — including collapsed subtrees —
-/// and, on a match there, expands just enough ancestors to bring it into
-/// view (see issue #30). The actual cursor move for that fallback case
-/// happens once `lines` is rebuilt after this returns (see
-/// `state::apply_pending_cursor_path`), since expanding a collapsed
-/// ancestor doesn't take effect until then.
+/// Cycles forward through visible matches; falls back to the whole document
+/// (including collapsed subtrees), expanding ancestors as needed. The
+/// actual cursor move for that fallback happens once `lines` rebuilds (see
+/// `state::apply_pending_cursor_path`).
 pub(super) fn jump_to_next_match(state: &mut AppState) {
     if state.search.is_empty() {
         return;
@@ -53,15 +45,9 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
     }
 }
 
-/// A visible line's search text: its dotted path, plus `: value` for a leaf
-/// (see issue #50) — the exact same format `all_paths`' entries use (see
-/// `flatten::search_text`, which this delegates to so the two can't drift
-/// apart), so a query spanning both the key and the value (e.g.
-/// `author: "user`) can find a currently-visible line the same way it finds
-/// one in a collapsed subtree. The array-truncation summary line is an
-/// exception: its "value" is synthetic UI boilerplate ("N more (Tab to show
-/// all)"), not document data, so it's excluded to avoid a generic word like
-/// "show" or "tab" accidentally matching it.
+/// Delegates to `flatten::search_text` so visible-line and whole-document
+/// search stay in the same format. The array-summary line's value is UI
+/// chrome, not document data, so it's excluded from matching.
 pub(super) fn line_search_text(line: &super::state::Line) -> String {
     let value = if line.is_array_summary {
         None
@@ -71,31 +57,25 @@ pub(super) fn line_search_text(line: &super::state::Line) -> String {
     super::flatten::search_text(&line.path, value)
 }
 
-/// Expands just enough ancestors — and lifts any array-preview truncation
-/// along the way — to bring `path` into view (see issues #30, #41). Doesn't
-/// move the cursor itself; the caller sets `pending_cursor_path` for that,
+/// Doesn't move the cursor itself; the caller sets `pending_cursor_path`,
 /// since a collapsed ancestor doesn't take effect until `lines` rebuilds.
 pub(super) fn expand_path_into_view(state: &mut AppState, path: &[String]) {
     for i in 1..path.len() {
         let ancestor = path[..i].to_vec();
         state.collapsed.remove(&ancestor);
-        // Also lift any array-preview truncation an ancestor might be
-        // under (see issue #5): harmless to set on a non-array ancestor,
-        // since `flatten_json` only consults it for arrays.
+        // Harmless on a non-array ancestor: flatten_json only reads this for arrays.
         state.array_overrides.insert(ancestor);
     }
 }
 
-/// Moves the cursor to the line at `path`, if one is currently visible.
 pub(super) fn move_cursor_to_path(state: &mut AppState, path: &[String]) {
     if let Some(idx) = state.lines.iter().position(|l| l.path == path) {
         state.cursor = idx;
     }
 }
 
-/// Every path in the whole document matching the popup's current query
-/// (see issue #41); empty query intentionally yields no matches rather
-/// than dumping the entire document.
+/// Empty query intentionally yields no matches rather than dumping the
+/// entire document.
 pub(super) fn popup_matches(state: &AppState) -> Vec<Vec<String>> {
     popup_match_entries(state)
         .into_iter()
@@ -103,8 +83,7 @@ pub(super) fn popup_matches(state: &AppState) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// Same matches as `popup_matches`, paired with their search text (used to
-/// render the value alongside the path — see issue #51).
+/// Same matches as `popup_matches`, paired with their search text.
 pub(super) fn popup_match_entries(state: &AppState) -> Vec<&(Vec<String>, String)> {
     if state.popup_query.is_empty() {
         return Vec::new();
@@ -116,16 +95,8 @@ pub(super) fn popup_match_entries(state: &AppState) -> Vec<&(Vec<String>, String
         .collect()
 }
 
-/// Digits accumulated in a pending count-jump (see issue #39): enough for
-/// any realistic document (999999 lines) while staying trivially
-/// parseable as a `usize` with no overflow risk.
 const MAX_COUNT_DIGITS: usize = 6;
 
-/// Handles a key while a count-prefixed jump (`g`, see issue #39) is being
-/// entered: digits extend the buffer (shown in the status bar by
-/// `render.rs`), `↑`/`↓` consumes it as a line count and moves the cursor
-/// that many lines, and any other key cancels the pending count without
-/// moving.
 fn apply_count_jump(state: &mut AppState, key: KeyCode) {
     match key {
         KeyCode::Char(c) if c.is_ascii_digit() => {
@@ -147,8 +118,7 @@ fn apply_count_jump(state: &mut AppState, key: KeyCode) {
     }
 }
 
-/// Consumes the pending count buffer, defaulting to 1 when it's empty (`g`
-/// followed directly by an arrow, with no digits typed) or unparseable.
+/// Defaults to 1 when the buffer is empty or unparseable.
 fn take_count(state: &mut AppState) -> usize {
     state
         .count_buffer
@@ -158,11 +128,6 @@ fn take_count(state: &mut AppState) -> usize {
         .unwrap_or(1)
 }
 
-/// Handles a key while the search-results popup (`F`, see issue #41) is
-/// open: typing filters the whole-document match list live, `↑`/`↓` moves
-/// the selection, `Enter` expands the selected match into view and closes
-/// the popup, `Esc` (or anything else) just closes it without moving
-/// anything.
 fn apply_popup_key(state: &mut AppState, key: KeyCode) {
     match key {
         KeyCode::Enter => {
@@ -196,7 +161,6 @@ fn apply_popup_key(state: &mut AppState, key: KeyCode) {
     }
 }
 
-/// Wraps forward/backward through the match list (`Tab`/`Shift+Tab`).
 fn cycle_popup_selection(state: &mut AppState, delta: i64) {
     let n = popup_matches(state).len();
     if n == 0 {
@@ -207,8 +171,6 @@ fn cycle_popup_selection(state: &mut AppState, delta: i64) {
     state.popup_selected = (((cur + delta) % n + n) % n) as usize;
 }
 
-/// Collapses the immediate parent container of the current node (never the
-/// node itself, even if it is a container) and moves the cursor there.
 fn collapse_nearest_parent(state: &mut AppState) {
     let Some(line) = state.lines.get(state.cursor) else {
         return;
@@ -233,25 +195,15 @@ fn is_jq_identifier(s: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// True only for a segment shaped exactly like a synthesized array-index
-/// segment (`"[0]"`, `"[12]"`, ...), as `flatten_json` produces via
-/// `format!("[{i}]", ...)`. Note: a real object key that happens to be
-/// spelled identically (e.g. a JSON document with a literal `"[0]"` key)
-/// is indistinguishable from an array index in `Line.path` today — this is
-/// a pre-existing ambiguity shared with the internal dotted-path 'y' yank
-/// and `--path`, not something this jq conversion can resolve on its own.
+/// A real object key spelled like `"[0]"` is indistinguishable from a
+/// synthesized array index here — a pre-existing ambiguity shared with 'y'
+/// yank and `--path`.
 fn is_array_index_segment(s: &str) -> bool {
     s.strip_prefix('[')
         .and_then(|s| s.strip_suffix(']'))
         .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// Escapes a string for use inside a double-quoted jq string literal:
-/// backslash, double-quote, and the common single-character escapes for
-/// control characters that would otherwise break a "ready-to-run",
-/// single-line filter when pasted (a literal newline/tab byte survives
-/// otherwise, since `str::replace` only touches the two characters it's
-/// given).
 fn escape_jq_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -268,11 +220,7 @@ fn escape_jq_string(s: &str) -> String {
     out
 }
 
-/// Converts a `Line`'s dotted-path segments into a jq filter expression,
-/// e.g. `["user", "tags", "[0]"]` -> `.user.tags[0]`. Array-index segments
-/// are already bracketed (`"[0]"`) by the flattener and pass through
-/// as-is; object keys that aren't valid unquoted jq identifiers use
-/// bracket-and-quote form instead (e.g. `.["odd key"]`).
+/// e.g. `["user", "tags", "[0]"]` -> `.user.tags[0]`.
 fn to_jq_path(path: &[String]) -> String {
     if path.is_empty() {
         return ".".to_string();
@@ -293,10 +241,6 @@ fn to_jq_path(path: &[String]) -> String {
     out
 }
 
-/// Tags the current node with `tag` (1-8, see issue #40), or untags it if it
-/// already carries that exact tag. Tagging the array-truncation summary
-/// line tags the array's real path instead, consistent with 'y' yank (see
-/// issue #5).
 fn toggle_tag(state: &mut AppState, tag: u8) {
     let Some(line) = state.lines.get(state.cursor) else {
         return;
@@ -306,10 +250,9 @@ fn toggle_tag(state: &mut AppState, tag: u8) {
     } else {
         line.path.clone()
     };
-    // A tag's own background is suppressed on the cursor's line (it would
-    // clash with the reversed-video cursor highlight), so this status
-    // message is the only feedback when tagging the node you're on — the
-    // common case, since you tag what you're looking at.
+    // The tag background is suppressed on the cursor's own line, so this
+    // status message is the only feedback for the common case of tagging
+    // the node you're looking at.
     if state.tags.get(&path) == Some(&tag) {
         state.tags.remove(&path);
         state.status_message = Some(format!("untagged: {}", path.join(".")));
@@ -319,8 +262,6 @@ fn toggle_tag(state: &mut AppState, tag: u8) {
     }
 }
 
-/// Collapses every ancestor of the current node up to the root in one
-/// action, and moves the cursor to the outermost (root) ancestor.
 fn collapse_all_ancestors(state: &mut AppState) {
     let Some(line) = state.lines.get(state.cursor) else {
         return;
@@ -389,13 +330,10 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
                     state.array_overrides.insert(array_path);
                 } else if line.has_children {
                     if state.collapsed.remove(&line.path) {
-                        // Nothing further: re-expanding a container doesn't
-                        // touch array_overrides.
+                        // no-op: re-expanding doesn't touch array_overrides
                     } else {
                         state.collapsed.insert(line.path.clone());
-                        // Re-collapsing an array also resets its preview:
-                        // expanding it again later starts truncated, so a
-                        // fully-expanded huge array always has a way back.
+                        // Resets the preview so re-expanding starts truncated again.
                         state.array_overrides.remove(&line.path);
                     }
                 }
@@ -407,8 +345,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         KeyCode::Char('F') => {
             state.popup_visible = true;
-            // Pre-fill from any in-progress `/` search, so hitting F right
-            // after typing a query shows all its matches immediately.
+            // Pre-fill from an in-progress `/` search, if any.
             state.popup_query = state.search.clone();
             state.popup_selected = 0;
         }
@@ -605,9 +542,6 @@ mod tests {
 
     #[test]
     fn a_real_key_that_looks_like_the_truncation_label_still_collapses_normally() {
-        // A real container whose key happens to be spelled "…more" must
-        // still behave as an ordinary collapsible node, not be mistaken
-        // for the synthetic array-truncation summary line.
         let mut state = fixture();
         state.lines.push(line("…more", true, &["user", "…more"]));
         state.cursor = 3;
@@ -708,8 +642,6 @@ mod tests {
         }
     }
 
-    /// A flat, `n`-line fixture for exercising count-prefixed jumps, which
-    /// need more room to move through than `fixture()`'s 3 lines.
     fn tall_fixture(n: usize, cursor: usize) -> AppState {
         AppState {
             lines: (0..n)
@@ -819,8 +751,6 @@ mod tests {
 
     #[test]
     fn g_key_does_not_tag_the_current_node() {
-        // 'g' must be fully claimed by count-jump mode, not fall through to
-        // any other binding.
         let mut state = fixture();
         handle_key(&mut state, KeyCode::Char('g'));
         assert!(state.tags.is_empty());
@@ -864,10 +794,6 @@ mod tests {
 
     #[test]
     fn popup_matches_a_key_value_combo_reaching_a_collapsed_or_off_screen_node() {
-        // Issue #50: the popup searches `all_paths`, which now carries
-        // search text (not just the dotted path), so a query spanning a
-        // node's key and its value must find it even though it's not one
-        // of `fixture()`'s visible lines.
         let mut state = fixture();
         state
             .all_paths
@@ -1326,8 +1252,6 @@ mod tests {
 
     #[test]
     fn jump_to_next_match_finds_a_visible_lines_key_value_combo() {
-        // Issue #50: a query spanning both the key and the value (as
-        // rendered, "key: value") must match, not just the dotted path.
         let mut state = fixture();
         state.lines.push(Line {
             depth: 0,
@@ -1345,9 +1269,6 @@ mod tests {
 
     #[test]
     fn search_ignores_the_array_summary_lines_synthetic_boilerplate_value() {
-        // Issue #50's fix-review: the "…more" summary line's value is UI
-        // chrome ("N more (Tab to show all)"), not document data, so a
-        // generic word from it must not become searchable.
         let mut state = fixture();
         state
             .lines
@@ -1416,11 +1337,8 @@ mod tests {
         use super::super::state::rebuild_json_lines;
         use crate::json_tree::JsonNode;
 
-        // 300 items is well past the 200-item array preview limit (issue
-        // #5), so item [250] isn't in `lines` until the array is expanded.
-        // Values are digit-free ("x") so the "250" query can only match the
-        // array index itself, not bleed across the key/value boundary of a
-        // combined search text (see issue #50) into some other item's value.
+        // Digit-free values so "250" can only match the array index, not
+        // bleed across the key/value boundary into another item's value.
         let items: Vec<serde_json::Value> = (0..300).map(|_| serde_json::json!("x")).collect();
         let value = serde_json::json!({ "logs": items });
         let node = JsonNode::from_value(&value);
@@ -1555,9 +1473,6 @@ mod tests {
 
     #[test]
     fn digit_9_is_not_bound_to_tagging() {
-        // 9 is deliberately left unbound (see issue #40): the palette tops
-        // out at 8 to avoid `Light*`/base color pairs that look identical
-        // on common terminal themes.
         let mut state = fixture();
         handle_key(&mut state, KeyCode::Char('9'));
         assert!(state.tags.is_empty());
@@ -1624,8 +1539,6 @@ mod tests {
 
     #[test]
     fn a_key_shaped_like_a_bracketed_word_is_still_quoted_not_treated_as_an_index() {
-        // Only digits-in-brackets ("[0]") are treated as array indices;
-        // anything else bracketed is a real (if unusual) object key.
         assert_eq!(to_jq_path(&["[odd]".to_string()]), ".[\"[odd]\"]");
         assert_eq!(to_jq_path(&["[]".to_string()]), ".[\"[]\"]");
     }
