@@ -6,16 +6,9 @@ use ratatui::style::Color;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
-/// The tag color palette, indexed by `tag - 1`. Bound to keys `1`-`8` (see
-/// issue #40); an array here (rather than a fixed-arity match) is what
-/// makes the tag count a one-line change instead of a restructuring.
-///
-/// Dim/dark RGB tints rather than raw ANSI hues (see issue #43): a
-/// full-saturation background like `Color::Green` reads as a harsh solid
-/// block and washes out the foreground text it's layered under. Each tint
-/// here targets roughly the same dark luminance so foreground text (key
-/// cyan, string green, number yellow, etc.) stays readable against every
-/// one of them, while still being clearly distinct hue-to-hue.
+/// Dim/dark tints rather than raw ANSI hues: a full-saturation background
+/// washes out the foreground text layered on top of it. Kept at roughly the
+/// same luminance so no tag stands out as brighter or dimmer than another.
 const TAG_PALETTE: [Color; 8] = [
     Color::Rgb(90, 30, 30), // red
     Color::Rgb(30, 45, 90), // blue
@@ -27,9 +20,6 @@ const TAG_PALETTE: [Color; 8] = [
     Color::Rgb(60, 60, 60), // gray
 ];
 
-/// One of `TAG_PALETTE`'s colors a node can be marked with via the `1`-`8`
-/// keys (see issues #6, #40); additive to the type-based palette, applied
-/// as a background rather than overriding a scalar's foreground color.
 /// `tag` is 1-based; out-of-range values wrap rather than panic.
 pub(super) fn tag_color(tag: u8) -> Color {
     let idx = (tag.saturating_sub(1) as usize) % TAG_PALETTE.len();
@@ -42,14 +32,10 @@ pub(super) struct Line {
     pub(super) value: Option<(String, TqColor)>,
     pub(super) path: Vec<String>,
     pub(super) has_children: bool,
-    /// True only for the synthetic "N more (Tab to show all)" line an
-    /// oversized array is truncated to; distinguishes it from a real node
-    /// so a real key that happens to be spelled like the sentinel marker
-    /// text is never mistaken for one (see issue #5's array truncation).
+    /// True only for the synthetic "N more (Tab to show all)" line, so a
+    /// real key spelled the same way is never mistaken for it.
     pub(super) is_array_summary: bool,
-    /// A human-readable type/size description (e.g. "object (3 fields)",
-    /// "string (5 chars)"), computed once at flatten time for the inspect
-    /// popup (`i`, see issue #42) rather than re-walking the source tree.
+    /// Human-readable type/size, e.g. "object (3 fields)", "string (5 chars)".
     pub(super) type_label: String,
 }
 
@@ -57,14 +43,11 @@ pub(super) struct AppState {
     pub(super) lines: Vec<Line>,
     pub(super) collapsed: HashSet<Vec<String>>,
     pub(super) all_container_paths: HashSet<Vec<String>>,
-    /// Paths of arrays the user has chosen to fully expand past the
-    /// default preview limit (see issue #5). Collapsing an array's own
-    /// line (Tab/Space) also clears its entry here, so re-expanding it
-    /// later starts truncated again — the way back to the fast preview.
+    /// Arrays expanded past the default preview limit. Collapsing an
+    /// array's own line clears its entry, so re-expanding it starts
+    /// truncated again.
     pub(super) array_overrides: HashSet<Vec<String>>,
-    /// Nodes explicitly tagged (`1`-`8`, see issue #40) with a highlight
-    /// color, keyed by path; in-memory only, reset each session like
-    /// everything else here.
+    /// Tagged nodes, keyed by path; in-memory only.
     pub(super) tags: HashMap<Vec<String>, u8>,
     pub(super) cursor: usize,
     pub(super) search: String,
@@ -72,59 +55,31 @@ pub(super) struct AppState {
     pub(super) use_color: bool,
     pub(super) status_message: Option<String>,
     pub(super) help_visible: bool,
-    /// True for a JSON (or YAML, which is rendered as JSON) document, false
-    /// for XML. Gates the `Y` (yank as jq path) binding, since jq has no
-    /// XML equivalent (see issue #8).
+    /// False for XML. Gates the `Y` (yank as jq path) binding.
     pub(super) is_json: bool,
-    /// The list viewport's scroll offset, carried over between frames so
-    /// the cursor can move within an already-scrolled view instead of
-    /// re-pinning to the window's edge every render (see issue #36's
-    /// fix-review). `Cell` avoids threading `&mut AppState` through
-    /// `render()` just for this.
+    /// `Cell` so `render()` can update it without needing `&mut AppState`.
     pub(super) scroll_offset: Cell<usize>,
-    /// Every node's path in the whole document (containers and leaves),
-    /// paired with its search text (dotted path, plus `: value` for a leaf
-    /// — see issue #50), computed once at startup and unaffected by
-    /// collapse state. Lets search reach into collapsed subtrees instead of
-    /// being limited to `lines` (see issue #30) and match key/value combos.
+    /// Every node's path and search text (dotted path plus `: value` for a
+    /// leaf), independent of collapse state, so search can reach collapsed
+    /// subtrees and match key/value combos.
     pub(super) all_paths: Vec<(Vec<String>, String)>,
-    /// Set by a search match found outside the currently-visible lines: the
-    /// path to select once `lines` has been rebuilt after expanding its
-    /// ancestors (see issue #30). Consumed and cleared by
-    /// `rebuild_json_lines` / `rebuild_xml_lines`.
+    /// A search match found outside the visible lines: consumed by
+    /// `rebuild_json_lines`/`rebuild_xml_lines` once `lines` is rebuilt.
     pub(super) pending_cursor_path: Option<Vec<String>>,
-    /// While `Some`, a count-prefixed jump is being entered (`g`, then
-    /// digits, then an arrow key — see issue #39): the digits typed so far,
-    /// shown in the status bar. `None` means normal key handling applies.
-    /// Capped at 6 digits while accumulating to keep it representable as a
-    /// `usize` without needing overflow-checked parsing.
+    /// Digits typed so far for a pending count-prefixed jump (`g` + digits
+    /// + arrow). Capped at 6 digits to stay a safely parseable `usize`.
     pub(super) count_buffer: Option<String>,
-    /// True while the interactive search-results popup is open (`F`, see
-    /// issue #41): an fzf-like list of every match across the whole
-    /// document (not just visible lines), as opposed to `/`'s one-at-a-time
-    /// incremental jump.
+    /// True while the whole-document search popup (`F`) is open.
     pub(super) popup_visible: bool,
-    /// The popup's own query text, separate from `search` so opening the
-    /// popup doesn't clobber (or get clobbered by) an in-progress `/`
-    /// search.
+    /// Separate from `search` so opening the popup doesn't clobber it.
     pub(super) popup_query: String,
-    /// Index into the popup's current match list (recomputed from
-    /// `popup_query` each frame, not stored). Clamped whenever the query or
-    /// match count changes.
     pub(super) popup_selected: usize,
-    /// True while the inspect popup is open (`i`, see issue #42): shows the
-    /// current node's type/size, full path, and any tag, all otherwise not
-    /// visible in the tree view at a glance.
     pub(super) inspect_visible: bool,
-    /// Scroll offset for the popup's match list, same idea as `scroll_offset`.
     pub(super) popup_scroll_offset: Cell<usize>,
 }
 
-/// The keybinding legend shown when help is toggled on, as
-/// (key, description) pairs, in display order. This is the source of truth
-/// for the in-app overlay; a test in `tui::render` cross-checks that every
-/// description here also appears in README.md's keybindings table so the
-/// two can't silently drift apart.
+/// Source of truth for the in-app help overlay; cross-checked by a test
+/// against README.md's keybindings table.
 pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("↑ / ↓", "move cursor"),
     ("g", "count-prefixed jump: type digits, then ↑/↓"),
@@ -143,10 +98,6 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("q / Esc", "quit"),
 ];
 
-/// If a search jump left a path pending selection, resolves it to the
-/// freshly-rebuilt `lines`' index and clears it (see issue #30). Falls back
-/// to leaving the cursor untouched if the path isn't visible after all
-/// (shouldn't happen, since the caller expands its ancestors first).
 fn apply_pending_cursor_path(state: &mut AppState) {
     if let Some(path) = state.pending_cursor_path.take() {
         super::keys::move_cursor_to_path(state, &path);
@@ -216,12 +167,6 @@ mod tests {
 
     #[test]
     fn tag_colors_are_dim_rgb_tints_not_harsh_ansi_blocks() {
-        // Issue #43: a full-saturation ANSI background (e.g. Color::Green)
-        // reads as a harsh solid block; every tag color must instead be a
-        // dark/dim Rgb tint, all within a narrow luminance band, so no tag
-        // reads noticeably brighter or dimmer than the rest (dim enough to
-        // keep foreground text readable, bright enough to still show up
-        // against a dark terminal theme's own background).
         for tag in 1..=8 {
             match tag_color(tag) {
                 Color::Rgb(r, g, b) => {
@@ -238,8 +183,6 @@ mod tests {
 
     #[test]
     fn tag_color_wraps_instead_of_panicking_outside_the_palette() {
-        // Defensive: `tag` is only ever produced by the `1`-`8` keybinding
-        // today, but the function itself shouldn't panic on 0 or >8.
         assert_eq!(tag_color(0), tag_color(1));
         assert_eq!(tag_color(9), tag_color(1));
     }

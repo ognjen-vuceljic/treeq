@@ -58,8 +58,6 @@ struct Args {
     schema: bool,
 }
 
-/// Default tree-render depth used by `--agent` when the user hasn't
-/// explicitly passed `--depth`.
 const AGENT_DEFAULT_DEPTH: usize = 3;
 
 fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
@@ -112,14 +110,11 @@ fn run_json(input: &str, args: &Args) {
     run_json_tree(&tree, input, args);
 }
 
-/// Detects and rejects multi-document YAML by matching serde_yaml's own
-/// error text, since `Deserializer::from_str(..).count()` (the structural
-/// way to detect multiple `---`-separated documents) hangs on certain
-/// malformed single-document input in serde_yaml 0.9. This message is not a
-/// stable API: if a future serde_yaml release rewords it, this check stops
-/// matching and the raw underlying error is shown instead of our friendlier
-/// one — `reports_multi_document_yaml_as_unsupported` guards against that
-/// regression going unnoticed on a dependency bump.
+/// Detects multi-document YAML by matching serde_yaml's error text: the
+/// structural check (`Deserializer::from_str(..).count()`) hangs on some
+/// malformed single-document input in serde_yaml 0.9. Not a stable API —
+/// `reports_multi_document_yaml_as_unsupported` guards against a wording
+/// change silently breaking this.
 fn parse_single_yaml_document(input: &str) -> Result<serde_yaml::Value, String> {
     serde_yaml::from_str::<serde_yaml::Value>(input).map_err(|e| {
         let msg = e.to_string();

@@ -4,15 +4,10 @@ use crate::json_tree::{JsonNode, JsonScalar};
 use crate::xml_tree::XmlNode;
 use std::collections::HashSet;
 
-/// "s" for anything but exactly 1, for pluralizing a count in a type label
-/// (see issue #42's inspect popup).
 fn plural_suffix(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
 
-/// A human-readable type/size description for a JSON node (see issue #42's
-/// inspect popup), e.g. "object (3 fields)", "array (12 items)", "string (5
-/// chars)".
 fn json_type_label(node: &JsonNode) -> String {
     match node {
         JsonNode::Object(fields) => {
@@ -35,9 +30,6 @@ fn json_type_label(node: &JsonNode) -> String {
     }
 }
 
-/// A human-readable type/size description for an XML node (see issue #42's
-/// inspect popup). XML has no array/object distinction, so a node is either
-/// an element with children, a leaf with text content, or an empty element.
 fn xml_type_label(node: &XmlNode) -> String {
     if !node.children.is_empty() {
         let n = node.children.len();
@@ -51,14 +43,10 @@ fn xml_type_label(node: &XmlNode) -> String {
     }
 }
 
-/// Arrays longer than this are truncated to a preview in the TUI, with a
-/// synthetic summary line (`Line::is_array_summary`) that expands the array
-/// back to full via `array_overrides` (see issue #5).
 const ARRAY_PREVIEW_LIMIT: usize = 200;
 
-/// Display key for the synthetic array-truncation summary line. This is
-/// cosmetic only — `Line::is_array_summary`, not this text, is what
-/// `keys::handle_key` checks, so it can never collide with a real key.
+/// Cosmetic only — `Line::is_array_summary`, not this text, is what
+/// `keys::handle_key` checks, so a real key spelled the same way can't collide.
 const ARRAY_TRUNCATION_LABEL: &str = "\u{2026}more";
 
 pub(super) fn flatten_json(
@@ -199,10 +187,6 @@ pub(super) fn collect_container_paths_xml(
     }
 }
 
-/// A node's dotted path, plus its value if it's a leaf, joined the same way
-/// a line renders (`key: value`) — what search actually matches against
-/// (see issue #50), so a query spanning both the key and the value (e.g.
-/// `author: "user`) can find a node that a path-only match would miss.
 pub(super) fn search_text(path: &[String], value: Option<&str>) -> String {
     let joined = path.join(".");
     match value {
@@ -211,9 +195,6 @@ pub(super) fn search_text(path: &[String], value: Option<&str>) -> String {
     }
 }
 
-/// Every node's path (containers and leaves alike) plus its search text,
-/// independent of collapse state — lets search reach into collapsed
-/// subtrees (see issue #30) and match on key/value combos (see issue #50).
 pub(super) fn collect_all_paths_json(
     node: &JsonNode,
     path: &[String],

@@ -16,9 +16,7 @@ fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
         Style::default()
     };
     let key_style = if use_color {
-        // Bold on top of the key's own color (see issue #43), so a key is
-        // distinguishable from its value by weight alone, not just hue --
-        // useful for anyone who finds cyan-vs-green hard to tell apart.
+        // Bold distinguishes a key from its value by weight, not just hue.
         Style::default()
             .fg(ratatui_color(TqColor::Key))
             .add_modifier(Modifier::BOLD)
@@ -49,10 +47,7 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
     }
     render_tree(frame, area, state);
     if state.popup_visible {
-        // A floating card centered over the tree (see issue #41), not a
-        // full-screen replacement like the help overlay: the popup is meant
-        // to feel like picking from a list layered on top of context that's
-        // still visible around its edges.
+        // Floating card over the tree, not a full-screen replacement.
         let popup_area = centered_rect(90, 70, area);
         frame.render_widget(Clear, popup_area);
         render_search_popup(frame, popup_area, state);
@@ -64,9 +59,6 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
     }
 }
 
-/// The inspect popup (see issue #42): a small floating card with the
-/// current node's type/size, full path, and tag — details visible in the
-/// tree only indirectly (via color) or not at all (e.g. a string's length).
 fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
     let lines: Vec<RtLine> = match state.lines.get(state.cursor) {
         Some(line) => {
@@ -101,8 +93,6 @@ fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(paragraph, area);
 }
 
-/// A `percent_x` x `percent_y` rect centered within `area` (standard
-/// ratatui popup-centering idiom).
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::vertical([
         Constraint::Percentage((100 - percent_y) / 2),
@@ -146,10 +136,9 @@ fn match_spans(path: &[String], text: &str, is_json: bool, use_color: bool) -> V
     spans
 }
 
-/// Guesses a JSON scalar's type from its already-rendered display text
-/// (see `JsonScalar::display`): strings are always quoted, bools/null are
-/// fixed literals, everything else is a number. XML text is always a plain
-/// string (see `flatten_xml`) so callers must not use this for XML.
+/// Guesses type from already-rendered display text: strings are quoted,
+/// bools/null are fixed literals, everything else is a number. XML text is
+/// always plain, so callers must not use this for XML.
 fn infer_json_value_color(value: &str) -> TqColor {
     match value {
         "true" | "false" => TqColor::Bool,
@@ -238,13 +227,8 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         })
         .collect();
     let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(area);
-    // `ListState` seeded from the offset persisted since the last frame:
-    // ratatui only grows/shrinks the window enough to keep the selection
-    // visible, so starting from the prior offset (rather than 0 every time)
-    // lets the cursor move freely within an already-scrolled viewport
-    // instead of re-pinning to the window's last row on every keystroke
-    // (see issue #36's fix-review). The resulting offset is saved back for
-    // the next frame.
+    // Seeding from the persisted offset (not 0) lets the cursor move within
+    // an already-scrolled viewport instead of re-pinning every keystroke.
     let mut list_state = ListState::default()
         .with_offset(state.scroll_offset.get())
         .with_selected(Some(state.cursor));
@@ -271,9 +255,6 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(Paragraph::new(status), chunks[1]);
 }
 
-/// Spans for one "key   description" row of the help legend: the key
-/// column styled distinctly (bold, and colored when color is enabled) from
-/// the plain description, mirroring how `line_spans` styles a tree row.
 fn help_entry_spans(key: &str, desc: &str, use_color: bool) -> Vec<Span<'static>> {
     let key_style = if use_color {
         Style::default()
@@ -422,10 +403,6 @@ mod tests {
 
     #[test]
     fn xml_values_are_always_treated_as_strings_never_json_scalar_types() {
-        // Issue #51's fix-review: an XML leaf's text is always rendered
-        // as a plain string in the tree (see flatten_xml), regardless of
-        // whether it looks like a number or boolean, so the popup must
-        // match that instead of guessing a JSON scalar kind from shape.
         let path = vec!["active".to_string()];
         let spans = match_spans(&path, "active: true", false, true);
         assert_eq!(spans[2].style.fg, Some(ratatui_color(TqColor::Str)));
@@ -465,9 +442,6 @@ mod tests {
 
     #[test]
     fn key_span_is_bold_when_color_is_enabled_but_not_when_disabled() {
-        // Bold distinguishes a key from its value by weight, not just hue
-        // (see issue #43); it must not appear when color is off, since
-        // --no-color output should stay as plain as it was before.
         let l = line("user", true, None, 0, &["user"]);
         let colored = line_spans(&l, true);
         assert!(colored[1].style.add_modifier.contains(Modifier::BOLD));
@@ -497,10 +471,6 @@ mod tests {
 
     #[test]
     fn a_tagged_lines_key_is_still_bold_alongside_the_tag_background() {
-        // Regression guard for issue #43: the tag background is applied to
-        // the whole ListItem's style, while bold is a per-span style on the
-        // key text. Both must survive rendering together, not have one
-        // clobber the other.
         let mut state = state_with(
             vec![
                 line("root", true, None, 0, &["root"]),
@@ -560,9 +530,6 @@ mod tests {
 
     #[test]
     fn a_key_value_spanning_query_underlines_the_matching_line() {
-        // Issue #50's own repro: a query spanning a node's key and its
-        // rendered value (e.g. `author: "user`) must be treated as a match,
-        // not just a query against the dotted path alone.
         let mut state = state_with(
             vec![
                 line(
@@ -608,9 +575,6 @@ mod tests {
         assert!(text.contains("user.name"));
     }
 
-    /// The row a cell's symbol matching `needle` first appears on, scanning
-    /// left-to-right, top-to-bottom. Lets a test assert on the row a scrolled
-    /// item landed on without hardcoding ratatui's scroll-offset math.
     fn row_containing(buffer: &Buffer, needle: &str) -> Option<u16> {
         let area = buffer.area;
         for y in 0..area.height {
@@ -633,9 +597,6 @@ mod tests {
 
     #[test]
     fn viewport_scrolls_to_keep_a_cursor_far_down_a_tall_list_visible() {
-        // A plain (non-stateful) List render never scrolls, so on a
-        // document taller than the terminal the cursor could sit far below
-        // the visible area with no on-screen indication (see issue #36).
         let state = state_with(tall_list(200), 150);
         let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
@@ -712,13 +673,9 @@ mod tests {
 
     #[test]
     fn scroll_offset_persists_across_frames_instead_of_resetting_to_zero() {
-        // Regression for the fix-review's finding: rebuilding `ListState`
-        // from offset 0 every frame re-pins the cursor to the viewport's
-        // last row on every render past one screenful, instead of letting
-        // the cursor move within an already-scrolled window. Rendering the
-        // same tall list at two adjacent cursor positions should therefore
-        // produce the *same* persisted offset, not two independently
-        // recomputed ones that both happen to end at the window's edge.
+        // Rebuilding ListState from offset 0 every frame would re-pin the
+        // cursor to the viewport's last row on every render past one
+        // screenful, instead of letting it move within a scrolled window.
         let mut state = state_with(tall_list(200), 150);
         let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
@@ -767,8 +724,6 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("Search results"));
         assert!(text.contains("/user"));
-        // The underlying tree must still show around the popup's edges,
-        // unlike the full-screen help overlay.
         assert!(
             text.contains("user"),
             "tree content must still be visible behind/around the popup"
@@ -838,10 +793,8 @@ mod tests {
         );
     }
 
-    /// Cell-by-cell substring search: `buffer[(x, y)].symbol()` isn't
-    /// necessarily one byte (box-drawing borders, "▸", etc.), so a plain
-    /// `String::find` on a joined row returns a byte offset that doesn't
-    /// line up with the cell's actual column.
+    /// Cell-by-cell, not `String::find` on a joined row: a multi-byte
+    /// symbol (borders, "▸") would throw off a byte-offset column lookup.
     fn find_match_row_fg(buffer: &Buffer, expected_text: &str) -> Color {
         let expected: Vec<char> = expected_text.chars().collect();
         let area = buffer.area;
@@ -1073,7 +1026,6 @@ mod tests {
                 "missing description '{desc}' in help overlay: {text}"
             );
         }
-        // The underlying tree must not render behind the help overlay.
         assert!(!text.contains("user"));
     }
 
@@ -1092,7 +1044,6 @@ mod tests {
     fn help_entry_key_column_is_colored_when_color_is_enabled() {
         let spans = help_entry_spans("q / Esc", "quit", true);
         assert_eq!(spans[0].style.fg, Some(ratatui_color(TqColor::Key)));
-        // Only the key column is colored, not the description.
         assert_eq!(spans[1].style.fg, None);
     }
 
@@ -1104,7 +1055,6 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
         let buffer = terminal.backend().buffer();
-        // The top-left border cell should be styled with the "Key" color.
         assert_eq!(buffer[(0, 0)].fg, ratatui_color(TqColor::Key));
     }
 
