@@ -21,6 +21,8 @@ below.
 
 ## See it
 
+![treeq interactive TUI demo: collapsing/expanding, tagging nodes with colors, yanking a path, count-prefixed jumps, the fzf-style search popup, and full-document search reaching a collapsed subtree](assets/demo.gif)
+
 ```sh
 $ treeq --static sample.json
 root
@@ -47,10 +49,6 @@ objects: 3
 arrays: 1
 scalars: 6
 ```
-
-A terminal recording/GIF would round this section out properly — tracked as
-a follow-up, since it needs to be captured from an actual running session
-rather than generated.
 
 ## Why not just `jq`?
 
