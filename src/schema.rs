@@ -11,6 +11,9 @@ enum Shape {
     /// Nodes in this slot are not all the same kind (e.g. one is an object,
     /// another a string): fall back to a plain label union.
     Mixed(BTreeSet<String>),
+    /// Every non-null node in this slot shared one shape, but at least one
+    /// node was `null` (e.g. a nullable nested object/array field).
+    Nullable(Box<Shape>),
 }
 
 fn scalar_type_name(scalar: &JsonScalar) -> &'static str {
@@ -30,24 +33,58 @@ fn kind_label(node: &JsonNode) -> String {
     }
 }
 
+fn is_null(node: &JsonNode) -> bool {
+    matches!(node, JsonNode::Scalar(JsonScalar::Null))
+}
+
+/// Infers the shape shared by `nodes`, treating `null` as a modifier rather
+/// than a distinct kind: a mix of objects (or arrays) and nulls still infers
+/// the objects'/arrays' shape, wrapped as `Nullable`, instead of falling
+/// back to a structure-losing `Mixed` label union.
 fn infer_shape(nodes: &[&JsonNode]) -> Shape {
-    if nodes.iter().all(|n| matches!(n, JsonNode::Object(_))) {
-        return infer_object_shape(nodes);
+    let non_null: Vec<&JsonNode> = nodes.iter().copied().filter(|n| !is_null(n)).collect();
+    let has_null = non_null.len() != nodes.len();
+
+    if non_null.is_empty() {
+        let mut types = BTreeSet::new();
+        if has_null {
+            types.insert("null".to_string());
+        }
+        return Shape::Scalar(types);
     }
-    if nodes.iter().all(|n| matches!(n, JsonNode::Array(_))) {
-        return infer_array_shape(nodes);
+
+    let shape = infer_non_null_shape(&non_null, has_null);
+    match shape {
+        Shape::Object(_) | Shape::Array(_) if has_null => Shape::Nullable(Box::new(shape)),
+        Shape::Mixed(mut types) if has_null => {
+            types.insert("null".to_string());
+            Shape::Mixed(types)
+        }
+        other => other,
     }
-    if nodes.iter().all(|n| matches!(n, JsonNode::Scalar(_))) {
-        let types = nodes
+}
+
+fn infer_non_null_shape(non_null: &[&JsonNode], has_null: bool) -> Shape {
+    if non_null.iter().all(|n| matches!(n, JsonNode::Object(_))) {
+        return infer_object_shape(non_null);
+    }
+    if non_null.iter().all(|n| matches!(n, JsonNode::Array(_))) {
+        return infer_array_shape(non_null);
+    }
+    if non_null.iter().all(|n| matches!(n, JsonNode::Scalar(_))) {
+        let mut types: BTreeSet<String> = non_null
             .iter()
             .map(|n| match n {
                 JsonNode::Scalar(s) => scalar_type_name(s).to_string(),
                 _ => unreachable!(),
             })
             .collect();
+        if has_null {
+            types.insert("null".to_string());
+        }
         return Shape::Scalar(types);
     }
-    Shape::Mixed(nodes.iter().map(|n| kind_label(n)).collect())
+    Shape::Mixed(non_null.iter().map(|n| kind_label(n)).collect())
 }
 
 /// Field order follows first appearance across `nodes`, matching how JSON
@@ -115,14 +152,15 @@ fn array_type_str(shape: &Shape) -> String {
         Shape::Scalar(types) | Shape::Mixed(types) => scalar_type_str(types),
         Shape::Object(_) => "object".to_string(),
         Shape::Array(inner) => format!("array<{}>", array_type_str(inner)),
+        Shape::Nullable(inner) => format!("{}|null", array_type_str(inner)),
     }
 }
 
-/// Peels through nested `Array` wrappers to find the element shape that
-/// ultimately determines whether a sub-schema should be expanded.
+/// Peels through nested `Array` and `Nullable` wrappers to find the element
+/// shape that ultimately determines whether a sub-schema should be expanded.
 fn innermost(shape: &Shape) -> &Shape {
     match shape {
-        Shape::Array(inner) => innermost(inner),
+        Shape::Array(inner) | Shape::Nullable(inner) => innermost(inner),
         other => other,
     }
 }
@@ -133,25 +171,33 @@ fn format_object_fields(fields: &[(String, Shape)], depth: usize, out: &mut Stri
     }
 }
 
+/// Returns this shape's one-line type label and, if it's (or wraps) an
+/// object, the fields that should be expanded beneath it.
+fn shape_label_and_fields(shape: &Shape) -> (String, Option<&[(String, Shape)]>) {
+    match shape {
+        Shape::Object(fields) => ("object".to_string(), Some(fields.as_slice())),
+        Shape::Array(inner) => {
+            let label = format!("array<{}>", array_type_str(inner));
+            let fields = match innermost(inner) {
+                Shape::Object(fields) => Some(fields.as_slice()),
+                _ => None,
+            };
+            (label, fields)
+        }
+        Shape::Scalar(types) | Shape::Mixed(types) => (scalar_type_str(types), None),
+        Shape::Nullable(inner) => {
+            let (label, fields) = shape_label_and_fields(inner);
+            (format!("{label}|null"), fields)
+        }
+    }
+}
+
 fn format_field(name: &str, shape: &Shape, depth: usize, out: &mut String) {
     let indent = "  ".repeat(depth);
-    match shape {
-        Shape::Object(fields) => {
-            out.push_str(&format!("{indent}{name}: object\n"));
-            format_object_fields(fields, depth + 1, out);
-        }
-        Shape::Array(inner) => {
-            out.push_str(&format!(
-                "{indent}{name}: array<{}>\n",
-                array_type_str(inner)
-            ));
-            if let Shape::Object(fields) = innermost(inner) {
-                format_object_fields(fields, depth + 1, out);
-            }
-        }
-        Shape::Scalar(types) | Shape::Mixed(types) => {
-            out.push_str(&format!("{indent}{name}: {}\n", scalar_type_str(types)));
-        }
+    let (label, fields) = shape_label_and_fields(shape);
+    out.push_str(&format!("{indent}{name}: {label}\n"));
+    if let Some(fields) = fields {
+        format_object_fields(fields, depth + 1, out);
     }
 }
 
@@ -159,9 +205,12 @@ fn format_field(name: &str, shape: &Shape, depth: usize, out: &mut String) {
 /// an indented string (2 spaces per depth), similar in spirit to
 /// `render::render_json`.
 pub fn json_schema(node: &JsonNode) -> String {
+    // A single root node is never null-mixed with anything else, so
+    // infer_shape(&[node]) never produces Shape::Nullable here.
     let shape = infer_shape(&[node]);
     let mut out = String::new();
     match &shape {
+        Shape::Object(fields) if fields.is_empty() => out.push_str("object<empty>\n"),
         Shape::Object(fields) => format_object_fields(fields, 0, &mut out),
         Shape::Array(inner) => {
             out.push_str(&format!("array<{}>\n", array_type_str(inner)));
@@ -173,28 +222,55 @@ pub fn json_schema(node: &JsonNode) -> String {
             out.push_str(&scalar_type_str(types));
             out.push('\n');
         }
+        Shape::Nullable(_) => {
+            let (label, fields) = shape_label_and_fields(&shape);
+            out.push_str(&label);
+            out.push('\n');
+            if let Some(fields) = fields {
+                format_object_fields(fields, 1, &mut out);
+            }
+        }
     }
     out
 }
 
-fn distinct_child_names(node: &XmlNode) -> Vec<String> {
+/// Distinct child element names across every node in `parents`, in first-
+/// appearance order, so a repeated element's *union* of shapes across all
+/// its instances is what gets inspected (see `format_xml_child`).
+fn distinct_child_names(parents: &[&XmlNode]) -> Vec<String> {
     let mut names = Vec::new();
-    for child in &node.children {
-        if !names.contains(&child.name) {
-            names.push(child.name.clone());
+    for parent in parents {
+        for child in &parent.children {
+            if !names.contains(&child.name) {
+                names.push(child.name.clone());
+            }
         }
     }
     names
 }
 
-fn format_xml_child(node: &XmlNode, name: &str, depth: usize, out: &mut String) {
-    let siblings: Vec<&XmlNode> = node.children.iter().filter(|c| c.name == name).collect();
+fn union_attribute_names(siblings: &[&XmlNode]) -> Vec<String> {
+    let mut names = Vec::new();
+    for sibling in siblings {
+        for (key, _) in &sibling.attributes {
+            if !names.contains(key) {
+                names.push(key.clone());
+            }
+        }
+    }
+    names
+}
+
+fn format_xml_child(parents: &[&XmlNode], name: &str, depth: usize, out: &mut String) {
+    let siblings: Vec<&XmlNode> = parents
+        .iter()
+        .flat_map(|p| p.children.iter())
+        .filter(|c| c.name == name)
+        .collect();
     let indent = "  ".repeat(depth);
     let mut line = format!("{indent}{name}");
-    if let Some(first) = siblings.first()
-        && !first.attributes.is_empty()
-    {
-        let attrs: Vec<&str> = first.attributes.iter().map(|(k, _)| k.as_str()).collect();
+    let attrs = union_attribute_names(&siblings);
+    if !attrs.is_empty() {
         line.push_str(&format!(" [{}]", attrs.join(", ")));
     }
     if siblings.len() > 1 {
@@ -202,23 +278,22 @@ fn format_xml_child(node: &XmlNode, name: &str, depth: usize, out: &mut String) 
     }
     out.push_str(&line);
     out.push('\n');
-    if let Some(first) = siblings.first() {
-        format_xml_children(first, depth + 1, out);
+    format_xml_children(&siblings, depth + 1, out);
+}
+
+fn format_xml_children(parents: &[&XmlNode], depth: usize, out: &mut String) {
+    for name in distinct_child_names(parents) {
+        format_xml_child(parents, &name, depth, out);
     }
 }
 
-fn format_xml_children(node: &XmlNode, depth: usize, out: &mut String) {
-    for name in distinct_child_names(node) {
-        format_xml_child(node, &name, depth, out);
-    }
-}
-
-/// Infers a lightweight shape summary of an XML document: for each node,
-/// lists distinct child element names, their attribute names, and marks
-/// `(repeated)` when a name appears more than once among its siblings.
+/// Infers a lightweight shape summary of an XML document: for each element
+/// name, lists the *union* of attribute names and child element names seen
+/// across every sibling with that name, and marks `(repeated)` when a name
+/// appears more than once.
 pub fn xml_schema(node: &XmlNode) -> String {
     let mut out = String::new();
-    format_xml_children(node, 0, &mut out);
+    format_xml_children(&[node], 0, &mut out);
     out
 }
 
@@ -274,12 +349,66 @@ mod tests {
     }
 
     #[test]
+    fn empty_root_object_is_shown_explicitly() {
+        let out = schema_of(json!({}));
+        assert_eq!(out, "object<empty>\n");
+    }
+
+    #[test]
+    fn a_null_element_among_objects_does_not_discard_field_info() {
+        let out = schema_of(json!({"items": [{"a": 1, "b": 2}, {"a": 3, "b": 4}, null]}));
+        assert_eq!(out, "items: array<object|null>\n  a: number\n  b: number\n");
+    }
+
+    #[test]
+    fn a_nullable_nested_object_field_still_shows_its_fields() {
+        let out = schema_of(json!({"items": [{"address": {"city": "x"}}, {"address": null}]}));
+        assert_eq!(
+            out,
+            "items: array<object>\n  address: object|null\n    city: string\n"
+        );
+    }
+
+    #[test]
+    fn a_nullable_array_field_still_shows_its_element_type() {
+        let out = schema_of(json!({"items": [{"tags": ["x"]}, {"tags": null}]}));
+        assert_eq!(out, "items: array<object>\n  tags: array<string>|null\n");
+    }
+
+    #[test]
+    fn a_genuinely_mixed_kind_field_still_falls_back_to_a_label_union_including_null() {
+        let out = schema_of(json!({"items": [{"a": 1}, "x", null]}));
+        assert_eq!(out, "items: array<null|object|string>\n");
+    }
+
+    #[test]
     fn xml_schema_lists_children_attributes_and_repeats() {
         let xml = r#"<root><user id="1"><tag/><tag/></user><user id="2"/></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
         let node = XmlNode::from_document(&doc);
         let out = xml_schema(&node);
         assert_eq!(out, "user [id] (repeated)\n  tag (repeated)\n");
+    }
+
+    #[test]
+    fn xml_schema_unions_attributes_and_children_across_all_siblings_not_just_the_first() {
+        let xml = r#"<root>
+            <user><tag/></user>
+            <user><tag/><extra/></user>
+        </root>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = XmlNode::from_document(&doc);
+        let out = xml_schema(&node);
+        assert_eq!(out, "user (repeated)\n  tag (repeated)\n  extra\n");
+    }
+
+    #[test]
+    fn xml_schema_unions_attribute_names_across_siblings() {
+        let xml = r#"<root><user id="1"/><user id="2" class="admin"/></root>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = XmlNode::from_document(&doc);
+        let out = xml_schema(&node);
+        assert_eq!(out, "user [id, class] (repeated)\n");
     }
 
     #[test]

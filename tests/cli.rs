@@ -343,3 +343,23 @@ fn prints_xml_schema() {
     assert_eq!(code, 0);
     assert_eq!(stdout, "user [id] (repeated)\n");
 }
+
+#[test]
+fn schema_of_empty_root_object_is_explicit_not_silent() {
+    let (stdout, stderr, code) = run_treeq(&["--schema"], "{}");
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "object<empty>\n");
+}
+
+#[test]
+fn schema_of_nullable_array_element_keeps_field_info() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--schema"],
+        r#"{"items": [{"a": 1, "b": 2}, {"a": 3, "b": 4}, null]}"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "items: array<object|null>\n  a: number\n  b: number\n"
+    );
+}
