@@ -133,18 +133,18 @@ mod tests {
         assert_eq!(out[1].key, "name");
         assert_eq!(out[1].path, path(&["user", "name"]));
         assert!(!out[1].has_children);
-        assert_eq!(out[1].value.as_ref().unwrap().0, "Alice");
+        assert_eq!(out[1].value.as_ref().unwrap().0, "\"Alice\"");
 
         assert_eq!(out[2].key, "tags");
         assert_eq!(out[2].path, path(&["user", "tags"]));
 
         assert_eq!(out[3].key, "[0]");
         assert_eq!(out[3].path, path(&["user", "tags", "[0]"]));
-        assert_eq!(out[3].value.as_ref().unwrap().0, "admin");
+        assert_eq!(out[3].value.as_ref().unwrap().0, "\"admin\"");
 
         assert_eq!(out[4].key, "[1]");
         assert_eq!(out[4].path, path(&["user", "tags", "[1]"]));
-        assert_eq!(out[4].value.as_ref().unwrap().0, "user");
+        assert_eq!(out[4].value.as_ref().unwrap().0, "\"user\"");
     }
 
     #[test]

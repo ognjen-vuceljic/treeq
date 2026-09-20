@@ -17,13 +17,13 @@ wall of brackets.
 $ treeq --static sample.json
 root
 ├── user
-│   ├── name: Alice
+│   ├── name: "Alice"
 │   ├── roles
-│   │   ├── [0]: admin
-│   │   └── [1]: editor
+│   │   ├── [0]: "admin"
+│   │   └── [1]: "editor"
 │   └── address
-│       ├── city: London
-│       └── zip: E1 6AN
+│       ├── city: "London"
+│       └── zip: "E1 6AN"
 └── active: true
 ```
 
@@ -98,6 +98,11 @@ bounded slices instead of dumping the whole thing into a tool result.
   ```
 - **Type-aware colors** (keys, strings, numbers, booleans, null each
   distinct), auto-disabled when output isn't a terminal or `NO_COLOR` is set.
+- **Type recoverable from plain text alone**, not just color: strings are
+  quoted (`"Alice"`, with embedded `"` and `\` backslash-escaped),
+  numbers/booleans/null stay bare (`30`, `true`, `null`) — readable in
+  piped output, by colorblind users, and by agents that see color-stripped
+  text.
 - **`--ndjson`** — treat input as NDJSON / JSON Lines (one JSON value per
   line, as produced by `kubectl`, `docker`, and many log streams) and view
   it as an array of records. JSON only; combining it with `--format xml`
