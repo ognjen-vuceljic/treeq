@@ -150,6 +150,7 @@ treeq file.xml                        # XML works the same way
 | Key | Action |
 |---|---|
 | `↑` / `↓` | Move cursor |
+| `g` | Count-prefixed jump: type digits, then `↑`/`↓` to move that many lines |
 | `Tab` / `Space` | Collapse/expand current node |
 | `Backspace` | Collapse nearest parent, move cursor there |
 | `Shift+C` | Collapse every ancestor up to the root |

@@ -67,6 +67,48 @@ pub(super) fn move_cursor_to_path(state: &mut AppState, path: &[String]) {
     }
 }
 
+/// Digits accumulated in a pending count-jump (see issue #39): enough for
+/// any realistic document (999999 lines) while staying trivially
+/// parseable as a `usize` with no overflow risk.
+const MAX_COUNT_DIGITS: usize = 6;
+
+/// Handles a key while a count-prefixed jump (`g`, see issue #39) is being
+/// entered: digits extend the buffer (shown in the status bar by
+/// `render.rs`), `↑`/`↓` consumes it as a line count and moves the cursor
+/// that many lines, and any other key cancels the pending count without
+/// moving.
+fn apply_count_jump(state: &mut AppState, key: KeyCode) {
+    match key {
+        KeyCode::Char(c) if c.is_ascii_digit() => {
+            if let Some(buf) = &mut state.count_buffer
+                && buf.len() < MAX_COUNT_DIGITS
+            {
+                buf.push(c);
+            }
+        }
+        KeyCode::Down => {
+            let n = take_count(state);
+            state.cursor = (state.cursor + n).min(state.lines.len().saturating_sub(1));
+        }
+        KeyCode::Up => {
+            let n = take_count(state);
+            state.cursor = state.cursor.saturating_sub(n);
+        }
+        _ => state.count_buffer = None,
+    }
+}
+
+/// Consumes the pending count buffer, defaulting to 1 when it's empty (`g`
+/// followed directly by an arrow, with no digits typed) or unparseable.
+fn take_count(state: &mut AppState) -> usize {
+    state
+        .count_buffer
+        .take()
+        .and_then(|buf| buf.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(1)
+}
+
 /// Collapses the immediate parent container of the current node (never the
 /// node itself, even if it is a container) and moves the cursor there.
 fn collapse_nearest_parent(state: &mut AppState) {
@@ -219,10 +261,15 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         return false;
     }
+    if state.count_buffer.is_some() {
+        apply_count_jump(state, key);
+        return false;
+    }
     state.status_message = None;
     match key {
         KeyCode::Char('q') | KeyCode::Esc => return true,
         KeyCode::Char('?') => state.help_visible = true,
+        KeyCode::Char('g') => state.count_buffer = Some(String::new()),
         KeyCode::Down => state.cursor = (state.cursor + 1).min(state.lines.len().saturating_sub(1)),
         KeyCode::Up => state.cursor = state.cursor.saturating_sub(1),
         KeyCode::Tab | KeyCode::Char(' ') => {
@@ -352,6 +399,7 @@ mod tests {
                 vec!["user".to_string(), "age".to_string()],
             ],
             pending_cursor_path: None,
+            count_buffer: None,
         }
     }
 
@@ -507,7 +555,121 @@ mod tests {
                 ],
             ],
             pending_cursor_path: None,
+            count_buffer: None,
         }
+    }
+
+    /// A flat, `n`-line fixture for exercising count-prefixed jumps, which
+    /// need more room to move through than `fixture()`'s 3 lines.
+    fn tall_fixture(n: usize, cursor: usize) -> AppState {
+        AppState {
+            lines: (0..n)
+                .map(|i| line(&format!("item{i}"), false, &["item"]))
+                .collect(),
+            collapsed: HashSet::new(),
+            all_container_paths: HashSet::new(),
+            array_overrides: HashSet::new(),
+            tags: HashMap::new(),
+            cursor,
+            search: String::new(),
+            searching: false,
+            use_color: false,
+            status_message: None,
+            help_visible: false,
+            is_json: true,
+            scroll_offset: std::cell::Cell::new(0),
+            all_paths: Vec::new(),
+            pending_cursor_path: None,
+            count_buffer: None,
+        }
+    }
+
+    #[test]
+    fn g_then_digits_then_down_moves_the_cursor_that_many_lines() {
+        let mut state = tall_fixture(20, 0);
+        handle_key(&mut state, KeyCode::Char('g'));
+        assert_eq!(state.count_buffer.as_deref(), Some(""));
+        handle_key(&mut state, KeyCode::Char('5'));
+        assert_eq!(state.count_buffer.as_deref(), Some("5"));
+        handle_key(&mut state, KeyCode::Down);
+        assert_eq!(state.cursor, 5);
+        assert!(
+            state.count_buffer.is_none(),
+            "the count is consumed after the jump"
+        );
+    }
+
+    #[test]
+    fn g_then_multi_digit_count_then_up_moves_the_cursor_that_many_lines() {
+        let mut state = tall_fixture(20, 15);
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('1'));
+        handle_key(&mut state, KeyCode::Char('2'));
+        handle_key(&mut state, KeyCode::Up);
+        assert_eq!(state.cursor, 3);
+    }
+
+    #[test]
+    fn g_then_down_with_no_digits_moves_one_line_like_a_plain_arrow() {
+        let mut state = tall_fixture(20, 0);
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Down);
+        assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn count_jump_clamps_to_the_last_line_instead_of_panicking() {
+        let mut state = tall_fixture(5, 0);
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('9'));
+        handle_key(&mut state, KeyCode::Char('9'));
+        handle_key(&mut state, KeyCode::Down);
+        assert_eq!(state.cursor, 4, "must clamp to the last line, not panic");
+    }
+
+    #[test]
+    fn count_jump_clamps_to_the_first_line_instead_of_underflowing() {
+        let mut state = tall_fixture(20, 2);
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('9'));
+        handle_key(&mut state, KeyCode::Up);
+        assert_eq!(
+            state.cursor, 0,
+            "must clamp to the first line, not underflow"
+        );
+    }
+
+    #[test]
+    fn any_non_digit_non_arrow_key_cancels_a_pending_count() {
+        let mut state = tall_fixture(20, 10);
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('5'));
+        handle_key(&mut state, KeyCode::Esc);
+        assert!(state.count_buffer.is_none());
+        assert_eq!(state.cursor, 10, "canceling must not move the cursor");
+    }
+
+    #[test]
+    fn digit_beyond_the_max_buffer_length_is_ignored_not_appended() {
+        let mut state = tall_fixture(20, 0);
+        handle_key(&mut state, KeyCode::Char('g'));
+        for _ in 0..8 {
+            handle_key(&mut state, KeyCode::Char('9'));
+        }
+        assert_eq!(
+            state.count_buffer.as_deref().map(str::len),
+            Some(6),
+            "the buffer must stop growing past its cap"
+        );
+    }
+
+    #[test]
+    fn g_key_does_not_tag_the_current_node() {
+        // 'g' must be fully claimed by count-jump mode, not fall through to
+        // any other binding.
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('g'));
+        assert!(state.tags.is_empty());
     }
 
     #[test]
@@ -803,6 +965,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths,
             pending_cursor_path: None,
+            count_buffer: None,
         };
 
         jump_to_next_match(&mut state);
