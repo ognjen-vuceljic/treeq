@@ -2,6 +2,7 @@
 pub enum Format {
     Json,
     Xml,
+    Yaml,
 }
 
 pub fn detect_format(input: &str) -> Option<Format> {
