@@ -39,12 +39,16 @@ fn run_treeq(args: &[&str], stdin_data: &str) -> (String, String, i32) {
         .stderr(Stdio::piped())
         .spawn()
         .expect("failed to start treeq");
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(stdin_data.as_bytes())
-        .unwrap();
+    // The CLI can exit (and close its stdin) before consuming all input on
+    // early-exit paths (e.g. a flag-conflict error checked before input is
+    // read), so a BrokenPipe here is expected, not a test-harness bug.
+    if let Err(e) = child.stdin.take().unwrap().write_all(stdin_data.as_bytes()) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::BrokenPipe,
+            "unexpected write error: {e}"
+        );
+    }
     let output = child.wait_with_output().unwrap();
     (
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -319,4 +323,47 @@ fn ndjson_stats_and_path_flags_compose() {
     );
     assert_eq!(code, 0);
     assert_eq!(stdout, "root\n└── name: Alice\n");
+}
+
+#[test]
+fn prints_json_schema() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--schema"],
+        r#"{"user": {"name": "Alice", "tags": ["admin", "user"]}}"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "user: object\n  name: string\n  tags: array<string>\n"
+    );
+}
+
+#[test]
+fn prints_xml_schema() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--schema"],
+        r#"<root><user id="1"/><user id="2"/></root>"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "user [id] (repeated)\n");
+}
+
+#[test]
+fn schema_of_empty_root_object_is_explicit_not_silent() {
+    let (stdout, stderr, code) = run_treeq(&["--schema"], "{}");
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "object<empty>\n");
+}
+
+#[test]
+fn schema_of_nullable_array_element_keeps_field_info() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--schema"],
+        r#"{"items": [{"a": 1, "b": 2}, {"a": 3, "b": 4}, null]}"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "items: array<object|null>\n  a: number\n  b: number\n"
+    );
 }
