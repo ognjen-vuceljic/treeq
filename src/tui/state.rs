@@ -93,12 +93,12 @@ pub(super) struct AppState {
 /// Source of truth for the in-app help overlay; cross-checked by a test
 /// against README.md's keybindings table.
 pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
-    ("↑ / ↓", "move cursor"),
-    ("g", "count-prefixed jump: type digits, then ↑/↓"),
-    ("Tab / Space", "collapse / expand"),
+    ("↑ / ↓", "move cursor (or j/k)"),
+    ("g", "count-jump: digits+↑/↓; gg/G: first/last"),
+    ("Tab / Space", "collapse / expand (or h/l)"),
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
-    ("/", "fuzzy search (Tab: cycle matches)"),
+    ("/", "fuzzy search (Tab: cycle; n/N: repeat)"),
     ("F", "search-results popup (whole document)"),
     ("i", "inspect node (type, size, path, tag)"),
     ("1-8", "tag / untag node"),
