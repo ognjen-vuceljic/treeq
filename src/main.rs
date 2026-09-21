@@ -65,6 +65,9 @@ struct Args {
     /// clean for piping/command substitution.
     #[arg(long)]
     pick: bool,
+    /// Print a completion script for the given shell to stdout and exit.
+    #[arg(long, value_enum)]
+    generate: Option<clap_complete::Shell>,
 }
 
 const AGENT_DEFAULT_DEPTH: usize = 3;
@@ -284,6 +287,12 @@ fn run_xml(input: &str, args: &Args) {
 
 fn main() {
     let args = Args::parse();
+    if let Some(shell) = args.generate {
+        let mut cmd = <Args as clap::CommandFactory>::command();
+        let name = cmd.get_name().to_string();
+        clap_complete::generate(shell, &mut cmd, name, &mut io::stdout());
+        return;
+    }
     if args.ndjson && matches!(args.format, Some(FormatArg::Xml)) {
         eprintln!("error: --ndjson is not supported with --format xml");
         process::exit(1);

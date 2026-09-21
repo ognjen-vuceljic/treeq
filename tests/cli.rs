@@ -68,6 +68,35 @@ fn version_flag_reports_the_crate_version() {
 }
 
 #[test]
+fn generate_zsh_prints_a_completion_script_without_reading_input() {
+    // No input on stdin at all -- --generate must not try to read it.
+    let (stdout, _stderr, code) = run_treeq(&["--generate", "zsh"], "");
+    assert_eq!(code, 0);
+    assert!(stdout.starts_with("#compdef treeq"));
+}
+
+#[test]
+fn generate_bash_prints_a_completion_script() {
+    let (stdout, _stderr, code) = run_treeq(&["--generate", "bash"], "");
+    assert_eq!(code, 0);
+    assert!(stdout.contains("_treeq()"));
+}
+
+#[test]
+fn generate_fish_prints_a_completion_script() {
+    let (stdout, _stderr, code) = run_treeq(&["--generate", "fish"], "");
+    assert_eq!(code, 0);
+    assert!(stdout.contains("complete -c treeq"));
+}
+
+#[test]
+fn generate_rejects_an_unknown_shell_name() {
+    let (_stdout, stderr, code) = run_treeq(&["--generate", "powershell-nonsense"], "");
+    assert_eq!(code, 2, "clap's own argument-parsing exit code");
+    assert!(stderr.contains("invalid value"));
+}
+
+#[test]
 fn renders_json_from_stdin() {
     let (stdout, _stderr, code) = run_treeq(&["--static"], r#"{"name": "Alice"}"#);
     assert_eq!(code, 0);
