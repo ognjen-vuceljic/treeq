@@ -36,7 +36,7 @@ enum FormatArg {
 }
 
 #[derive(Parser)]
-#[command(name = "treeq")]
+#[command(name = "treeq", version)]
 struct Args {
     file: Option<PathBuf>,
     #[arg(long)]

@@ -58,6 +58,16 @@ fn run_treeq(args: &[&str], stdin_data: &str) -> (String, String, i32) {
 }
 
 #[test]
+fn version_flag_reports_the_crate_version() {
+    let (stdout, _stderr, code) = run_treeq(&["--version"], "");
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout.trim(),
+        format!("treeq {}", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
 fn renders_json_from_stdin() {
     let (stdout, _stderr, code) = run_treeq(&["--static"], r#"{"name": "Alice"}"#);
     assert_eq!(code, 0);
