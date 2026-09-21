@@ -1,6 +1,6 @@
 use super::state::Line;
 use crate::color::Color as TqColor;
-use crate::json_tree::{JsonNode, JsonScalar};
+use crate::json_tree::{JsonNode, JsonScalar, escape_display_str};
 use crate::xml_tree::XmlNode;
 use std::collections::HashSet;
 
@@ -83,7 +83,7 @@ pub(super) fn flatten_json(
         };
         out.push(Line {
             depth,
-            key: label,
+            key: escape_display_str(&label),
             value,
             path: child_path.clone(),
             has_children,
@@ -130,10 +130,13 @@ pub(super) fn flatten_xml(
         let mut child_path = path.to_vec();
         child_path.push(child.name.clone());
         let has_children = !child.children.is_empty();
-        let value = child.text.clone().map(|t| (t, TqColor::Str));
+        let value = child
+            .text
+            .as_deref()
+            .map(|t| (escape_display_str(t), TqColor::Str));
         out.push(Line {
             depth,
-            key: child.name.clone(),
+            key: escape_display_str(&child.name),
             value,
             path: child_path.clone(),
             has_children,
@@ -187,8 +190,23 @@ pub(super) fn collect_container_paths_xml(
     }
 }
 
+/// A dotted path built *only* for display (status bar, inspect popup, ...).
+/// The real `Vec<String>` path used for lookups/clipboard/jq-filter output
+/// must stay raw -- this is never that, it's a copy specifically for
+/// putting untrusted key/element names on screen safely.
+pub(super) fn display_path(path: &[String]) -> String {
+    path.iter()
+        .map(|s| escape_display_str(s))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// `path` segments are always raw, untrusted key/element names, so each is
+/// escaped here; `value` is passed in whatever form the caller already
+/// wants displayed (e.g. `JsonScalar::display()`'s output, itself already
+/// escaped) and is used as-is to avoid double-escaping.
 pub(super) fn search_text(path: &[String], value: Option<&str>) -> String {
-    let joined = path.join(".");
+    let joined = display_path(path);
     match value {
         Some(v) => format!("{joined}: {v}"),
         None => joined,
@@ -232,9 +250,10 @@ pub(super) fn collect_all_paths_xml(
     for child in &node.children {
         let mut child_path = path.to_vec();
         child_path.push(child.name.clone());
+        let text = child.text.as_deref().map(escape_display_str);
         out.push((
             child_path.clone(),
-            search_text(&child_path, child.text.as_deref()),
+            search_text(&child_path, text.as_deref()),
         ));
         collect_all_paths_xml(child, &child_path, out);
     }
@@ -247,6 +266,28 @@ mod tests {
 
     fn path(segments: &[&str]) -> Vec<String> {
         segments.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn display_path_escapes_control_bytes_but_search_text_keeps_the_path_argument_raw() {
+        let raw_path = path(&["before\u{1b}after"]);
+        assert_eq!(display_path(&raw_path), "before\\u001bafter");
+        // Callers keep the un-escaped Vec<String> for lookups/clipboard;
+        // only the returned display string is escaped.
+        let text = search_text(&raw_path, None);
+        assert!(!text.contains('\u{1b}'));
+        assert_eq!(text, "before\\u001bafter");
+    }
+
+    #[test]
+    fn flatten_json_escapes_control_bytes_in_a_key_but_keeps_the_real_path_raw() {
+        let value = json!({"before\u{1b}after": 1});
+        let node = JsonNode::from_value(&value);
+        let mut out = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut out);
+        assert_eq!(out[0].key, "before\\u001bafter");
+        // The path used for tag/collapse lookups must stay the real key.
+        assert_eq!(out[0].path, path(&["before\u{1b}after"]));
     }
 
     #[test]
@@ -361,6 +402,20 @@ mod tests {
         assert_eq!(out[1].key, "name");
         assert_eq!(out[1].value.as_ref().unwrap().0, "Alice");
         assert_eq!(out[1].path, path(&["user", "name"]));
+    }
+
+    #[test]
+    fn flatten_xml_escapes_control_bytes_in_text_and_element_names_but_keeps_the_real_path_raw() {
+        let xml = "<root><ok>text&#x7f;here</ok></root>";
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let mut node = XmlNode::from_document(&doc).unwrap();
+        node.children[0].name = "before\u{1b}after".to_string();
+        let mut out = Vec::new();
+        flatten_xml(&node, &[], 0, &HashSet::new(), &mut out);
+
+        assert_eq!(out[0].key, "before\\u001bafter");
+        assert_eq!(out[0].path, path(&["before\u{1b}after"]));
+        assert_eq!(out[0].value.as_ref().unwrap().0, "text\\u007fhere");
     }
 
     #[test]

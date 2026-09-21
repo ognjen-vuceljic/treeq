@@ -1,9 +1,12 @@
-use crate::json_tree::JsonNode;
+use crate::json_tree::{JsonNode, escape_display_str};
 use crate::xml_tree::XmlNode;
 
 /// Lists every path in the tree, one entry per node (containers and
 /// leaves), in the same dotted, bracket-free format `find_json_path`
-/// expects — so output can round-trip straight into `--path`.
+/// expects — so output can round-trip straight into `--path`. Each segment
+/// is escaped (see `escape_display_str`) since this is printed straight to
+/// stdout; a raw control byte in a key was never a meaningful thing to
+/// round-trip through a shell command line anyway.
 pub fn json_paths(node: &JsonNode) -> Vec<String> {
     let mut out = Vec::new();
     walk_json(node, &[], &mut out);
@@ -23,9 +26,16 @@ fn walk_json(node: &JsonNode, path: &[String], out: &mut Vec<String>) {
     for (label, child) in entries {
         let mut child_path = path.to_vec();
         child_path.push(label);
-        out.push(child_path.join("."));
+        out.push(display_path(&child_path));
         walk_json(child, &child_path, out);
     }
+}
+
+fn display_path(path: &[String]) -> String {
+    path.iter()
+        .map(|s| escape_display_str(s))
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 pub fn xml_paths(node: &XmlNode) -> Vec<String> {
@@ -38,7 +48,7 @@ fn walk_xml(node: &XmlNode, path: &[String], out: &mut Vec<String>) {
     for child in &node.children {
         let mut child_path = path.to_vec();
         child_path.push(child.name.clone());
-        out.push(child_path.join("."));
+        out.push(display_path(&child_path));
         walk_xml(child, &child_path, out);
     }
 }
@@ -63,6 +73,14 @@ mod tests {
                 "user.tags.1".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn escapes_control_bytes_in_a_json_key_within_a_listed_path() {
+        let value = json!({"before\u{1b}after": 1});
+        let node = JsonNode::from_value(&value);
+        let paths = json_paths(&node);
+        assert_eq!(paths, vec!["before\\u001bafter".to_string()]);
     }
 
     #[test]

@@ -23,7 +23,10 @@ use stats::{JsonStats, XmlStats, json_stats, xml_stats};
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::{fs, io, process};
-use xml_tree::{MAX_XML_DEPTH, XmlNode, find_xml_path, xml_nesting_exceeds};
+use xml_tree::{
+    MAX_XML_ATTRIBUTES_PER_ELEMENT, MAX_XML_DEPTH, XmlNode, find_xml_path,
+    xml_attribute_count_exceeds, xml_nesting_exceeds,
+};
 
 #[derive(clap::ValueEnum, Clone, Copy)]
 enum FormatArg {
@@ -191,6 +194,12 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
 fn run_xml(input: &str, args: &Args) {
     if xml_nesting_exceeds(input, MAX_XML_DEPTH) {
         eprintln!("error: XML nesting exceeds max depth ({MAX_XML_DEPTH})");
+        process::exit(1);
+    }
+    if xml_attribute_count_exceeds(input, MAX_XML_ATTRIBUTES_PER_ELEMENT) {
+        eprintln!(
+            "error: an XML element exceeds the max attribute count ({MAX_XML_ATTRIBUTES_PER_ELEMENT})"
+        );
         process::exit(1);
     }
     let doc = match roxmltree::Document::parse(input) {

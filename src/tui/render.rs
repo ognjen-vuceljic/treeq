@@ -1,3 +1,4 @@
+use super::flatten::display_path;
 use super::keys::{
     array_path_for_summary_line, fuzzy_matches, line_search_text, popup_match_entries,
 };
@@ -102,7 +103,7 @@ fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
                 ]),
                 RtLine::from(vec![
                     Span::styled("path: ", label_style),
-                    Span::styled(real_path.join("."), path_style),
+                    Span::styled(display_path(real_path), path_style),
                 ]),
                 RtLine::from(vec![
                     Span::styled("tag:  ", label_style),
@@ -133,7 +134,12 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 }
 
 fn match_spans(path: &[String], text: &str, is_json: bool, use_color: bool) -> Vec<Span<'static>> {
-    let path_text = path.join(".");
+    // `path` is always raw, untrusted segments (unlike `text`, which the
+    // caller already built via `flatten::search_text` with each segment
+    // escaped) -- escaping here too keeps this span in sync with `text`'s
+    // prefix and stops a malicious key/element name from reaching the
+    // terminal unescaped through this rendering path specifically.
+    let path_text = display_path(path);
     let value_text = text.strip_prefix(&format!("{path_text}: "));
     let path_style = if use_color {
         Style::default()
@@ -272,7 +278,7 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         let path = state
             .lines
             .get(state.cursor)
-            .map(|l| l.path.join("."))
+            .map(|l| display_path(&l.path))
             .unwrap_or_default();
         format!("{path}  (?: help)")
     };
@@ -1056,6 +1062,51 @@ mod tests {
             ratatui_color(TqColor::Str)
         );
         assert_eq!(find_match_row_fg(buffer, "3"), tag_color(3));
+    }
+
+    #[test]
+    fn inspect_popup_escapes_control_bytes_in_the_path() {
+        // `key` is what `flatten.rs` would already have escaped by
+        // construction; `path` stays the real, unescaped segments, which is
+        // what the inspect popup itself must escape when displaying it.
+        let mut state = state_with(
+            vec![line(
+                "before\\u001bafter",
+                false,
+                Some(("\"x\"", TqColor::Str)),
+                0,
+                &["before\u{1b}after"],
+            )],
+            0,
+        );
+        state.inspect_visible = true;
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(!text.contains('\u{1b}'));
+        assert!(text.contains("before\\u001bafter"));
+    }
+
+    #[test]
+    fn status_bar_hint_escapes_control_bytes_in_the_current_path() {
+        // `key` is what `flatten.rs` would already have escaped by
+        // construction; `path` stays the real, unescaped segments, which is
+        // what the status bar itself must escape when displaying it.
+        let state = state_with(
+            vec![line(
+                "before\\u001bafter",
+                false,
+                Some(("\"x\"", TqColor::Str)),
+                0,
+                &["before\u{1b}after"],
+            )],
+            0,
+        );
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(!text.contains('\u{1b}'));
+        assert!(text.contains("before\\u001bafter"));
     }
 
     #[test]
