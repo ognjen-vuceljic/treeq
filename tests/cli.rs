@@ -394,6 +394,15 @@ fn rejects_ndjson_with_xml_format() {
 }
 
 #[test]
+fn rejects_pick_with_static() {
+    // Without this check, `--static` would silently win and `--pick` would
+    // have no effect at all -- no TUI, no picked-path output, no error.
+    let (_stdout, stderr, code) = run_treeq(&["--static", "--pick"], "{\"a\": 1}\n");
+    assert_eq!(code, 1);
+    assert!(stderr.contains("--pick"));
+}
+
+#[test]
 fn ndjson_ignores_format_auto_detection_even_when_input_looks_like_xml() {
     // A malformed/garbage first line starting with '<' would normally
     // auto-detect as XML; --ndjson must force JSON parsing regardless.

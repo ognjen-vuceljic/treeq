@@ -19,23 +19,32 @@ use ratatui::prelude::*;
 use render::render as render_frame;
 use state::{AppState, rebuild_json_lines, rebuild_xml_lines};
 use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
 use std::io;
 
-fn run_loop<F>(mut state: AppState, mut rebuild: F) -> io::Result<()>
+/// Renders over `/dev/tty` in pick mode rather than stdout, since pick
+/// mode's whole point is capturing stdout (`$(treeq --pick file.json)` or
+/// a pipe into `tmux load-buffer`) -- the UI must stay off that stream.
+fn run_loop<W, F>(mut state: AppState, mut rebuild: F, out: W) -> io::Result<Option<String>>
 where
+    W: io::Write,
     F: FnMut(&mut AppState),
 {
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    stdout.execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
+    let mut out = out;
+    out.execute(EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(out);
     let mut terminal = Terminal::new(backend)?;
+    let mut picked = None;
 
     loop {
         terminal.draw(|f| render_frame(f, &state))?;
         if let Event::Key(key) = event::read()? {
             let quit = handle_key(&mut state, key.code);
             rebuild(&mut state);
+            if state.pick_result.is_some() {
+                picked = state.pick_result.take();
+            }
             if quit {
                 break;
             }
@@ -43,11 +52,15 @@ where
     }
 
     disable_raw_mode()?;
-    io::stdout().execute(LeaveAlternateScreen)?;
-    Ok(())
+    terminal.backend_mut().execute(LeaveAlternateScreen)?;
+    Ok(picked)
 }
 
-pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
+fn open_tty() -> io::Result<std::fs::File> {
+    OpenOptions::new().read(true).write(true).open("/dev/tty")
+}
+
+pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<Option<String>> {
     let collapsed = HashSet::new();
     let array_overrides = HashSet::new();
     let mut lines = Vec::new();
@@ -79,11 +92,17 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool) -> io::Result<()> {
         popup_selected: 0,
         inspect_visible: false,
         popup_scroll_offset: std::cell::Cell::new(0),
+        pick_mode: pick,
+        pick_result: None,
     };
-    run_loop(state, |s| rebuild_json_lines(s, node))
+    if pick {
+        run_loop(state, |s| rebuild_json_lines(s, node), open_tty()?)
+    } else {
+        run_loop(state, |s| rebuild_json_lines(s, node), io::stdout())
+    }
 }
 
-pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
+pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Option<String>> {
     let collapsed = HashSet::new();
     let mut lines = Vec::new();
     flatten_xml(node, &[], 0, &collapsed, &mut lines);
@@ -114,6 +133,12 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool) -> io::Result<()> {
         popup_selected: 0,
         inspect_visible: false,
         popup_scroll_offset: std::cell::Cell::new(0),
+        pick_mode: pick,
+        pick_result: None,
     };
-    run_loop(state, |s| rebuild_xml_lines(s, node))
+    if pick {
+        run_loop(state, |s| rebuild_xml_lines(s, node), open_tty()?)
+    } else {
+        run_loop(state, |s| rebuild_xml_lines(s, node), io::stdout())
+    }
 }

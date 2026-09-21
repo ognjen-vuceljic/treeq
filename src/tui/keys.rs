@@ -503,6 +503,17 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
     state.status_message = None;
     match key {
         KeyCode::Char('q') | KeyCode::Esc => return true,
+        KeyCode::Enter if state.pick_mode => {
+            if let Some(line) = state.lines.get(state.cursor) {
+                let path = real_path(line);
+                state.pick_result = Some(if state.is_json {
+                    to_jq_path(path)
+                } else {
+                    path.join(".")
+                });
+            }
+            return true;
+        }
         KeyCode::Char('?') => state.help_visible = true,
         KeyCode::Char('g') => state.count_buffer = Some(String::new()),
         // Bare `G` (no preceding `g`) jumps straight to the last line;
@@ -662,6 +673,8 @@ mod tests {
             popup_selected: 0,
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
+            pick_mode: false,
+            pick_result: None,
         }
     }
 
@@ -1030,6 +1043,8 @@ mod tests {
             popup_selected: 0,
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
+            pick_mode: false,
+            pick_result: None,
         }
     }
 
@@ -1059,6 +1074,8 @@ mod tests {
             popup_selected: 0,
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
+            pick_mode: false,
+            pick_result: None,
         }
     }
 
@@ -1754,6 +1771,8 @@ mod tests {
             popup_selected: 0,
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
+            pick_mode: false,
+            pick_result: None,
         };
         (state, node)
     }
@@ -1836,6 +1855,8 @@ mod tests {
             popup_selected: 0,
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
+            pick_mode: false,
+            pick_result: None,
         };
         move_cursor_to_path(&mut state, &["items".to_string(), "…more".to_string()]);
         assert!(state.lines[state.cursor].is_array_summary);
@@ -2056,6 +2077,8 @@ mod tests {
             popup_selected: 0,
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
+            pick_mode: false,
+            pick_result: None,
         };
 
         jump_to_next_match(&mut state);
@@ -2293,6 +2316,44 @@ mod tests {
         state.cursor = 3;
         handle_key(&mut state, KeyCode::Char('Y'));
         assert_eq!(state.status_message.as_deref(), Some("copied: .user.age"));
+    }
+
+    #[test]
+    fn enter_in_pick_mode_on_json_prints_a_jq_path_and_quits() {
+        let mut state = fixture();
+        state.pick_mode = true;
+        state.cursor = 1; // "user.name"
+        assert!(handle_key(&mut state, KeyCode::Enter));
+        assert_eq!(state.pick_result.as_deref(), Some(".user.name"));
+    }
+
+    #[test]
+    fn enter_in_pick_mode_on_xml_prints_the_dotted_path_and_quits() {
+        let mut state = fixture();
+        state.pick_mode = true;
+        state.is_json = false;
+        state.cursor = 1;
+        assert!(handle_key(&mut state, KeyCode::Enter));
+        assert_eq!(state.pick_result.as_deref(), Some("user.name"));
+    }
+
+    #[test]
+    fn enter_in_pick_mode_on_the_array_summary_line_picks_the_arrays_real_path() {
+        let mut state = fixture();
+        state.pick_mode = true;
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.cursor = 3;
+        assert!(handle_key(&mut state, KeyCode::Enter));
+        assert_eq!(state.pick_result.as_deref(), Some(".user.age"));
+    }
+
+    #[test]
+    fn enter_without_pick_mode_does_nothing() {
+        let mut state = fixture();
+        assert!(!handle_key(&mut state, KeyCode::Enter));
+        assert!(state.pick_result.is_none());
     }
 
     #[test]

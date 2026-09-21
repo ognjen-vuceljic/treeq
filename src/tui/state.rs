@@ -88,6 +88,13 @@ pub(super) struct AppState {
     pub(super) popup_selected: usize,
     pub(super) inspect_visible: bool,
     pub(super) popup_scroll_offset: Cell<usize>,
+    /// `--pick`: Enter prints the current path and exits, instead of doing
+    /// nothing.
+    pub(super) pick_mode: bool,
+    /// Set by `handle_key` when `pick_mode` and Enter is pressed;
+    /// `tui.rs`'s `run_loop` reads and prints it after leaving the
+    /// alternate screen.
+    pub(super) pick_result: Option<String>,
 }
 
 /// Source of truth for the in-app help overlay; cross-checked by a test
@@ -225,6 +232,8 @@ mod tests {
             popup_selected: 0,
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
+            pick_mode: false,
+            pick_result: None,
         }
     }
 
