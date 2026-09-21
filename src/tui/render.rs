@@ -1,6 +1,6 @@
 use super::flatten::display_path;
 use super::keys::{
-    array_path_for_summary_line, fuzzy_matches, line_search_text, popup_match_entries,
+    array_path_for_summary_line, fuzzy_match_char_indices, line_search_text, popup_match_entries,
 };
 use super::state::{AppState, HELP_LEGEND, Line, depth_tint_color, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
@@ -8,7 +8,46 @@ use ratatui::prelude::*;
 use ratatui::text::Line as RtLine;
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
-fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
+/// Splits `text` into spans, adding `Modifier::UNDERLINED` on top of
+/// `base_style` for exactly the char positions in `highlight` -- lets a
+/// fuzzy/non-contiguous match (from `fuzzy_match_char_indices`) underline
+/// the individual matched characters instead of the whole span.
+fn highlighted_spans(text: &str, base_style: Style, highlight: &[usize]) -> Vec<Span<'static>> {
+    if highlight.is_empty() {
+        return vec![Span::styled(text.to_string(), base_style)];
+    }
+    let highlighted: std::collections::HashSet<usize> = highlight.iter().copied().collect();
+    let mut spans = Vec::new();
+    let mut run = String::new();
+    let mut run_is_highlighted = false;
+    for (i, ch) in text.chars().enumerate() {
+        let is_highlighted = highlighted.contains(&i);
+        if !run.is_empty() && is_highlighted != run_is_highlighted {
+            spans.push(styled_run(
+                std::mem::take(&mut run),
+                base_style,
+                run_is_highlighted,
+            ));
+        }
+        run.push(ch);
+        run_is_highlighted = is_highlighted;
+    }
+    if !run.is_empty() {
+        spans.push(styled_run(run, base_style, run_is_highlighted));
+    }
+    spans
+}
+
+fn styled_run(text: String, base_style: Style, highlighted: bool) -> Span<'static> {
+    let style = if highlighted {
+        base_style.add_modifier(Modifier::UNDERLINED)
+    } else {
+        base_style
+    };
+    Span::styled(text, style)
+}
+
+fn line_spans(line: &Line, use_color: bool, search: &str) -> Vec<Span<'static>> {
     let indent = "  ".repeat(line.depth);
     let marker = if line.has_children { "▸ " } else { "" };
     let structural_style = if use_color {
@@ -24,10 +63,9 @@ fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
     } else {
         Style::default()
     };
-    let mut spans = vec![
-        Span::styled(format!("{indent}{marker}"), structural_style),
-        Span::styled(line.key.clone(), key_style),
-    ];
+    let (key_highlight, value_highlight) = search_highlight_ranges(line, search);
+    let mut spans = vec![Span::styled(format!("{indent}{marker}"), structural_style)];
+    spans.extend(highlighted_spans(&line.key, key_style, &key_highlight));
     if let Some((text, color)) = &line.value {
         let value_style = if use_color {
             Style::default().fg(ratatui_color(*color))
@@ -35,9 +73,50 @@ fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
             Style::default()
         };
         spans.push(Span::raw(": "));
-        spans.push(Span::styled(text.clone(), value_style));
+        spans.extend(highlighted_spans(text, value_style, &value_highlight));
     }
     spans
+}
+
+/// Maps `fuzzy_match_char_indices`' positions (found against the line's
+/// full dotted-path-plus-value search text) back onto what's actually
+/// rendered on this row: `line.key` is only the *last* path segment, so a
+/// match inside an ancestor segment earlier in the dotted path has nothing
+/// to highlight here and is silently dropped (the whole document's match
+/// list, `F`, shows the full path and highlights those positions instead).
+fn search_highlight_ranges(line: &Line, search: &str) -> (Vec<usize>, Vec<usize>) {
+    if search.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let full_text = line_search_text(line);
+    let Some(indices) = fuzzy_match_char_indices(&full_text, search) else {
+        return (Vec::new(), Vec::new());
+    };
+    let path_len = display_path(&line.path).chars().count();
+    let key_len = line.key.chars().count();
+    let key_start = path_len.saturating_sub(key_len);
+    let value_start = path_len + 2; // ": " separator
+    let key_highlight: Vec<usize> = indices
+        .iter()
+        .copied()
+        .filter(|&i| i >= key_start && i < path_len)
+        .map(|i| i - key_start)
+        .collect();
+    let value_highlight: Vec<usize> = indices
+        .iter()
+        .copied()
+        .filter(|&i| i >= value_start)
+        .map(|i| i - value_start)
+        .collect();
+    if key_highlight.is_empty() && value_highlight.is_empty() {
+        // The match's characters all landed in an ancestor path segment
+        // this row doesn't display (e.g. `line.key` is a child under a
+        // matching parent) -- with no precise position to show, fall back
+        // to underlining the whole key rather than a matching row landing
+        // the cursor there with zero visual indication anything matched.
+        return ((0..key_len).collect(), Vec::new());
+    }
+    (key_highlight, value_highlight)
 }
 
 pub(super) fn render(frame: &mut Frame, state: &AppState) {
@@ -133,7 +212,13 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     .split(vertical[1])[1]
 }
 
-fn match_spans(path: &[String], text: &str, is_json: bool, use_color: bool) -> Vec<Span<'static>> {
+fn match_spans(
+    path: &[String],
+    text: &str,
+    is_json: bool,
+    use_color: bool,
+    query: &str,
+) -> Vec<Span<'static>> {
     // `path` is always raw, untrusted segments (unlike `text`, which the
     // caller already built via `flatten::search_text` with each segment
     // escaped) -- escaping here too keeps this span in sync with `text`'s
@@ -148,7 +233,13 @@ fn match_spans(path: &[String], text: &str, is_json: bool, use_color: bool) -> V
     } else {
         Style::default()
     };
-    let mut spans = vec![Span::styled(path_text, path_style)];
+    // `text` (not `path_text`/`value` separately) is exactly what decided
+    // this is a match, so indices are computed against it once and split
+    // by the same `path_len` boundary used to strip `value_text` above.
+    let indices = fuzzy_match_char_indices(text, query).unwrap_or_default();
+    let path_len = path_text.chars().count();
+    let path_highlight: Vec<usize> = indices.iter().copied().filter(|&i| i < path_len).collect();
+    let mut spans = highlighted_spans(&path_text, path_style, &path_highlight);
     if let Some(value) = value_text {
         let color = if is_json {
             infer_json_value_color(value)
@@ -160,8 +251,15 @@ fn match_spans(path: &[String], text: &str, is_json: bool, use_color: bool) -> V
         } else {
             Style::default()
         };
+        let value_start = path_len + 2; // ": " separator
+        let value_highlight: Vec<usize> = indices
+            .iter()
+            .copied()
+            .filter(|&i| i >= value_start)
+            .map(|i| i - value_start)
+            .collect();
         spans.push(Span::raw(": "));
-        spans.push(Span::styled(value.to_string(), value_style));
+        spans.extend(highlighted_spans(value, value_style, &value_highlight));
     }
     spans
 }
@@ -215,6 +313,7 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
                 text,
                 state.is_json,
                 state.use_color,
+                &state.popup_query,
             )))
         })
         .collect();
@@ -235,7 +334,12 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         .iter()
         .enumerate()
         .map(|(i, line)| {
-            let spans = line_spans(line, state.use_color);
+            let search = if state.searching {
+                state.search.as_str()
+            } else {
+                ""
+            };
+            let spans = line_spans(line, state.use_color, search);
             let mut style = Style::default();
             if i == state.cursor {
                 // The cursor's own reversed-video highlight takes priority;
@@ -246,12 +350,6 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
                 && let Some(&tag) = state.tags.get(&line.path)
             {
                 style = style.bg(tag_color(tag));
-            }
-            if state.searching
-                && !state.search.is_empty()
-                && fuzzy_matches(&line_search_text(line), &state.search)
-            {
-                style = style.add_modifier(Modifier::UNDERLINED);
             }
             ListItem::new(RtLine::from(spans)).style(style)
         })
@@ -433,28 +531,47 @@ mod tests {
     #[test]
     fn match_spans_splits_path_and_value_with_a_colon_only_when_a_value_exists() {
         let path = vec!["a".to_string(), "b".to_string()];
-        let with_value = match_spans(&path, "a.b: \"x\"", true, true);
+        let with_value = match_spans(&path, "a.b: \"x\"", true, true, "");
         assert_eq!(with_value.len(), 3);
         assert_eq!(with_value[0].content.as_ref(), "a.b");
         assert_eq!(with_value[1].content.as_ref(), ": ");
         assert_eq!(with_value[2].content.as_ref(), "\"x\"");
 
-        let without_value = match_spans(&path, "a.b", true, true);
+        let without_value = match_spans(&path, "a.b", true, true, "");
         assert_eq!(without_value.len(), 1);
         assert_eq!(without_value[0].content.as_ref(), "a.b");
     }
 
     #[test]
+    fn match_spans_underlines_only_the_matched_characters_in_path_and_value() {
+        let path = vec!["ab".to_string()];
+        // "az" matches 'a' (path index 0) and 'z' (inside the value, after
+        // the ": " separator) -- neither 'b' nor the earlier value chars.
+        let spans = match_spans(&path, "ab: xyz", true, true, "az");
+        // path "ab": 'a' highlighted, 'b' not -> two spans.
+        assert_eq!(spans[0].content.as_ref(), "a");
+        assert!(spans[0].style.add_modifier.contains(Modifier::UNDERLINED));
+        assert_eq!(spans[1].content.as_ref(), "b");
+        assert!(!spans[1].style.add_modifier.contains(Modifier::UNDERLINED));
+        assert_eq!(spans[2].content.as_ref(), ": ");
+        // value "xyz": 'xy' not highlighted, 'z' highlighted -> two spans.
+        assert_eq!(spans[3].content.as_ref(), "xy");
+        assert!(!spans[3].style.add_modifier.contains(Modifier::UNDERLINED));
+        assert_eq!(spans[4].content.as_ref(), "z");
+        assert!(spans[4].style.add_modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
     fn xml_values_are_always_treated_as_strings_never_json_scalar_types() {
         let path = vec!["active".to_string()];
-        let spans = match_spans(&path, "active: true", false, true);
+        let spans = match_spans(&path, "active: true", false, true, "");
         assert_eq!(spans[2].style.fg, Some(ratatui_color(TqColor::Str)));
     }
 
     #[test]
     fn line_spans_for_a_container_has_no_value_segment() {
         let l = line("user", true, None, 0, &["user"]);
-        let spans = line_spans(&l, false);
+        let spans = line_spans(&l, false, "");
         assert_eq!(spans.len(), 2);
         assert!(spans[0].content.as_ref().contains('▸'));
         assert_eq!(spans[1].content.as_ref(), "user");
@@ -469,7 +586,7 @@ mod tests {
             1,
             &["user", "name"],
         );
-        let spans = line_spans(&l, false);
+        let spans = line_spans(&l, false, "");
         assert_eq!(spans.len(), 4);
         assert_eq!(spans[1].content.as_ref(), "name");
         assert_eq!(spans[2].content.as_ref(), ": ");
@@ -479,16 +596,16 @@ mod tests {
     #[test]
     fn line_spans_indent_scales_with_depth() {
         let l = line("x", false, Some(("1", TqColor::Number)), 3, &["x"]);
-        let spans = line_spans(&l, false);
+        let spans = line_spans(&l, false, "");
         assert!(spans[0].content.as_ref().starts_with("      "));
     }
 
     #[test]
     fn key_span_is_bold_when_color_is_enabled_but_not_when_disabled() {
         let l = line("user", true, None, 0, &["user"]);
-        let colored = line_spans(&l, true);
+        let colored = line_spans(&l, true, "");
         assert!(colored[1].style.add_modifier.contains(Modifier::BOLD));
-        let plain = line_spans(&l, false);
+        let plain = line_spans(&l, false, "");
         assert!(!plain[1].style.add_modifier.contains(Modifier::BOLD));
     }
 
@@ -569,6 +686,62 @@ mod tests {
         assert!(buffer[(1, 1)].modifier.contains(Modifier::UNDERLINED));
         assert!(buffer[(1, 2)].modifier.contains(Modifier::UNDERLINED));
         assert!(!buffer[(1, 3)].modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
+    fn search_underlines_only_the_matched_characters_not_the_whole_key() {
+        let mut state = state_with(vec![line("name", false, None, 0, &["name"])], 0);
+        state.searching = true;
+        state.search = "nm".to_string(); // matches 'n' (col 1) and 'm' (col 3), skipping 'a'/'e'
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert!(
+            buffer[(1, 1)].modifier.contains(Modifier::UNDERLINED),
+            "'n'"
+        );
+        assert!(
+            !buffer[(2, 1)].modifier.contains(Modifier::UNDERLINED),
+            "'a' did not match and must stay plain"
+        );
+        assert!(
+            buffer[(3, 1)].modifier.contains(Modifier::UNDERLINED),
+            "'m'"
+        );
+        assert!(
+            !buffer[(4, 1)].modifier.contains(Modifier::UNDERLINED),
+            "'e' did not match and must stay plain"
+        );
+    }
+
+    #[test]
+    fn a_match_confined_to_an_ancestor_segment_falls_back_to_underlining_the_whole_key() {
+        // The pattern only exists in the parent segment ("parent_qux_x"),
+        // not in "child" or its value -- without a fallback, this row
+        // would render with zero underline despite genuinely matching
+        // (and despite the cursor/Tab-cycling landing right on it).
+        let mut state = state_with(
+            vec![line(
+                "child",
+                false,
+                Some(("1", TqColor::Number)),
+                1,
+                &["parent_qux_x", "child"],
+            )],
+            0,
+        );
+        state.searching = true;
+        state.search = "qux".to_string();
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        // depth 1 -> 2 leading indent columns, then "child" starts at col 3.
+        for col in 3..8 {
+            assert!(
+                buffer[(col, 1)].modifier.contains(Modifier::UNDERLINED),
+                "col {col} of \"child\" must be underlined as a fallback"
+            );
+        }
     }
 
     #[test]

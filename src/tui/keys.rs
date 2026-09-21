@@ -11,12 +11,24 @@ pub(super) fn array_path_for_summary_line(path: &[String]) -> &[String] {
 
 /// Subsequence match, case-insensitive (e.g. "nme" matches "name").
 pub(super) fn fuzzy_matches(text: &str, pattern: &str) -> bool {
-    let text = text.to_lowercase();
-    let mut chars = text.chars();
-    pattern
-        .to_lowercase()
-        .chars()
-        .all(|p| chars.any(|c| c == p))
+    fuzzy_match_char_indices(text, pattern).is_some()
+}
+
+/// Same matching rule as `fuzzy_matches`, but returns the char index (into
+/// `text`, greedy left-to-right, one per matched pattern char) of each
+/// match instead of a plain yes/no -- lets a renderer underline exactly the
+/// characters that matched a fuzzy/non-contiguous query instead of the
+/// whole line.
+pub(super) fn fuzzy_match_char_indices(text: &str, pattern: &str) -> Option<Vec<usize>> {
+    let lower_text: Vec<char> = text.to_lowercase().chars().collect();
+    let mut indices = Vec::with_capacity(pattern.len());
+    let mut cursor = 0;
+    for p in pattern.to_lowercase().chars() {
+        let found = lower_text[cursor..].iter().position(|&c| c == p)?;
+        indices.push(cursor + found);
+        cursor += found + 1;
+    }
+    Some(indices)
 }
 
 /// Cycles forward through visible matches; falls back to the whole document
@@ -1931,6 +1943,37 @@ mod tests {
         assert!(fuzzy_matches("USER", "user"));
         assert!(!fuzzy_matches("user", "usnm"));
         assert!(!fuzzy_matches("abc", "cab"), "order must be preserved");
+    }
+
+    #[test]
+    fn fuzzy_match_char_indices_finds_the_greedy_leftmost_positions() {
+        assert_eq!(
+            fuzzy_match_char_indices("user.name", "usnm"),
+            Some(vec![0, 1, 5, 7])
+        );
+    }
+
+    #[test]
+    fn fuzzy_match_char_indices_is_case_insensitive() {
+        assert_eq!(
+            fuzzy_match_char_indices("USER", "user"),
+            Some(vec![0, 1, 2, 3])
+        );
+    }
+
+    #[test]
+    fn fuzzy_match_char_indices_returns_none_when_a_pattern_char_is_missing() {
+        assert_eq!(fuzzy_match_char_indices("user", "usnm"), None);
+    }
+
+    #[test]
+    fn fuzzy_match_char_indices_returns_none_when_order_is_violated() {
+        assert_eq!(fuzzy_match_char_indices("abc", "cab"), None);
+    }
+
+    #[test]
+    fn fuzzy_match_char_indices_of_an_empty_pattern_matches_nothing_at_all() {
+        assert_eq!(fuzzy_match_char_indices("anything", ""), Some(vec![]));
     }
 
     #[test]
