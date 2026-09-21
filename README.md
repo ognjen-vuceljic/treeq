@@ -94,6 +94,14 @@ XML works the same way as JSON, all through the same keybindings:
 
 ![treeq XML demo: navigating a catalog of books, inspecting a price field's type and path, fuzzy-searching for "price" and cycling through matches with Tab, tagging a node, then collapsing and expanding the whole tree](assets/xml-demo.gif)
 
+### What's new in v0.4.0
+
+Vim-style navigation (`h`/`j`/`k`/`l`, `gg`/`G`), a `--pick` mode for
+scripting and [tmux integration](#tmux-integration), depth-tinted guide
+lines, precise search-match highlighting, and a truecolor palette:
+
+![treeq v0.4.0 demo: navigating a nested deployment config with j/k and gg/G, expanding and collapsing with l/h, fuzzy-searching for "cpu" with the matched characters underlined, collapsing and expanding the whole tree to show depth-tinted guide lines in truecolor, then tagging a node](assets/v0.4-demo.gif)
+
 ## Features
 
 - **JSON and XML**, auto-detected, plus YAML and NDJSON via explicit flags.
