@@ -2,7 +2,13 @@
 name = "treeq"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 license = "MIT"
+description = "A keyboard-driven tree view for JSON and XML, in your terminal"
+repository = "https://github.com/ognjen-vuceljic/treeq"
+readme = "README.md"
+keywords = ["json", "xml", "tui", "cli", "tree"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
