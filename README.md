@@ -17,6 +17,7 @@ thing into a tool result.
 - [Usage](#usage)
 - [Features](#features)
 - [TUI keybindings](#tui-keybindings)
+- [tmux integration](#tmux-integration)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -65,6 +66,7 @@ treeq file.json --depth 2             # truncate deep nesting
 treeq file.json --stats               # size/shape summary, no full dump
 treeq file.json --agent               # stats + shallow tree, in one call
 treeq file.xml                        # XML works the same way
+treeq --pick file.json                 # Enter prints the selected path, then exits
 ```
 
 ```sh
@@ -105,6 +107,11 @@ XML works the same way as JSON, all through the same keybindings:
 - **Copy what you're looking at** — yank the current path (`y`, via OSC 52)
   or a ready-to-run jq filter (`Y`).
 - **Inspect mode** (`i`) — a node's type, size, full path, and tag.
+- **Pick mode** (`--pick`) — Enter prints the selected path (a jq filter for
+  JSON, the dotted path otherwise) to stdout and exits, instead of leaving
+  the TUI a dead end. The natural hook for
+  [tmux integration](#tmux-integration) and scripting:
+  `selected="$(treeq --pick file.json)"`.
 - **Agent-friendly flags** — `--path`, `--depth`, `--stats`, `--paths`,
   `--schema`, and `--agent` (bundles stats + a shallow tree in one
   non-interactive call) for exploring a document in bounded slices instead
@@ -146,6 +153,45 @@ XML works the same way as JSON, all through the same keybindings:
 The status bar shows a `?: help` hint whenever it isn't displaying a
 search prompt or a status message, so you don't need to remember this
 table while using the TUI.
+
+## tmux integration
+
+`--pick` makes treeq a natural fit as a tmux popup: pop it up over the
+current pane, pick a path, and hand it straight back to whatever you were
+doing — no separate window, no copy-pasting from a scrollback.
+
+Add a binding like this to `~/.tmux.conf` (prefix `T` opens the popup on
+the file `treeq.json` in the current directory; adjust the path/binding to
+taste):
+
+```tmux
+bind-key T display-popup -E -w 80% -h 80% \
+  "treeq --pick treeq.json > /tmp/treeq-picked || true"
+```
+
+`display-popup -E` runs the command in a real pty over the current pane
+and closes the popup when it exits, so treeq's own `/dev/tty` rendering
+(see [Pick mode](#features)) works exactly as it would in a normal
+terminal — the popup's foreground process just happens to be `treeq`
+instead of your shell.
+
+Since `display-popup` doesn't hand a command's stdout back to the
+invoking pane directly, redirect `--pick`'s output to a file (or a tmux
+buffer) and consume it from a second binding once the popup closes:
+
+```tmux
+# Send the last picked path to the active pane as if it were typed.
+bind-key P run-shell 'tmux send-keys -t "#{pane_id}" "$(cat /tmp/treeq-picked 2>/dev/null)"'
+
+# Or load it straight into the tmux paste buffer instead.
+bind-key T display-popup -E -w 80% -h 80% \
+  "treeq --pick treeq.json | tmux load-buffer - || true"
+```
+
+The second popup binding above pipes `--pick`'s stdout directly into
+`tmux load-buffer -`, which works because the pipe (not the popup's tty)
+is what treeq's `/dev/tty`-based rendering leaves untouched — paste it
+back into any pane with tmux's normal paste-buffer binding (`prefix ]`).
 
 ## Roadmap
 
