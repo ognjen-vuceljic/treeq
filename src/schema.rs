@@ -385,7 +385,7 @@ mod tests {
     fn xml_schema_lists_children_attributes_and_repeats() {
         let xml = r#"<root><user id="1"><tag/><tag/></user><user id="2"/></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let out = xml_schema(&node);
         assert_eq!(out, "user [id] (repeated)\n  tag (repeated)\n");
     }
@@ -397,7 +397,7 @@ mod tests {
             <user><tag/><extra/></user>
         </root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let out = xml_schema(&node);
         assert_eq!(out, "user (repeated)\n  tag (repeated)\n  extra\n");
     }
@@ -406,7 +406,7 @@ mod tests {
     fn xml_schema_unions_attribute_names_across_siblings() {
         let xml = r#"<root><user id="1"/><user id="2" class="admin"/></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let out = xml_schema(&node);
         assert_eq!(out, "user [id, class] (repeated)\n");
     }
@@ -415,7 +415,7 @@ mod tests {
     fn xml_schema_handles_no_children() {
         let xml = r#"<root/>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         assert_eq!(xml_schema(&node), "");
     }
 }

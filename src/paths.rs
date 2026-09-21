@@ -69,7 +69,7 @@ mod tests {
     fn lists_all_xml_paths() {
         let xml = r#"<root><user><name>Alice</name></user></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let paths = xml_paths(&node);
         assert_eq!(paths, vec!["user".to_string(), "user.name".to_string()]);
     }
