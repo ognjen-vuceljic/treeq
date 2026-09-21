@@ -39,8 +39,14 @@ slices instead of dumping the whole thing into a tool result.
 
 ## Install
 
-Not yet published to crates.io or a package manager. For now, build from
-source (requires a recent stable Rust toolchain, edition 2024):
+**Homebrew:**
+
+```sh
+brew tap ognjen-vuceljic/treeq
+brew install treeq
+```
+
+**From source** (requires a recent stable Rust toolchain, edition 2024):
 
 ```sh
 git clone https://github.com/ognjen-vuceljic/treeq.git
@@ -78,6 +84,12 @@ root
 In a real terminal, output is colorized by type (keys, strings, numbers,
 booleans, null each a distinct color), and dropping `--static` opens the
 interactive TUI instead.
+
+### XML in action
+
+XML works the same way as JSON, all through the same keybindings:
+
+![treeq XML demo: navigating a catalog of books, inspecting a price field's type and path, fuzzy-searching for "price" and cycling through matches with Tab, tagging a node, then collapsing and expanding the whole tree](assets/xml-demo.gif)
 
 ## Features
 
