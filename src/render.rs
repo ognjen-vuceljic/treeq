@@ -1,4 +1,4 @@
-use crate::color::{Color, paint};
+use crate::color::{Color, paint, paint_depth};
 use crate::json_tree::{JsonNode, JsonScalar, escape_display_str};
 use crate::xml_tree::XmlNode;
 
@@ -57,7 +57,7 @@ fn render_json_children(
         let is_last = i + 1 == visible && truncated == 0;
         let branch = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
-        let branch_str = paint(&format!("{prefix}{branch}"), Color::Structural, use_color);
+        let branch_str = paint_depth(&format!("{prefix}{branch}"), depth, use_color);
         let label_str = paint(&escape_display_str(&label), Color::Key, use_color);
         match child {
             JsonNode::Scalar(s) => {
@@ -87,7 +87,7 @@ fn render_json_children(
         }
     }
     if truncated > 0 {
-        let branch_str = paint(&format!("{prefix}└── "), Color::Structural, use_color);
+        let branch_str = paint_depth(&format!("{prefix}└── "), depth, use_color);
         let msg = paint(
             &format!("… ({truncated} more)"),
             Color::Structural,
@@ -143,7 +143,7 @@ fn render_xml_children(
         let is_last = i + 1 == len;
         let branch = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
-        let branch_str = paint(&format!("{prefix}{branch}"), Color::Structural, use_color);
+        let branch_str = paint_depth(&format!("{prefix}{branch}"), depth, use_color);
         if !child.children.is_empty() && max_depth.is_some_and(|d| depth + 1 >= d) {
             let name_str = paint(&escape_display_str(&child.name), Color::Key, use_color);
             let ellipsis = paint("…", Color::Structural, use_color);
@@ -179,6 +179,27 @@ mod tests {
         let output = render_json(&node, "root", None, None, true);
         assert!(output.contains("\x1b[36mname\x1b[0m"));
         assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
+    }
+
+    #[test]
+    fn json_guide_lines_are_tinted_by_depth_not_all_the_same_dim_gray() {
+        let value = json!({"user": {"name": "Alice"}});
+        let node = JsonNode::from_value(&value);
+        let output = render_json(&node, "root", None, None, true);
+        // depth 0's guide line ("user"'s own branch) keeps the original
+        // plain dim; depth 1's guide line ("name"'s branch) gets a
+        // distinct tint -- verifying the two don't collapse to one color.
+        assert!(output.contains("\x1b[2m└── \x1b[0m"));
+        assert!(output.contains("\x1b[2;34m    └── \x1b[0m"));
+    }
+
+    #[test]
+    fn xml_guide_lines_are_tinted_by_depth() {
+        let doc = roxmltree::Document::parse("<root><a><b/></a></root>").unwrap();
+        let node = XmlNode::from_document(&doc).unwrap();
+        let output = render_xml(&node, None, true);
+        assert!(output.contains("\x1b[2m└── \x1b[0m"));
+        assert!(output.contains("\x1b[2;34m    └── \x1b[0m"));
     }
 
     #[test]

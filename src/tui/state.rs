@@ -26,6 +26,24 @@ pub(super) fn tag_color(tag: u8) -> Color {
     TAG_PALETTE[idx]
 }
 
+/// Cycled by nesting depth for a line's indent+marker span, so the eye can
+/// track "which level am I at" the way editor indent-guides do -- the same
+/// structural cue as `render.rs`'s `paint_depth`, just as ratatui `Color`s
+/// instead of raw ANSI codes. Depth 0 matches `ratatui_color(Structural)`'s
+/// existing `DarkGray` exactly, so a flat/shallow document looks unchanged.
+const DEPTH_TINT_PALETTE: [Color; 6] = [
+    Color::DarkGray,
+    Color::Rgb(70, 90, 130),  // dim blue
+    Color::Rgb(60, 110, 110), // dim cyan
+    Color::Rgb(70, 105, 70),  // dim green
+    Color::Rgb(110, 70, 110), // dim magenta
+    Color::Rgb(115, 100, 60), // dim yellow
+];
+
+pub(super) fn depth_tint_color(depth: usize) -> Color {
+    DEPTH_TINT_PALETTE[depth % DEPTH_TINT_PALETTE.len()]
+}
+
 pub(super) struct Line {
     pub(super) depth: usize,
     pub(super) key: String,
@@ -206,6 +224,27 @@ mod tests {
     fn tag_color_wraps_instead_of_panicking_outside_the_palette() {
         assert_eq!(tag_color(0), tag_color(1));
         assert_eq!(tag_color(9), tag_color(1));
+    }
+
+    #[test]
+    fn depth_tint_colors_cycle_through_one_full_palette_without_repeats() {
+        let colors: HashSet<Color> = (0..DEPTH_TINT_PALETTE.len())
+            .map(depth_tint_color)
+            .collect();
+        assert_eq!(colors.len(), DEPTH_TINT_PALETTE.len());
+    }
+
+    #[test]
+    fn depth_tint_wraps_around_past_the_palette_length() {
+        assert_eq!(
+            depth_tint_color(0),
+            depth_tint_color(DEPTH_TINT_PALETTE.len())
+        );
+    }
+
+    #[test]
+    fn depth_zero_matches_the_original_structural_dark_gray() {
+        assert_eq!(depth_tint_color(0), Color::DarkGray);
     }
 
     fn state_with_cursor(cursor: usize) -> AppState {

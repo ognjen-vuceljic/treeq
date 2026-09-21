@@ -2,7 +2,7 @@ use super::flatten::display_path;
 use super::keys::{
     array_path_for_summary_line, fuzzy_matches, line_search_text, popup_match_entries,
 };
-use super::state::{AppState, HELP_LEGEND, Line, ratatui_color, tag_color};
+use super::state::{AppState, HELP_LEGEND, Line, depth_tint_color, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
 use ratatui::text::Line as RtLine;
@@ -12,7 +12,7 @@ fn line_spans(line: &Line, use_color: bool) -> Vec<Span<'static>> {
     let indent = "  ".repeat(line.depth);
     let marker = if line.has_children { "▸ " } else { "" };
     let structural_style = if use_color {
-        Style::default().fg(ratatui_color(TqColor::Structural))
+        Style::default().fg(depth_tint_color(line.depth))
     } else {
         Style::default()
     };
