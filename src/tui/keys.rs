@@ -471,6 +471,150 @@ fn expand_all(state: &mut AppState) {
     }
 }
 
+/// Inclusive line-index range of the active visual-line selection, clamped
+/// to the current line count (which can shrink between the anchor being set
+/// and a later collapse/expand elsewhere rebuilding `lines`).
+fn visual_range(state: &AppState) -> (usize, usize) {
+    let last = state.lines.len().saturating_sub(1);
+    let anchor = state.visual_anchor.unwrap_or(state.cursor).min(last);
+    let cursor = state.cursor.min(last);
+    if anchor <= cursor {
+        (anchor, cursor)
+    } else {
+        (cursor, anchor)
+    }
+}
+
+/// `(real_path, has_children, is_array_summary)` for every line in the
+/// active selection, snapshotted before any mutation -- the selected lines
+/// stay identified by path even though the mutations below don't reorder or
+/// resize `state.lines` (they only ever touch `collapsed`/`array_overrides`).
+fn selected_lines(state: &AppState) -> Vec<(Vec<String>, bool, bool)> {
+    if state.lines.is_empty() {
+        return Vec::new();
+    }
+    let (lo, hi) = visual_range(state);
+    state.lines[lo..=hi]
+        .iter()
+        .map(|l| (l.path.clone(), l.has_children, l.is_array_summary))
+        .collect()
+}
+
+fn path_starts_with(path: &[String], prefix: &[String]) -> bool {
+    path.len() >= prefix.len() && path[..prefix.len()] == *prefix
+}
+
+fn exit_visual_mode(state: &mut AppState) {
+    state.visual_anchor = None;
+}
+
+/// `l` across the selection: expands every selected container one level (or
+/// reveals a truncated array's preview), same rule as single-line `l`.
+fn visual_expand(state: &mut AppState) {
+    for (path, has_children, is_array_summary) in selected_lines(state) {
+        if is_array_summary {
+            state
+                .array_overrides
+                .insert(array_path_for_summary_line(&path).to_vec());
+        } else if has_children {
+            state.collapsed.remove(&path);
+        }
+    }
+    exit_visual_mode(state);
+}
+
+/// `h` across the selection: collapses every selected container one level.
+/// Unlike single-line `h`, never jumps to a parent -- that has no sensible
+/// meaning for a multi-line selection.
+fn visual_collapse(state: &mut AppState) {
+    for (path, has_children, is_array_summary) in selected_lines(state) {
+        if has_children && !is_array_summary {
+            state.collapsed.insert(path.clone());
+            state.array_overrides.remove(&path);
+        }
+    }
+    exit_visual_mode(state);
+}
+
+/// `c` across the selection: collapses every descendant (and the selected
+/// node itself) of each selected line, the same as global `collapse_all`
+/// but scoped to the selection's subtrees.
+fn visual_collapse_all(state: &mut AppState) {
+    let roots: Vec<Vec<String>> = selected_lines(state)
+        .into_iter()
+        .map(|(path, _, is_array_summary)| {
+            if is_array_summary {
+                array_path_for_summary_line(&path).to_vec()
+            } else {
+                path
+            }
+        })
+        .collect();
+    let to_collapse: Vec<Vec<String>> = state
+        .all_container_paths
+        .iter()
+        .filter(|p| roots.iter().any(|r| path_starts_with(p, r)))
+        .cloned()
+        .collect();
+    for path in &to_collapse {
+        state.array_overrides.remove(path);
+    }
+    state.collapsed.extend(to_collapse);
+    if let Some(root) = roots.into_iter().next() {
+        state.pending_cursor_path = Some(root);
+    }
+    exit_visual_mode(state);
+    state.status_message = Some("collapsed selection".to_string());
+}
+
+/// `e` across the selection: expands every descendant of each selected
+/// line, the same as global `expand_all` but scoped to the selection.
+fn visual_expand_all(state: &mut AppState) {
+    let roots: Vec<Vec<String>> = selected_lines(state)
+        .into_iter()
+        .map(|(path, _, is_array_summary)| {
+            if is_array_summary {
+                array_path_for_summary_line(&path).to_vec()
+            } else {
+                path
+            }
+        })
+        .collect();
+    let to_expand: Vec<Vec<String>> = state
+        .collapsed
+        .iter()
+        .filter(|p| roots.iter().any(|r| path_starts_with(p, r)))
+        .cloned()
+        .collect();
+    for path in to_expand {
+        state.collapsed.remove(&path);
+    }
+    if let Some(root) = roots.into_iter().next() {
+        state.pending_cursor_path = Some(root);
+    }
+    exit_visual_mode(state);
+    state.status_message = Some("expanded selection".to_string());
+}
+
+/// Key handling while `state.visual_anchor.is_some()`. `q` still quits (same
+/// precedent as the help/inspect overlays); `Esc`/`V` cancel the selection.
+fn handle_visual_key(state: &mut AppState, key: KeyCode) -> bool {
+    match key {
+        KeyCode::Char('q') => return true,
+        KeyCode::Esc | KeyCode::Char('V') => exit_visual_mode(state),
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.cursor = (state.cursor + 1).min(state.lines.len().saturating_sub(1));
+        }
+        KeyCode::Up | KeyCode::Char('k') => state.cursor = state.cursor.saturating_sub(1),
+        KeyCode::Char('l') => visual_expand(state),
+        KeyCode::Char('h') => visual_collapse(state),
+        KeyCode::Char('c') => visual_collapse_all(state),
+        KeyCode::Char('e') => visual_expand_all(state),
+        _ => {}
+    }
+    false
+}
+
 pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
     if state.searching {
         match key {
@@ -512,9 +656,13 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         apply_count_jump(state, key);
         return false;
     }
+    if state.visual_anchor.is_some() {
+        return handle_visual_key(state, key);
+    }
     state.status_message = None;
     match key {
         KeyCode::Char('q') | KeyCode::Esc => return true,
+        KeyCode::Char('V') if !state.lines.is_empty() => state.visual_anchor = Some(state.cursor),
         KeyCode::Enter if state.pick_mode => {
             if let Some(line) = state.lines.get(state.cursor) {
                 let path = real_path(line);
@@ -687,6 +835,7 @@ mod tests {
             popup_scroll_offset: std::cell::Cell::new(0),
             pick_mode: false,
             pick_result: None,
+            visual_anchor: None,
         }
     }
 
@@ -1057,6 +1206,7 @@ mod tests {
             popup_scroll_offset: std::cell::Cell::new(0),
             pick_mode: false,
             pick_result: None,
+            visual_anchor: None,
         }
     }
 
@@ -1088,6 +1238,7 @@ mod tests {
             popup_scroll_offset: std::cell::Cell::new(0),
             pick_mode: false,
             pick_result: None,
+            visual_anchor: None,
         }
     }
 
@@ -1785,6 +1936,7 @@ mod tests {
             popup_scroll_offset: std::cell::Cell::new(0),
             pick_mode: false,
             pick_result: None,
+            visual_anchor: None,
         };
         (state, node)
     }
@@ -1869,6 +2021,7 @@ mod tests {
             popup_scroll_offset: std::cell::Cell::new(0),
             pick_mode: false,
             pick_result: None,
+            visual_anchor: None,
         };
         move_cursor_to_path(&mut state, &["items".to_string(), "…more".to_string()]);
         assert!(state.lines[state.cursor].is_array_summary);
@@ -2122,6 +2275,7 @@ mod tests {
             popup_scroll_offset: std::cell::Cell::new(0),
             pick_mode: false,
             pick_result: None,
+            visual_anchor: None,
         };
 
         jump_to_next_match(&mut state);
@@ -2436,5 +2590,200 @@ mod tests {
         handle_key(&mut state, KeyCode::Down);
         assert_eq!(state.cursor, 0, "cursor must not move while inspecting");
         assert!(state.inspect_visible);
+    }
+
+    #[test]
+    fn shift_v_does_nothing_on_an_empty_document_instead_of_panicking() {
+        let mut state = tall_fixture(0, 0);
+        handle_key(&mut state, KeyCode::Char('V'));
+        assert!(
+            state.visual_anchor.is_none(),
+            "must not enter visual mode with no lines to select"
+        );
+    }
+
+    #[test]
+    fn visual_actions_do_not_panic_if_lines_become_empty_while_a_stale_anchor_is_set() {
+        let mut state = tall_fixture(0, 0);
+        state.visual_anchor = Some(0);
+        for key in [
+            KeyCode::Char('l'),
+            KeyCode::Char('h'),
+            KeyCode::Char('c'),
+            KeyCode::Char('e'),
+        ] {
+            state.visual_anchor = Some(0);
+            handle_key(&mut state, key);
+        }
+    }
+
+    #[test]
+    fn shift_v_enters_visual_mode_anchored_at_the_cursor() {
+        let mut state = fixture();
+        state.cursor = 1;
+        handle_key(&mut state, KeyCode::Char('V'));
+        assert_eq!(state.visual_anchor, Some(1));
+    }
+
+    #[test]
+    fn j_and_k_extend_the_selection_without_leaving_visual_mode() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('j'));
+        assert!(state.visual_anchor.is_some(), "still in visual mode");
+        assert_eq!(state.cursor, 1);
+        assert_eq!(visual_range(&state), (0, 1));
+    }
+
+    #[test]
+    fn esc_cancels_visual_mode_without_any_changes() {
+        let mut state = nested_fixture();
+        state.cursor = 0;
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('j'));
+        handle_key(&mut state, KeyCode::Esc);
+        assert!(state.visual_anchor.is_none());
+        assert!(state.collapsed.is_empty());
+    }
+
+    #[test]
+    fn shift_v_again_also_cancels_visual_mode() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('V'));
+        assert!(state.visual_anchor.is_none());
+    }
+
+    #[test]
+    fn q_still_quits_from_visual_mode() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('V'));
+        assert!(handle_key(&mut state, KeyCode::Char('q')));
+    }
+
+    #[test]
+    fn visual_l_expands_every_selected_container_and_exits_visual_mode() {
+        let mut state = nested_fixture();
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        state.collapsed.insert(vec![
+            "root".to_string(),
+            "user".to_string(),
+            "address".to_string(),
+        ]);
+        state.cursor = 0;
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('j'));
+        handle_key(&mut state, KeyCode::Char('j'));
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert!(state.visual_anchor.is_none(), "must auto-exit visual mode");
+        assert!(
+            !state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()])
+        );
+        assert!(!state.collapsed.contains(&vec![
+            "root".to_string(),
+            "user".to_string(),
+            "address".to_string()
+        ]));
+    }
+
+    #[test]
+    fn visual_h_collapses_every_selected_container_and_exits_visual_mode() {
+        let mut state = nested_fixture();
+        state.cursor = 0;
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('j'));
+        handle_key(&mut state, KeyCode::Char('j'));
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert!(state.visual_anchor.is_none());
+        assert!(state.collapsed.contains(&vec!["root".to_string()]));
+        assert!(
+            state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()])
+        );
+        assert!(state.collapsed.contains(&vec![
+            "root".to_string(),
+            "user".to_string(),
+            "address".to_string()
+        ]));
+    }
+
+    #[test]
+    fn visual_h_never_jumps_to_a_parent_unlike_single_line_h() {
+        let mut state = nested_fixture();
+        state.cursor = 3; // "city", a leaf
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert_eq!(
+            state.cursor, 3,
+            "unlike single-line h, must not jump anywhere"
+        );
+        assert!(state.collapsed.is_empty());
+    }
+
+    #[test]
+    fn visual_c_collapses_every_descendant_of_the_selected_lines() {
+        let mut state = nested_fixture();
+        state.cursor = 0; // just "root" selected
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('c'));
+        assert!(state.visual_anchor.is_none());
+        assert!(state.collapsed.contains(&vec!["root".to_string()]));
+        assert!(
+            state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()])
+        );
+        assert!(state.collapsed.contains(&vec![
+            "root".to_string(),
+            "user".to_string(),
+            "address".to_string()
+        ]));
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["root".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn visual_e_expands_every_descendant_of_the_selected_lines() {
+        let mut state = nested_fixture();
+        state.collapsed = state.all_container_paths.clone();
+        state.cursor = 0; // just "root" selected
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('e'));
+        assert!(state.visual_anchor.is_none());
+        assert!(state.collapsed.is_empty());
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["root".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn selection_direction_does_not_matter() {
+        let mut state = nested_fixture();
+        state.cursor = 2; // "address"
+        handle_key(&mut state, KeyCode::Char('V'));
+        handle_key(&mut state, KeyCode::Char('k'));
+        handle_key(&mut state, KeyCode::Char('k'));
+        assert_eq!(state.cursor, 0);
+        assert_eq!(visual_range(&state), (0, 2));
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert!(state.collapsed.contains(&vec!["root".to_string()]));
+        assert!(
+            state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()])
+        );
+        assert!(state.collapsed.contains(&vec![
+            "root".to_string(),
+            "user".to_string(),
+            "address".to_string()
+        ]));
     }
 }

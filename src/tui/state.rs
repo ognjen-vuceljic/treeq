@@ -113,6 +113,10 @@ pub(super) struct AppState {
     /// `tui.rs`'s `run_loop` reads and prints it after leaving the
     /// alternate screen.
     pub(super) pick_result: Option<String>,
+    /// Line index where `V` (visual-line select) was pressed. `Some` means
+    /// visual mode is active; the selected range is
+    /// `min(anchor, cursor)..=max(anchor, cursor)`.
+    pub(super) visual_anchor: Option<usize>,
 }
 
 /// Source of truth for the in-app help overlay; cross-checked by a test
@@ -132,6 +136,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Y", "yank as jq path (JSON only)"),
     ("c", "collapse all"),
     ("e", "expand all"),
+    ("V", "visual select (j/k extend; l/h/c/e apply)"),
     ("?", "toggle this help"),
     ("q / Esc", "quit"),
 ];
@@ -291,6 +296,7 @@ mod tests {
             popup_scroll_offset: std::cell::Cell::new(0),
             pick_mode: false,
             pick_result: None,
+            visual_anchor: None,
         }
     }
 

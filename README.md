@@ -150,6 +150,7 @@ lines, precise search-match highlighting, and a truecolor palette:
 | `Shift+C` | Collapse every ancestor up to the root |
 | `c` | Collapse all |
 | `e` | Expand all |
+| `V` | Enter visual-line select mode: `j`/`k` extend the selection; `l`/`h`/`c`/`e` apply to every selected line, then return to normal mode; `Esc`/`V` cancels |
 | `/` | Incremental fuzzy search |
 | `n` / `N` | Repeat the last search forward / backward |
 | `F` | Open an fzf-style popup listing every match across the whole document (`Tab`/`Shift+Tab` cycles, `Enter` jumps, `Esc` closes) |

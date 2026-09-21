@@ -94,6 +94,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<
         popup_scroll_offset: std::cell::Cell::new(0),
         pick_mode: pick,
         pick_result: None,
+        visual_anchor: None,
     };
     if pick {
         run_loop(state, |s| rebuild_json_lines(s, node), open_tty()?)
@@ -135,6 +136,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Op
         popup_scroll_offset: std::cell::Cell::new(0),
         pick_mode: pick,
         pick_result: None,
+        visual_anchor: None,
     };
     if pick {
         run_loop(state, |s| rebuild_xml_lines(s, node), open_tty()?)
