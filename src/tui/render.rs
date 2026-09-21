@@ -415,6 +415,8 @@ mod tests {
             popup_selected: 0,
             inspect_visible: false,
             popup_scroll_offset: std::cell::Cell::new(0),
+            pick_mode: false,
+            pick_result: None,
         }
     }
 

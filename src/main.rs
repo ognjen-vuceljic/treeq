@@ -59,6 +59,12 @@ struct Args {
     ndjson: bool,
     #[arg(long)]
     schema: bool,
+    /// Interactive picker: Enter prints the selected path (a jq filter for
+    /// JSON, the dotted path otherwise) to stdout and exits, instead of
+    /// leaving the TUI a dead end. Renders over /dev/tty so stdout stays
+    /// clean for piping/command substitution.
+    #[arg(long)]
+    pick: bool,
 }
 
 const AGENT_DEFAULT_DEPTH: usize = 3;
@@ -178,11 +184,22 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
         print!("{}", json_schema(target));
         return;
     }
-    if !args.r#static && io::stdout().is_terminal() {
-        tui::run_json_tui(target, use_color()).unwrap_or_else(|e| {
-            eprintln!("error: {e}");
-            process::exit(1);
-        });
+    if !args.r#static && (args.pick || io::stdout().is_terminal()) {
+        // Renders over /dev/tty in pick mode, so stdout's own terminal-ness
+        // doesn't gate whether color looks right there.
+        let use_color = if args.pick {
+            std::env::var_os("NO_COLOR").is_none()
+        } else {
+            use_color()
+        };
+        match tui::run_json_tui(target, use_color, args.pick) {
+            Ok(Some(picked)) => println!("{picked}"),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("error: {e}");
+                process::exit(1);
+            }
+        }
     } else {
         print!(
             "{}",
@@ -246,11 +263,20 @@ fn run_xml(input: &str, args: &Args) {
         print!("{}", xml_schema(target));
         return;
     }
-    if !args.r#static && io::stdout().is_terminal() {
-        tui::run_xml_tui(target, use_color()).unwrap_or_else(|e| {
-            eprintln!("error: {e}");
-            process::exit(1);
-        });
+    if !args.r#static && (args.pick || io::stdout().is_terminal()) {
+        let use_color = if args.pick {
+            std::env::var_os("NO_COLOR").is_none()
+        } else {
+            use_color()
+        };
+        match tui::run_xml_tui(target, use_color, args.pick) {
+            Ok(Some(picked)) => println!("{picked}"),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("error: {e}");
+                process::exit(1);
+            }
+        }
     } else {
         print!("{}", render_xml(target, args.depth, use_color()));
     }
@@ -260,6 +286,10 @@ fn main() {
     let args = Args::parse();
     if args.ndjson && matches!(args.format, Some(FormatArg::Xml)) {
         eprintln!("error: --ndjson is not supported with --format xml");
+        process::exit(1);
+    }
+    if args.pick && args.r#static {
+        eprintln!("error: --pick is not supported with --static");
         process::exit(1);
     }
     let input = read_input(&args.file).unwrap_or_else(|e| {
