@@ -398,6 +398,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
