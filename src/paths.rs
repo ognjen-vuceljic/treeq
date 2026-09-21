@@ -1,12 +1,13 @@
-use crate::json_tree::{JsonNode, escape_display_str};
+use crate::json_tree::{JsonNode, escape_path_segment};
 use crate::xml_tree::XmlNode;
 
 /// Lists every path in the tree, one entry per node (containers and
-/// leaves), in the same dotted, bracket-free format `find_json_path`
-/// expects — so output can round-trip straight into `--path`. Each segment
-/// is escaped (see `escape_display_str`) since this is printed straight to
-/// stdout; a raw control byte in a key was never a meaningful thing to
-/// round-trip through a shell command line anyway.
+/// leaves), in the same dotted format `find_json_path` expects -- so output
+/// round-trips straight into `--path`. Each segment is escaped (see
+/// `escape_path_segment`), both for control bytes (a raw one was never
+/// meaningful to round-trip through a shell command line anyway) and for a
+/// literal `.` in the key itself, which would otherwise be indistinguishable
+/// from the `.` segment separator (issue #61).
 pub fn json_paths(node: &JsonNode) -> Vec<String> {
     let mut out = Vec::new();
     walk_json(node, &[], &mut out);
@@ -33,7 +34,7 @@ fn walk_json(node: &JsonNode, path: &[String], out: &mut Vec<String>) {
 
 fn display_path(path: &[String]) -> String {
     path.iter()
-        .map(|s| escape_display_str(s))
+        .map(|s| escape_path_segment(s))
         .collect::<Vec<_>>()
         .join(".")
 }
@@ -56,6 +57,7 @@ fn walk_xml(node: &XmlNode, path: &[String], out: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::json_tree::{JsonScalar, find_json_path};
     use serde_json::json;
 
     #[test]
@@ -81,6 +83,19 @@ mod tests {
         let node = JsonNode::from_value(&value);
         let paths = json_paths(&node);
         assert_eq!(paths, vec!["before\\u001bafter".to_string()]);
+    }
+
+    #[test]
+    fn escapes_a_literal_dot_in_a_json_key_so_it_is_distinguishable_from_the_path_separator() {
+        let value = json!({"a.b": {"c": 1}});
+        let node = JsonNode::from_value(&value);
+        let paths = json_paths(&node);
+        assert_eq!(paths, vec!["a\\.b".to_string(), "a\\.b.c".to_string()]);
+        // Round-trips back through the same segment split `--path` uses.
+        assert_eq!(
+            find_json_path(&node, "a\\.b.c").unwrap(),
+            &JsonNode::Scalar(JsonScalar::Number("1".to_string()))
+        );
     }
 
     #[test]
