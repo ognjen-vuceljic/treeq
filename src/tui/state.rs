@@ -86,7 +86,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Tab / Space", "collapse / expand"),
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
-    ("/", "fuzzy search"),
+    ("/", "fuzzy search (Tab: cycle matches)"),
     ("F", "search-results popup (whole document)"),
     ("i", "inspect node (type, size, path, tag)"),
     ("1-8", "tag / untag node"),

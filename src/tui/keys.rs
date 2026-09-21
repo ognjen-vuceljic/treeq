@@ -46,6 +46,38 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
     }
 }
 
+/// Steps to the next (`delta = 1`) or previous (`delta = -1`) match for the
+/// in-progress `/` search, across the whole document (including collapsed
+/// subtrees and truncated arrays) rather than just what's currently visible
+/// -- the same match universe the `F` popup's own Tab/Shift+Tab cycling
+/// already uses (`all_paths`), so behavior is consistent between the two
+/// search modes. Wraps around at either end.
+pub(super) fn cycle_search_match(state: &mut AppState, delta: i64) {
+    if state.search.is_empty() {
+        return;
+    }
+    let matches: Vec<Vec<String>> = state
+        .all_paths
+        .iter()
+        .filter(|(_, text)| fuzzy_matches(text, &state.search))
+        .map(|(path, _)| path.clone())
+        .collect();
+    if matches.is_empty() {
+        return;
+    }
+    let n = matches.len() as i64;
+    let current = state.lines.get(state.cursor).map(|l| real_path(l).to_vec());
+    let current_idx = current.and_then(|p| matches.iter().position(|m| *m == p));
+    let next_idx = match current_idx {
+        Some(idx) => (((idx as i64 + delta) % n + n) % n) as usize,
+        None if delta >= 0 => 0,
+        None => (n - 1) as usize,
+    };
+    let path = matches[next_idx].clone();
+    expand_path_into_view(state, &path);
+    state.pending_cursor_path = Some(path);
+}
+
 /// Delegates to `flatten::search_text` so visible-line and whole-document
 /// search stay in the same format. The array-summary line's value is UI
 /// chrome, not document data, so it's excluded from matching.
@@ -337,6 +369,8 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
             KeyCode::Backspace => {
                 state.search.pop();
             }
+            KeyCode::Tab => cycle_search_match(state, 1),
+            KeyCode::BackTab => cycle_search_match(state, -1),
             KeyCode::Char(c) => {
                 state.search.push(c);
                 jump_to_next_match(state);
@@ -1209,6 +1243,75 @@ mod tests {
         state.search = "ab".to_string();
         handle_key(&mut state, KeyCode::Backspace);
         assert_eq!(state.search, "a");
+    }
+
+    #[test]
+    fn tab_while_searching_cycles_to_the_next_match_instead_of_toggling_collapse() {
+        let mut state = fixture();
+        state.searching = true;
+        state.search = "user".to_string();
+        let quit = handle_key(&mut state, KeyCode::Tab);
+        assert!(!quit);
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "name".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn backtab_while_searching_cycles_to_the_previous_match_and_wraps() {
+        let mut state = fixture();
+        state.searching = true;
+        state.search = "user".to_string();
+        // cursor starts on the first match ("user"); backward wraps to the last.
+        handle_key(&mut state, KeyCode::BackTab);
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "age".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn cycle_search_match_does_nothing_for_empty_search() {
+        let mut state = fixture();
+        cycle_search_match(&mut state, 1);
+        assert!(state.pending_cursor_path.is_none());
+    }
+
+    #[test]
+    fn cycle_search_match_does_nothing_when_there_are_no_matches() {
+        let mut state = fixture();
+        state.search = "zzz".to_string();
+        cycle_search_match(&mut state, 1);
+        assert!(state.pending_cursor_path.is_none());
+    }
+
+    #[test]
+    fn cycle_search_match_jumps_to_the_first_match_when_the_cursor_is_not_on_one() {
+        let mut state = fixture();
+        // cursor sits on "user" (line 0), which "name" alone does not match.
+        state.search = "name".to_string();
+        cycle_search_match(&mut state, 1);
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "name".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn cycle_search_match_expands_a_collapsed_ancestor_to_reach_a_hidden_match() {
+        let mut state = fixture();
+        state.collapsed.insert(vec!["user".to_string()]);
+        state.search = "age".to_string();
+        cycle_search_match(&mut state, 1);
+        assert!(
+            !state.collapsed.contains(&vec!["user".to_string()]),
+            "the collapsed ancestor must be expanded to reach the match"
+        );
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "age".to_string()].as_slice())
+        );
     }
 
     #[test]
