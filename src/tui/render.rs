@@ -328,7 +328,24 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
     state.popup_scroll_offset.set(list_state.offset());
 }
 
+/// Background for a visual-line-selected row, distinct from tag colors and
+/// depth tints so a selection is never mistaken for either.
+const VISUAL_SELECTION_BG: Color = Color::Rgb(45, 50, 80);
+
+fn selected_range(state: &AppState) -> Option<(usize, usize)> {
+    let anchor = state.visual_anchor?;
+    let last = state.lines.len().saturating_sub(1);
+    let anchor = anchor.min(last);
+    let cursor = state.cursor.min(last);
+    Some(if anchor <= cursor {
+        (anchor, cursor)
+    } else {
+        (cursor, anchor)
+    })
+}
+
 fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
+    let selection = selected_range(state);
     let items: Vec<ListItem> = state
         .lines
         .iter()
@@ -340,11 +357,14 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
                 ""
             };
             let spans = line_spans(line, state.use_color, search);
+            let is_selected = selection.is_some_and(|(lo, hi)| (lo..=hi).contains(&i));
             let mut style = Style::default();
             if i == state.cursor {
-                // The cursor's own reversed-video highlight takes priority;
-                // a tag background would clash visually, so skip it here.
+                // The cursor's own reversed-video highlight takes priority
+                // over both a selection and a tag background.
                 style = style.add_modifier(Modifier::REVERSED);
+            } else if is_selected {
+                style = style.bg(VISUAL_SELECTION_BG);
             } else if state.use_color
                 && !line.is_array_summary
                 && let Some(&tag) = state.tags.get(&line.path)
@@ -515,6 +535,7 @@ mod tests {
             popup_scroll_offset: std::cell::Cell::new(0),
             pick_mode: false,
             pick_result: None,
+            visual_anchor: None,
         }
     }
 
@@ -627,6 +648,45 @@ mod tests {
         let buffer = terminal.backend().buffer();
         // +1 on both axes: the list widget's border occupies row/col 0.
         assert_eq!(buffer[(1, 2)].bg, tag_color(2));
+    }
+
+    #[test]
+    fn selected_lines_render_with_the_visual_selection_background() {
+        let mut state = state_with(
+            vec![
+                line("root", true, None, 0, &["root"]),
+                line("user", true, None, 0, &["user"]),
+                line("age", false, Some(("1", TqColor::Number)), 0, &["age"]),
+            ],
+            1, // cursor on "user"
+        );
+        state.visual_anchor = Some(0);
+        let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        // Row 1 ("root", index 0) is selected but not the cursor line.
+        assert_eq!(buffer[(1, 1)].bg, VISUAL_SELECTION_BG);
+        // Row 3 ("age", index 2) is outside the anchor(0)..=cursor(1) range.
+        assert_ne!(buffer[(1, 3)].bg, VISUAL_SELECTION_BG);
+    }
+
+    #[test]
+    fn a_non_selected_lines_tag_background_is_unaffected_by_an_unrelated_selection() {
+        let mut state = state_with(
+            vec![
+                line("root", true, None, 0, &["root"]),
+                line("user", true, None, 0, &["user"]),
+            ],
+            1,
+        );
+        state.use_color = true;
+        state.tags.insert(vec!["root".to_string()], 2);
+        // Selection covers only "user" (index 1), not the tagged "root".
+        state.visual_anchor = Some(1);
+        let mut terminal = Terminal::new(TestBackend::new(40, 5)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(1, 1)].bg, tag_color(2));
     }
 
     #[test]
@@ -1371,7 +1431,7 @@ mod tests {
     fn render_shows_help_overlay_with_every_keybinding_when_visible() {
         let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
         state.help_visible = true;
-        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(60, 21)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("Keybindings"));
