@@ -181,13 +181,23 @@ fn apply_count_jump(state: &mut AppState, key: KeyCode) {
                 buf.push(c);
             }
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             let n = take_count(state);
             state.cursor = (state.cursor + n).min(state.lines.len().saturating_sub(1));
         }
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
             let n = take_count(state);
             state.cursor = state.cursor.saturating_sub(n);
+        }
+        // `gg` (empty buffer) jumps to line 1; `g5g`/`g5G` jump to line 5
+        // (1-based) -- the app's own `g`-prefixed count syntax rather than
+        // vim's literal `5gg`, since bare digits already mean "tag node"
+        // outside count mode. `g` and `G` behave identically here; `G`
+        // typed *without* first entering count mode (handled in
+        // `handle_key`, not here) jumps straight to the last line instead.
+        KeyCode::Char('g') | KeyCode::Char('G') => {
+            let n = take_count(state);
+            state.cursor = (n - 1).min(state.lines.len().saturating_sub(1));
         }
         _ => state.count_buffer = None,
     }
@@ -244,6 +254,51 @@ fn cycle_popup_selection(state: &mut AppState, delta: i64) {
     let n = n as i64;
     let cur = state.popup_selected as i64;
     state.popup_selected = (((cur + delta) % n + n) % n) as usize;
+}
+
+/// `l` (nvim-tree convention): expands the current node if it's a
+/// collapsed container, or reveals the rest of a truncated array's preview.
+/// A no-op on a leaf or an already-expanded container -- unlike `Tab`/
+/// `Space`, this never collapses anything, so it's safe to mash.
+fn expand_current(state: &mut AppState) {
+    let Some(line) = state.lines.get(state.cursor) else {
+        return;
+    };
+    if line.is_array_summary {
+        let array_path = array_path_for_summary_line(&line.path).to_vec();
+        state.array_overrides.insert(array_path);
+    } else if line.has_children {
+        state.collapsed.remove(&line.path);
+    }
+}
+
+/// `h` (nvim-tree convention): collapses the current node if it's an
+/// expanded container; otherwise (a leaf, or an already-collapsed
+/// container) jumps to the parent instead, without collapsing it -- unlike
+/// `Backspace`'s `collapse_nearest_parent`, which deliberately collapses
+/// the parent too.
+fn collapse_current_or_jump_to_parent(state: &mut AppState) {
+    let Some(line) = state.lines.get(state.cursor) else {
+        return;
+    };
+    if line.has_children && !line.is_array_summary && !state.collapsed.contains(&line.path) {
+        state.collapsed.insert(line.path.clone());
+        // Resets the preview so re-expanding starts truncated again, same
+        // as Tab/Space's collapse branch.
+        state.array_overrides.remove(&line.path);
+        return;
+    }
+    // Deliberately `line.path` (not `real_path`): for an array-summary
+    // marker line, `line.path` already carries the synthetic trailing
+    // segment, so stripping one level lands on the array's own line --
+    // matching `collapse_nearest_parent`'s convention. Using `real_path`
+    // here would strip an extra level and overshoot past the array itself.
+    let path = &line.path;
+    if path.len() < 2 {
+        return;
+    }
+    let parent = path[..path.len() - 1].to_vec();
+    move_cursor_to_path(state, &parent);
 }
 
 fn collapse_nearest_parent(state: &mut AppState) {
@@ -450,8 +505,17 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('q') | KeyCode::Esc => return true,
         KeyCode::Char('?') => state.help_visible = true,
         KeyCode::Char('g') => state.count_buffer = Some(String::new()),
-        KeyCode::Down => state.cursor = (state.cursor + 1).min(state.lines.len().saturating_sub(1)),
-        KeyCode::Up => state.cursor = state.cursor.saturating_sub(1),
+        // Bare `G` (no preceding `g`) jumps straight to the last line;
+        // `g<digits>G` (via apply_count_jump) jumps to an absolute line.
+        KeyCode::Char('G') => state.cursor = state.lines.len().saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.cursor = (state.cursor + 1).min(state.lines.len().saturating_sub(1));
+        }
+        KeyCode::Up | KeyCode::Char('k') => state.cursor = state.cursor.saturating_sub(1),
+        KeyCode::Char('l') => expand_current(state),
+        KeyCode::Char('h') => collapse_current_or_jump_to_parent(state),
+        KeyCode::Char('n') => cycle_search_match(state, 1),
+        KeyCode::Char('N') => cycle_search_match(state, -1),
         KeyCode::Tab | KeyCode::Char(' ') => {
             if let Some(line) = state.lines.get(state.cursor) {
                 if line.is_array_summary {
@@ -678,6 +742,196 @@ mod tests {
                 .contains(&vec!["user".to_string(), "…more".to_string()])
         );
         assert!(state.array_overrides.is_empty());
+    }
+
+    #[test]
+    fn j_and_k_are_vim_aliases_for_down_and_up() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('j'));
+        assert_eq!(state.cursor, 1);
+        handle_key(&mut state, KeyCode::Char('j'));
+        assert_eq!(state.cursor, 2);
+        handle_key(&mut state, KeyCode::Char('k'));
+        assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn l_expands_a_collapsed_container_but_never_collapses_it() {
+        let mut state = fixture();
+        state.collapsed.insert(vec!["user".to_string()]);
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert!(!state.collapsed.contains(&vec!["user".to_string()]));
+        // Already expanded: `l` must not toggle it back closed.
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert!(!state.collapsed.contains(&vec!["user".to_string()]));
+    }
+
+    #[test]
+    fn l_on_a_leaf_line_does_nothing() {
+        let mut state = fixture();
+        state.cursor = 1; // "name" has no children
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert!(state.collapsed.is_empty());
+    }
+
+    #[test]
+    fn l_on_an_array_truncation_marker_expands_the_array_via_override() {
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.cursor = 3;
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert!(
+            state
+                .array_overrides
+                .contains(&vec!["user".to_string(), "age".to_string()])
+        );
+    }
+
+    #[test]
+    fn h_collapses_an_expanded_container_but_never_expands_it() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert!(state.collapsed.contains(&vec!["user".to_string()]));
+        assert_eq!(
+            state.cursor, 0,
+            "collapsing in place must not move the cursor"
+        );
+    }
+
+    #[test]
+    fn h_on_a_leaf_jumps_to_its_parent_without_collapsing_anything() {
+        let mut state = fixture();
+        state.cursor = 1; // "name", child of "user"
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert_eq!(state.cursor, 0, "must land on \"user\"");
+        assert!(
+            state.collapsed.is_empty(),
+            "unlike Backspace, h must not collapse the parent it jumps to"
+        );
+    }
+
+    #[test]
+    fn h_on_the_array_truncation_marker_jumps_to_the_arrays_own_line_not_past_it() {
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.cursor = 3;
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert_eq!(
+            state.cursor, 2,
+            "must land on the array's own line (\"age\"), not overshoot to its parent (\"user\")"
+        );
+    }
+
+    #[test]
+    fn count_prefix_works_with_the_vim_j_k_aliases_too() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('2'));
+        handle_key(&mut state, KeyCode::Char('j'));
+        assert_eq!(
+            state.cursor, 2,
+            "g2j must move down 2 lines, same as g2\u{2193}"
+        );
+    }
+
+    #[test]
+    fn h_on_an_already_collapsed_container_jumps_to_its_parent() {
+        let mut state = fixture();
+        state.lines = vec![
+            line("root", true, &["root"]),
+            line("user", true, &["root", "user"]),
+        ];
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        state.cursor = 1;
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert_eq!(state.cursor, 0, "must land on the parent \"root\"");
+    }
+
+    #[test]
+    fn h_at_the_root_does_nothing() {
+        let mut state = fixture();
+        state.cursor = 1; // "name"
+        state.lines[0].has_children = false; // pretend "user" has no children either
+        // Simulate already being at a top-level leaf with no parent.
+        state.lines[1].path = vec!["name".to_string()];
+        state.cursor = 1;
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert_eq!(state.cursor, 1, "a top-level node has no parent to jump to");
+    }
+
+    #[test]
+    fn bare_shift_g_jumps_straight_to_the_last_line() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('G'));
+        assert_eq!(state.cursor, 2);
+    }
+
+    #[test]
+    fn gg_jumps_to_the_first_line() {
+        let mut state = fixture();
+        state.cursor = 2;
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('g'));
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn g_digits_g_jumps_to_the_absolute_one_based_line() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('2'));
+        handle_key(&mut state, KeyCode::Char('g'));
+        assert_eq!(state.cursor, 1, "line 2 (1-based) is index 1");
+    }
+
+    #[test]
+    fn g_digits_shift_g_also_jumps_to_the_absolute_line() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('2'));
+        handle_key(&mut state, KeyCode::Char('G'));
+        assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn g_digits_g_clamps_past_the_last_line() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('g'));
+        handle_key(&mut state, KeyCode::Char('9'));
+        handle_key(&mut state, KeyCode::Char('g'));
+        assert_eq!(state.cursor, 2, "must clamp to the last line, not panic");
+    }
+
+    #[test]
+    fn n_and_shift_n_repeat_the_last_search_forward_and_backward() {
+        // All three fixture paths ("user", "user.name", "user.age") contain
+        // "user", so with the cursor sitting on "user" (match index 0),
+        // forward wraps to the next match and backward wraps to the last.
+        let mut state = fixture();
+        state.search = "user".to_string();
+        handle_key(&mut state, KeyCode::Char('n'));
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "name".to_string()].as_slice())
+        );
+        handle_key(&mut state, KeyCode::Char('N'));
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "age".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn n_does_nothing_without_a_prior_search() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('n'));
+        assert!(state.pending_cursor_path.is_none());
     }
 
     #[test]

@@ -123,13 +123,17 @@ XML works the same way as JSON, all through the same keybindings:
 | Key | Action |
 |---|---|
 | `↑` / `↓` | Move cursor |
+| `j` / `k` | Move cursor (vim alias) |
 | `g` | Count-prefixed jump: type digits, then `↑`/`↓` to move that many lines |
+| `gg` / `G` | Jump to the first / last line (`g5g` or `g5G` jumps to an absolute line) |
 | `Tab` / `Space` | Collapse/expand current node |
+| `h` / `l` | Collapse current node (or jump to its parent if already collapsed) / expand current node (vim alias) |
 | `Backspace` | Collapse nearest parent, move cursor there |
 | `Shift+C` | Collapse every ancestor up to the root |
 | `c` | Collapse all |
 | `e` | Expand all |
 | `/` | Incremental fuzzy search |
+| `n` / `N` | Repeat the last search forward / backward |
 | `F` | Open an fzf-style popup listing every match across the whole document (`Tab`/`Shift+Tab` cycles, `Enter` jumps, `Esc` closes) |
 | `i` | Inspect the current node: type, size, full path, and tag |
 | `1-8` | Tag/untag current node with a highlight color |
