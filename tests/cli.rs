@@ -193,6 +193,20 @@ fn escapes_control_bytes_in_a_key_when_listing_paths() {
 }
 
 #[test]
+fn resolves_a_path_to_a_key_that_itself_contains_a_literal_dot() {
+    let (paths_stdout, _stderr, code) = run_treeq(&["--paths"], r#"{"a.b": {"c": "hi"}}"#);
+    assert_eq!(code, 0);
+    assert_eq!(paths_stdout, "a\\.b\na\\.b.c\n");
+
+    let (stdout, _stderr, code) = run_treeq(
+        &["--static", "--path", "a\\.b.c"],
+        r#"{"a.b": {"c": "hi"}}"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "root: \"hi\"\n");
+}
+
+#[test]
 fn reports_unresolved_path_segment() {
     let (_stdout, stderr, code) =
         run_treeq(&["--static", "--path", "missing"], r#"{"user": "Alice"}"#);
