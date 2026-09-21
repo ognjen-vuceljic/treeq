@@ -46,6 +46,66 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
     }
 }
 
+/// Steps to the next (`delta = 1`) or previous (`delta = -1`) match for the
+/// in-progress `/` search, across the whole document (including collapsed
+/// subtrees and truncated arrays) rather than just what's currently visible
+/// -- the same match universe the `F` popup's own Tab/Shift+Tab cycling
+/// already uses (`all_paths`), so behavior is consistent between the two
+/// search modes. Wraps around at either end.
+pub(super) fn cycle_search_match(state: &mut AppState, delta: i64) {
+    if state.search.is_empty() {
+        return;
+    }
+    // Each match also carries which occurrence (0-based) of its own path
+    // it is among matches sharing that exact path -- distinct XML sibling
+    // elements with the same tag name have no other way to tell them
+    // apart, since (unlike a JSON array's `[N]` segment) their path is
+    // identical. Without this, cycling would resolve every one of them
+    // back to the same (first) line and get permanently stuck (issue #75
+    // regression, caught by adversarial review before merging).
+    let mut path_counts: std::collections::HashMap<Vec<String>, usize> =
+        std::collections::HashMap::new();
+    let matches: Vec<(Vec<String>, usize)> = state
+        .all_paths
+        .iter()
+        .filter(|(_, text)| fuzzy_matches(text, &state.search))
+        .map(|(path, _)| {
+            let occurrence = path_counts.entry(path.clone()).or_insert(0);
+            let this = *occurrence;
+            *occurrence += 1;
+            (path.clone(), this)
+        })
+        .collect();
+    if matches.is_empty() {
+        return;
+    }
+    let n = matches.len() as i64;
+    // The cursor's own occurrence rank among *visible* lines sharing its
+    // real path: visible order is a subsequence of document order
+    // (collapsing never reorders siblings), so this rank lines up with the
+    // rank computed above for `matches`.
+    let current_idx = state.lines.get(state.cursor).and_then(|current| {
+        let current_path = real_path(current);
+        let rank = state.lines[..=state.cursor]
+            .iter()
+            .filter(|l| real_path(l) == current_path)
+            .count()
+            - 1;
+        matches
+            .iter()
+            .position(|(p, occurrence)| p.as_slice() == current_path && *occurrence == rank)
+    });
+    let next_idx = match current_idx {
+        Some(idx) => (((idx as i64 + delta) % n + n) % n) as usize,
+        None if delta >= 0 => 0,
+        None => (n - 1) as usize,
+    };
+    let (path, occurrence) = matches[next_idx].clone();
+    expand_path_into_view(state, &path);
+    state.pending_cursor_path = Some(path);
+    state.pending_cursor_occurrence = occurrence;
+}
+
 /// Delegates to `flatten::search_text` so visible-line and whole-document
 /// search stay in the same format. The array-summary line's value is UI
 /// chrome, not document data, so it's excluded from matching.
@@ -70,7 +130,21 @@ pub(super) fn expand_path_into_view(state: &mut AppState, path: &[String]) {
 }
 
 pub(super) fn move_cursor_to_path(state: &mut AppState, path: &[String]) {
-    if let Some(idx) = state.lines.iter().position(|l| l.path == path) {
+    move_cursor_to_nth_path(state, path, 0);
+}
+
+/// Same as `move_cursor_to_path`, but lands on the `occurrence`-th (0-based)
+/// line matching `path` rather than always the first -- needed when several
+/// lines share the exact same path (see `AppState::pending_cursor_occurrence`).
+pub(super) fn move_cursor_to_nth_path(state: &mut AppState, path: &[String], occurrence: usize) {
+    if let Some(idx) = state
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.path == path)
+        .nth(occurrence)
+        .map(|(idx, _)| idx)
+    {
         state.cursor = idx;
     }
 }
@@ -337,6 +411,8 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
             KeyCode::Backspace => {
                 state.search.pop();
             }
+            KeyCode::Tab => cycle_search_match(state, 1),
+            KeyCode::BackTab => cycle_search_match(state, -1),
             KeyCode::Char(c) => {
                 state.search.push(c);
                 jump_to_next_match(state);
@@ -515,6 +591,7 @@ mod tests {
                 ),
             ],
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -692,6 +769,7 @@ mod tests {
                 ),
             ],
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -720,6 +798,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -1212,6 +1291,153 @@ mod tests {
     }
 
     #[test]
+    fn tab_while_searching_cycles_to_the_next_match_instead_of_toggling_collapse() {
+        let mut state = fixture();
+        state.searching = true;
+        state.search = "user".to_string();
+        let quit = handle_key(&mut state, KeyCode::Tab);
+        assert!(!quit);
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "name".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn backtab_while_searching_cycles_to_the_previous_match_and_wraps() {
+        let mut state = fixture();
+        state.searching = true;
+        state.search = "user".to_string();
+        // cursor starts on the first match ("user"); backward wraps to the last.
+        handle_key(&mut state, KeyCode::BackTab);
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "age".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn cycle_search_match_does_nothing_for_empty_search() {
+        let mut state = fixture();
+        cycle_search_match(&mut state, 1);
+        assert!(state.pending_cursor_path.is_none());
+    }
+
+    #[test]
+    fn cycle_search_match_does_nothing_when_there_are_no_matches() {
+        let mut state = fixture();
+        state.search = "zzz".to_string();
+        cycle_search_match(&mut state, 1);
+        assert!(state.pending_cursor_path.is_none());
+    }
+
+    #[test]
+    fn cycle_search_match_jumps_to_the_first_match_when_the_cursor_is_not_on_one() {
+        let mut state = fixture();
+        // cursor sits on "user" (line 0), which "name" alone does not match.
+        state.search = "name".to_string();
+        cycle_search_match(&mut state, 1);
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "name".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn cycle_search_match_expands_a_collapsed_ancestor_to_reach_a_hidden_match() {
+        let mut state = fixture();
+        state.collapsed.insert(vec!["user".to_string()]);
+        state.search = "age".to_string();
+        cycle_search_match(&mut state, 1);
+        assert!(
+            !state.collapsed.contains(&vec!["user".to_string()]),
+            "the collapsed ancestor must be expanded to reach the match"
+        );
+        assert_eq!(
+            state.pending_cursor_path.as_deref(),
+            Some(vec!["user".to_string(), "age".to_string()].as_slice())
+        );
+    }
+
+    /// Three lines sharing the exact same path -- e.g. `<item>1</item>
+    /// <item>2</item><item>3</item>` in XML, where sibling elements with
+    /// the same tag name have no `[N]`-style disambiguation the way a JSON
+    /// array does.
+    fn duplicate_path_state() -> AppState {
+        let mut state = fixture();
+        state.lines = (1..=3)
+            .map(|i| Line {
+                depth: 0,
+                key: "item".to_string(),
+                value: Some((i.to_string(), TqColor::Number)),
+                path: vec!["item".to_string()],
+                has_children: false,
+                is_array_summary: false,
+                type_label: "number".to_string(),
+            })
+            .collect();
+        state.all_paths = (1..=3)
+            .map(|i: i32| (vec!["item".to_string()], format!("item: {i}")))
+            .collect();
+        state.cursor = 0;
+        state
+    }
+
+    #[test]
+    fn cycle_search_match_advances_through_lines_sharing_the_same_path_instead_of_getting_stuck() {
+        let mut state = duplicate_path_state();
+        state.searching = true;
+        state.search = "item".to_string();
+
+        handle_key(&mut state, KeyCode::Tab);
+        assert_eq!(
+            (
+                state.pending_cursor_path.clone(),
+                state.pending_cursor_occurrence
+            ),
+            (Some(vec!["item".to_string()]), 1),
+            "must advance to the 2nd occurrence, not stay on the 1st"
+        );
+        // Simulate what `rebuild_json_lines`'s `apply_pending_cursor_path`
+        // does once `lines` rebuilds, without disturbing this test's
+        // hand-built `lines` with a real (empty) document rebuild.
+        let path = state.pending_cursor_path.take().unwrap();
+        let occurrence = std::mem::take(&mut state.pending_cursor_occurrence);
+        move_cursor_to_nth_path(&mut state, &path, occurrence);
+        assert_eq!(state.cursor, 1, "cursor must land on the 2nd \"item\" line");
+
+        handle_key(&mut state, KeyCode::Tab);
+        assert_eq!(
+            state.pending_cursor_occurrence, 2,
+            "must advance to the 3rd occurrence"
+        );
+    }
+
+    #[test]
+    fn cycle_search_match_wraps_backward_across_lines_sharing_the_same_path() {
+        let mut state = duplicate_path_state();
+        state.searching = true;
+        state.search = "item".to_string();
+
+        handle_key(&mut state, KeyCode::BackTab);
+        assert_eq!(
+            (
+                state.pending_cursor_path.clone(),
+                state.pending_cursor_occurrence
+            ),
+            (Some(vec!["item".to_string()]), 2),
+            "backward from the 1st occurrence must wrap to the last (3rd)"
+        );
+    }
+
+    #[test]
+    fn move_cursor_to_nth_path_lands_on_the_requested_occurrence() {
+        let mut state = duplicate_path_state();
+        move_cursor_to_nth_path(&mut state, &["item".to_string()], 2);
+        assert_eq!(state.cursor, 2);
+    }
+
+    #[test]
     fn enter_or_esc_exits_search_mode_without_collapsing() {
         let mut state = fixture();
         state.searching = true;
@@ -1267,6 +1493,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths,
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -1348,6 +1575,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -1567,6 +1795,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths,
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),

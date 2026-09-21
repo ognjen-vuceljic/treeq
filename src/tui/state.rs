@@ -66,6 +66,18 @@ pub(super) struct AppState {
     /// A search match found outside the visible lines: consumed by
     /// `rebuild_json_lines`/`rebuild_xml_lines` once `lines` is rebuilt.
     pub(super) pending_cursor_path: Option<Vec<String>>,
+    /// Which occurrence (0-based) of `pending_cursor_path` to land on, for
+    /// the rare case multiple lines share the exact same path -- XML
+    /// sibling elements with the same tag name have no per-instance
+    /// disambiguation the way a JSON array's `[N]` index segment does, so
+    /// `["book"]` can identify several distinct lines at once. Ignored
+    /// (i.e. always the first occurrence) by every caller except
+    /// `cycle_search_match`, which is the one place cycling through
+    /// several same-path matches actually needs to land on a *specific*
+    /// one rather than always the first (see issue #75's regression: a
+    /// naive first-match resolution got Tab-cycling permanently stuck on
+    /// one line whenever matches shared a path).
+    pub(super) pending_cursor_occurrence: usize,
     /// Digits typed so far for a pending count-prefixed jump (`g` + digits
     /// + arrow). Capped at 6 digits to stay a safely parseable `usize`.
     pub(super) count_buffer: Option<String>,
@@ -86,7 +98,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Tab / Space", "collapse / expand"),
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
-    ("/", "fuzzy search"),
+    ("/", "fuzzy search (Tab: cycle matches)"),
     ("F", "search-results popup (whole document)"),
     ("i", "inspect node (type, size, path, tag)"),
     ("1-8", "tag / untag node"),
@@ -101,7 +113,8 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
 
 fn apply_pending_cursor_path(state: &mut AppState) {
     if let Some(path) = state.pending_cursor_path.take() {
-        super::keys::move_cursor_to_path(state, &path);
+        let occurrence = std::mem::take(&mut state.pending_cursor_occurrence);
+        super::keys::move_cursor_to_nth_path(state, &path, occurrence);
     }
 }
 
@@ -205,6 +218,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
