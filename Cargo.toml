@@ -19,4 +19,10 @@ serde_yaml = "0.9"
 roxmltree = "0.20"
 clap = { version = "4", features = ["derive"] }
 ratatui = "0.29"
-crossterm = "0.28"
+# `use-dev-tty`: without it, crossterm's default Unix event backend (mio +
+# kqueue) fails to register a freshly-opened `/dev/tty` fd on macOS with
+# EINVAL, which is exactly the fd it must fall back to for keyboard input
+# when stdin is piped (e.g. `some-cli | treeq`). The alternate backend this
+# feature selects uses a plain poll(2) call instead and doesn't have that
+# problem. See issue #85.
+crossterm = { version = "0.28", features = ["use-dev-tty"] }
