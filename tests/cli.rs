@@ -82,6 +82,26 @@ fn applies_path_and_depth() {
 }
 
 #[test]
+fn path_to_a_json_scalar_leaf_prints_its_value_instead_of_nothing() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--static", "--path", "user.name"],
+        r#"{"user": {"name": "Alice", "age": 30}}"#,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "root: \"Alice\"\n");
+}
+
+#[test]
+fn agent_flag_on_a_json_scalar_leaf_prints_its_value_instead_of_nothing() {
+    let (stdout, _stderr, code) = run_treeq(
+        &["--agent", "--path", "user.age"],
+        r#"{"user": {"name": "Alice", "age": 30}}"#,
+    );
+    assert_eq!(code, 0);
+    assert!(stdout.contains("root: 30"));
+}
+
+#[test]
 fn array_limit_truncates_large_arrays_in_static_output() {
     let (stdout, _stderr, code) = run_treeq(
         &["--static", "--array-limit", "2"],
