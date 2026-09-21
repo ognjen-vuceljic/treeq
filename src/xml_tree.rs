@@ -171,12 +171,12 @@ impl XmlNode {
 
 pub fn find_xml_path<'a>(node: &'a XmlNode, path: &str) -> Result<&'a XmlNode, String> {
     let mut current = node;
-    for segment in path.split('.') {
+    for segment in crate::json_tree::split_path_segments(path) {
         current = current
             .children
             .iter()
             .find(|c| c.name == segment)
-            .ok_or_else(|| segment.to_string())?;
+            .ok_or(segment)?;
     }
     Ok(current)
 }
@@ -222,6 +222,18 @@ mod tests {
         let node = XmlNode::from_document(&doc).unwrap();
         let err = find_xml_path(&node, "user.missing.deeper").unwrap_err();
         assert_eq!(err, "missing");
+    }
+
+    #[test]
+    fn resolves_an_element_name_containing_a_literal_dot_when_it_is_backslash_escaped() {
+        // XML's Name grammar allows `.` as a NameChar, so `<a.b>` is a
+        // legitimate element name -- the same `--path` ambiguity as a
+        // dotted JSON key (issue #61).
+        let xml = r#"<root><a.b>hi</a.b></root>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = XmlNode::from_document(&doc).unwrap();
+        let found = find_xml_path(&node, "a\\.b").unwrap();
+        assert_eq!(found.text, Some("hi".to_string()));
     }
 
     #[test]

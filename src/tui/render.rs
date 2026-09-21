@@ -268,21 +268,31 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         &mut list_state,
     );
     state.scroll_offset.set(list_state.offset());
-    let status = if state.searching {
-        format!("/{}", state.search)
+    let status_line = if state.searching {
+        RtLine::from(format!("/{}", state.search))
     } else if let Some(buf) = &state.count_buffer {
-        format!("g{buf}")
+        RtLine::from(format!("g{buf}"))
     } else if let Some(msg) = &state.status_message {
-        msg.clone()
+        RtLine::from(msg.clone())
     } else {
         let path = state
             .lines
             .get(state.cursor)
             .map(|l| display_path(&l.path))
             .unwrap_or_default();
-        format!("{path}  (?: help)")
+        let path_style = if state.use_color {
+            Style::default()
+                .fg(ratatui_color(TqColor::Key))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        RtLine::from(vec![
+            Span::styled(path, path_style),
+            Span::raw("  (?: help)"),
+        ])
     };
-    frame.render_widget(Paragraph::new(status), chunks[1]);
+    frame.render_widget(Paragraph::new(status_line), chunks[1]);
 }
 
 fn help_entry_spans(key: &str, desc: &str, use_color: bool) -> Vec<Span<'static>> {
@@ -398,6 +408,7 @@ mod tests {
             scroll_offset: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            pending_cursor_occurrence: 0,
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -1107,6 +1118,35 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer());
         assert!(!text.contains('\u{1b}'));
         assert!(text.contains("before\\u001bafter"));
+    }
+
+    #[test]
+    fn status_bar_hint_colors_the_path_like_the_inspect_and_search_popups_do() {
+        let mut state = state_with(
+            vec![line("author", false, None, 0, &["replies", "1", "author"])],
+            0,
+        );
+        state.use_color = true;
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            find_match_row_fg(buffer, "replies.1.author"),
+            ratatui_color(TqColor::Key)
+        );
+    }
+
+    #[test]
+    fn status_bar_hint_is_plain_when_color_is_disabled() {
+        let mut state = state_with(
+            vec![line("author", false, None, 0, &["replies", "1", "author"])],
+            0,
+        );
+        state.use_color = false;
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(find_match_row_fg(buffer, "replies.1.author"), Color::Reset);
     }
 
     #[test]

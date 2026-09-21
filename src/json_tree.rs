@@ -36,6 +36,71 @@ pub(crate) fn escape_display_str(s: &str) -> String {
     out
 }
 
+/// `escape_display_str` plus escaping a literal `.` as `\.`, so a path
+/// segment printed by `--paths` round-trips unambiguously back through
+/// `--path`'s `.`-splitting (see `split_path_segments`) even when the
+/// underlying key itself contains a dot (issue #61).
+pub(crate) fn escape_path_segment(s: &str) -> String {
+    escape_display_str(s).replace('.', "\\.")
+}
+
+/// Reverses `escape_path_segment` (and, for any segment typed directly by a
+/// user rather than round-tripped from `--paths`, `escape_display_str`'s own
+/// escapes) on one segment already isolated by `split_path_segments`. An
+/// unrecognized `\X` passes `X` through literally rather than erroring, since
+/// this only ever runs on a local CLI argument.
+fn unescape_path_segment(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    let mut chars = segment.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('\\') => out.push('\\'),
+            Some('"') => out.push('"'),
+            Some('.') => out.push('.'),
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('u') => {
+                let hex: String = chars.by_ref().take(4).collect();
+                if let Some(ch) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                    out.push(ch);
+                }
+            }
+            Some(other) => out.push(other),
+            None => {}
+        }
+    }
+    out
+}
+
+/// Splits a `--path` argument into raw segments on unescaped `.` -- a `.`
+/// preceded by a backslash is part of an escaped literal dot (see
+/// `escape_path_segment`) rather than a segment separator. Shared by
+/// `find_json_path` and `find_xml_path`.
+pub(crate) fn split_path_segments(path: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut chars = path.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                current.push(c);
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            '.' => segments.push(std::mem::take(&mut current)),
+            c => current.push(c),
+        }
+    }
+    segments.push(current);
+    segments.iter().map(|s| unescape_path_segment(s)).collect()
+}
+
 impl JsonScalar {
     /// Strings are quoted so the type of a value is recoverable from plain
     /// text alone (no ANSI color needed) — e.g. `"30"` (a string) reads
@@ -122,19 +187,19 @@ impl JsonNode {
 
 pub fn find_json_path<'a>(node: &'a JsonNode, path: &str) -> Result<&'a JsonNode, String> {
     let mut current = node;
-    for segment in path.split('.') {
+    for segment in split_path_segments(path) {
         current = match current {
             JsonNode::Object(fields) => fields
                 .iter()
-                .find(|(k, _)| k == segment)
+                .find(|(k, _)| *k == segment)
                 .map(|(_, v)| v)
-                .ok_or_else(|| segment.to_string())?,
+                .ok_or(segment)?,
             JsonNode::Array(items) => segment
                 .parse::<usize>()
                 .ok()
                 .and_then(|i| items.get(i))
-                .ok_or_else(|| segment.to_string())?,
-            JsonNode::Scalar(_) => return Err(segment.to_string()),
+                .ok_or(segment)?,
+            JsonNode::Scalar(_) => return Err(segment),
         };
     }
     Ok(current)
@@ -252,6 +317,41 @@ mod tests {
         let node = JsonNode::from_value(&value);
         let err = find_json_path(&node, "user.missing.deeper").unwrap_err();
         assert_eq!(err, "missing");
+    }
+
+    #[test]
+    fn resolves_a_key_containing_a_literal_dot_when_it_is_backslash_escaped() {
+        let value = json!({"a.b": {"c": 1}});
+        let node = JsonNode::from_value(&value);
+        let found = find_json_path(&node, "a\\.b.c").unwrap();
+        assert_eq!(
+            found,
+            &JsonNode::Scalar(JsonScalar::Number("1".to_string()))
+        );
+    }
+
+    #[test]
+    fn an_unescaped_dot_still_splits_a_dotted_key_into_two_segments() {
+        // Without the `\.` escape, `a.b` reads as segments "a" then "b" --
+        // this is the ambiguity issue #61 is about, not something this fix
+        // changes: the escape is opt-in, not automatic disambiguation.
+        let value = json!({"a.b": 1});
+        let node = JsonNode::from_value(&value);
+        let err = find_json_path(&node, "a.b").unwrap_err();
+        assert_eq!(err, "a");
+    }
+
+    #[test]
+    fn escape_path_segment_and_split_path_segments_round_trip_a_dotted_key() {
+        let escaped = escape_path_segment("a.b");
+        assert_eq!(escaped, "a\\.b");
+        assert_eq!(split_path_segments(&escaped), vec!["a.b".to_string()]);
+    }
+
+    #[test]
+    fn split_path_segments_round_trips_a_key_with_both_a_backslash_and_a_dot() {
+        let escaped = escape_path_segment("a\\.b");
+        assert_eq!(split_path_segments(&escaped), vec!["a\\.b".to_string()]);
     }
 
     #[test]
