@@ -178,6 +178,7 @@ treeq file.xml                        # XML works the same way
 | `F` | Open an fzf-style popup listing every match across the whole document (`Tab`/`Shift+Tab` cycles, `Enter` jumps, `Esc` closes) |
 | `i` | Inspect the current node: type, size, full path, and tag |
 | `1-8` | Tag/untag current node with a highlight color |
+| `x` | Clear every active tag at once |
 | `y` | Yank current node's dotted path to clipboard (OSC 52) |
 | `Y` | Yank current node as a jq filter, e.g. `.user.tags[0]` (JSON/YAML only) |
 | `?` | Toggle the in-app keybinding help overlay |
