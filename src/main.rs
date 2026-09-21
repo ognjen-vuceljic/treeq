@@ -23,7 +23,7 @@ use stats::{JsonStats, XmlStats, json_stats, xml_stats};
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::{fs, io, process};
-use xml_tree::{XmlNode, find_xml_path};
+use xml_tree::{MAX_XML_DEPTH, XmlNode, find_xml_path, xml_nesting_exceeds};
 
 #[derive(clap::ValueEnum, Clone, Copy)]
 enum FormatArg {
@@ -189,6 +189,10 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
 }
 
 fn run_xml(input: &str, args: &Args) {
+    if xml_nesting_exceeds(input, MAX_XML_DEPTH) {
+        eprintln!("error: XML nesting exceeds max depth ({MAX_XML_DEPTH})");
+        process::exit(1);
+    }
     let doc = match roxmltree::Document::parse(input) {
         Ok(d) => d,
         Err(e) => {
@@ -196,7 +200,10 @@ fn run_xml(input: &str, args: &Args) {
             process::exit(1);
         }
     };
-    let tree = XmlNode::from_document(&doc);
+    let tree = XmlNode::from_document(&doc).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
     let target = match &args.path {
         Some(p) => match find_xml_path(&tree, p) {
             Ok(t) => t,

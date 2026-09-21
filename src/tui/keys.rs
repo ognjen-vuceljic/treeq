@@ -391,6 +391,11 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
             state.collapsed.clear();
             state.status_message = Some("expanded all".to_string());
         }
+        KeyCode::Char('x') => {
+            let n = state.tags.len();
+            state.tags.clear();
+            state.status_message = Some(format!("cleared {n} tags"));
+        }
         _ => {}
     }
     false
@@ -1476,6 +1481,26 @@ mod tests {
         let mut state = fixture();
         handle_key(&mut state, KeyCode::Char('9'));
         assert!(state.tags.is_empty());
+    }
+
+    #[test]
+    fn x_key_clears_every_tag_at_once() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('1'));
+        state.cursor = 1;
+        handle_key(&mut state, KeyCode::Char('2'));
+        assert_eq!(state.tags.len(), 2);
+        handle_key(&mut state, KeyCode::Char('x'));
+        assert!(state.tags.is_empty());
+        assert_eq!(state.status_message.as_deref(), Some("cleared 2 tags"));
+    }
+
+    #[test]
+    fn x_key_with_no_tags_reports_zero_cleared() {
+        let mut state = fixture();
+        handle_key(&mut state, KeyCode::Char('x'));
+        assert!(state.tags.is_empty());
+        assert_eq!(state.status_message.as_deref(), Some("cleared 0 tags"));
     }
 
     #[test]

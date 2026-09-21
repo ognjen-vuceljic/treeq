@@ -60,6 +60,13 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
 }
 
 fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
+    let use_color = state.use_color;
+    let label_style = Style::default().add_modifier(Modifier::BOLD);
+    let path_style = if use_color {
+        label_style.fg(ratatui_color(TqColor::Key))
+    } else {
+        label_style
+    };
     let lines: Vec<RtLine> = match state.lines.get(state.cursor) {
         Some(line) => {
             let real_path = if line.is_array_summary {
@@ -67,22 +74,39 @@ fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
             } else {
                 &line.path
             };
-            let tag_text = match state.tags.get(real_path) {
-                Some(tag) => format!("{tag}"),
-                None => "none".to_string(),
+            // A container's type has no inherent scalar color; a leaf's type
+            // reuses the exact color already computed for its value line, so
+            // this can't drift out of sync with how the tree colors that
+            // value (see the JSON/XML value-color mismatch this avoided in
+            // issue #51's `infer_json_value_color`).
+            let type_style = match (use_color, &line.value) {
+                (true, Some((_, color))) => Style::default().fg(ratatui_color(*color)),
+                (true, None) => Style::default().fg(ratatui_color(TqColor::Structural)),
+                (false, _) => Style::default(),
+            };
+            let (tag_text, tag_style) = match state.tags.get(real_path) {
+                Some(tag) => (
+                    format!("{tag}"),
+                    if use_color {
+                        Style::default().fg(tag_color(*tag))
+                    } else {
+                        Style::default()
+                    },
+                ),
+                None => ("none".to_string(), Style::default()),
             };
             vec![
                 RtLine::from(vec![
-                    Span::styled("type: ", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::raw(line.type_label.clone()),
+                    Span::styled("type: ", label_style),
+                    Span::styled(line.type_label.clone(), type_style),
                 ]),
                 RtLine::from(vec![
-                    Span::styled("path: ", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::raw(real_path.join(".")),
+                    Span::styled("path: ", label_style),
+                    Span::styled(real_path.join("."), path_style),
                 ]),
                 RtLine::from(vec![
-                    Span::styled("tag:  ", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::raw(tag_text),
+                    Span::styled("tag:  ", label_style),
+                    Span::styled(tag_text, tag_style),
                 ]),
             ]
         }
@@ -980,6 +1004,75 @@ mod tests {
     }
 
     #[test]
+    fn inspect_popup_is_plain_without_color() {
+        let mut state = state_with(
+            vec![line(
+                "name",
+                false,
+                Some(("\"Alice\"", TqColor::Str)),
+                0,
+                &["user", "name"],
+            )],
+            0,
+        );
+        state.inspect_visible = true;
+        state.use_color = false;
+        state
+            .tags
+            .insert(vec!["user".to_string(), "name".to_string()], 3);
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(find_match_row_fg(buffer, "user.name"), Color::Reset);
+        assert_eq!(find_match_row_fg(buffer, "string (0 chars)"), Color::Reset);
+    }
+
+    #[test]
+    fn inspect_popup_colors_the_path_like_the_search_popup_and_the_type_like_its_value() {
+        let mut state = state_with(
+            vec![line(
+                "name",
+                false,
+                Some(("\"Alice\"", TqColor::Str)),
+                0,
+                &["user", "name"],
+            )],
+            0,
+        );
+        state.inspect_visible = true;
+        state.use_color = true;
+        state
+            .tags
+            .insert(vec!["user".to_string(), "name".to_string()], 3);
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            find_match_row_fg(buffer, "user.name"),
+            ratatui_color(TqColor::Key)
+        );
+        assert_eq!(
+            find_match_row_fg(buffer, "string (0 chars)"),
+            ratatui_color(TqColor::Str)
+        );
+        assert_eq!(find_match_row_fg(buffer, "3"), tag_color(3));
+    }
+
+    #[test]
+    fn inspect_popup_colors_a_container_type_as_structural_since_it_has_no_scalar_value() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.inspect_visible = true;
+        state.use_color = true;
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            find_match_row_fg(buffer, "object (0 fields)"),
+            ratatui_color(TqColor::Structural)
+        );
+    }
+
+    #[test]
     fn inspect_popup_shows_none_when_the_node_has_no_tag() {
         let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
         state.inspect_visible = true;
@@ -1064,8 +1157,15 @@ mod tests {
             std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
         for (key, _) in HELP_LEGEND {
             let first_key = key.split(" / ").next().unwrap();
+            // Every table row starts with a backtick-wrapped key, either alone
+            // ("| `x` | ...") or paired ("| `↑` / `↓` | ..."), so anchoring on
+            // that instead of a bare substring avoids a single-character key
+            // like "x" trivially matching unrelated README prose ("explore",
+            // "extracting", ...) even if its row were deleted.
+            let solo_cell = format!("| `{first_key}` |");
+            let paired_cell = format!("| `{first_key}` / ");
             assert!(
-                readme.contains(first_key),
+                readme.contains(&solo_cell) || readme.contains(&paired_cell),
                 "README's keybindings table appears to be missing key '{key}' \
                  (HELP_LEGEND and the README have drifted apart)"
             );
