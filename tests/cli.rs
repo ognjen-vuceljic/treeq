@@ -175,6 +175,14 @@ fn lists_json_paths() {
 }
 
 #[test]
+fn escapes_control_bytes_in_a_key_when_listing_paths() {
+    let (stdout, _stderr, code) = run_treeq(&["--paths"], r#"{"before\u001bafter": 1}"#);
+    assert_eq!(code, 0);
+    assert!(!stdout.contains('\u{1b}'));
+    assert_eq!(stdout, "before\\u001bafter\n");
+}
+
+#[test]
 fn reports_unresolved_path_segment() {
     let (_stdout, stderr, code) =
         run_treeq(&["--static", "--path", "missing"], r#"{"user": "Alice"}"#);
@@ -232,6 +240,18 @@ fn reports_deeply_nested_xml_as_a_graceful_error_instead_of_crashing() {
     let (_stdout, stderr, code) = run_treeq(&["--stats"], &xml);
     assert_eq!(code, 1);
     assert!(stderr.contains("max depth"));
+}
+
+#[test]
+fn reports_an_xml_element_with_too_many_attributes_instead_of_hanging() {
+    // roxmltree's attribute parsing is quadratic in attribute count; without
+    // the lexical pre-check this would hang for seconds on a document this
+    // size, and minutes on the size that originally exposed the bug.
+    let attrs: String = (0..10_010).map(|i| format!(" a{i}=\"v\"")).collect();
+    let xml = format!("<root{attrs}/>");
+    let (_stdout, stderr, code) = run_treeq(&["--stats"], &xml);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("max attribute count"));
 }
 
 #[test]
@@ -380,6 +400,14 @@ fn ndjson_stats_and_path_flags_compose() {
     );
     assert_eq!(code, 0);
     assert_eq!(stdout, "root\n└── name: \"Alice\"\n");
+}
+
+#[test]
+fn escapes_control_bytes_in_a_field_name_when_printing_schema() {
+    let (stdout, _stderr, code) = run_treeq(&["--schema"], r#"{"before\u001bafter": 1}"#);
+    assert_eq!(code, 0);
+    assert!(!stdout.contains('\u{1b}'));
+    assert_eq!(stdout, "before\\u001bafter: number\n");
 }
 
 #[test]

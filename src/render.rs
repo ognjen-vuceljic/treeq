@@ -1,5 +1,5 @@
 use crate::color::{Color, paint};
-use crate::json_tree::{JsonNode, JsonScalar};
+use crate::json_tree::{JsonNode, JsonScalar, escape_display_str};
 use crate::xml_tree::XmlNode;
 
 pub fn render_json(
@@ -58,7 +58,7 @@ fn render_json_children(
         let branch = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
         let branch_str = paint(&format!("{prefix}{branch}"), Color::Structural, use_color);
-        let label_str = paint(&label, Color::Key, use_color);
+        let label_str = paint(&escape_display_str(&label), Color::Key, use_color);
         match child {
             JsonNode::Scalar(s) => {
                 out.push_str(&scalar_line(
@@ -106,7 +106,7 @@ pub fn render_xml(node: &XmlNode, max_depth: Option<usize>, use_color: bool) -> 
 }
 
 fn xml_label(node: &XmlNode, use_color: bool) -> String {
-    let mut label = paint(&node.name, Color::Key, use_color);
+    let mut label = paint(&escape_display_str(&node.name), Color::Key, use_color);
     if !node.attributes.is_empty() {
         let attrs: Vec<String> = node
             .attributes
@@ -114,15 +114,18 @@ fn xml_label(node: &XmlNode, use_color: bool) -> String {
             .map(|(k, v)| {
                 format!(
                     "{}=\"{}\"",
-                    paint(k, Color::Key, use_color),
-                    paint(v, Color::Str, use_color)
+                    paint(&escape_display_str(k), Color::Key, use_color),
+                    paint(&escape_display_str(v), Color::Str, use_color)
                 )
             })
             .collect();
         label.push_str(&format!(" [{}]", attrs.join(" ")));
     }
     if let Some(text) = &node.text {
-        label.push_str(&format!(": {}", paint(text, Color::Str, use_color)));
+        label.push_str(&format!(
+            ": {}",
+            paint(&escape_display_str(text), Color::Str, use_color)
+        ));
     }
     label
 }
@@ -142,7 +145,7 @@ fn render_xml_children(
         let child_prefix = if is_last { "    " } else { "│   " };
         let branch_str = paint(&format!("{prefix}{branch}"), Color::Structural, use_color);
         if !child.children.is_empty() && max_depth.is_some_and(|d| depth + 1 >= d) {
-            let name_str = paint(&child.name, Color::Key, use_color);
+            let name_str = paint(&escape_display_str(&child.name), Color::Key, use_color);
             let ellipsis = paint("…", Color::Structural, use_color);
             out.push_str(&format!("{branch_str}{name_str}: {ellipsis}\n"));
             continue;
@@ -176,6 +179,17 @@ mod tests {
         let output = render_json(&node, "root", None, None, true);
         assert!(output.contains("\x1b[36mname\x1b[0m"));
         assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
+    }
+
+    #[test]
+    fn escapes_control_bytes_in_a_json_object_key_not_just_scalar_values() {
+        // JsonScalar::display() already escapes values; a malicious key
+        // needs the same treatment or it reaches the terminal raw.
+        let value = json!({"before\u{1b}after": 1});
+        let node = JsonNode::from_value(&value);
+        let output = render_json(&node, "root", None, None, false);
+        assert!(!output.contains('\u{1b}'));
+        assert!(output.contains("before\\u001bafter"));
     }
 
     #[test]
@@ -240,6 +254,50 @@ mod tests {
         let node = XmlNode::from_document(&doc).unwrap();
         let output = render_xml(&node, None, false);
         assert_eq!(output, "person [id=\"1\"]\n└── name: Alice\n");
+    }
+
+    #[test]
+    fn escapes_control_bytes_in_xml_attribute_values_and_text() {
+        // ESC (0x1b) isn't a legal XML character even via a numeric
+        // reference, but DEL (0x7f) is -- this is the exact byte the
+        // adversarial review reproduced getting through unescaped.
+        let xml = "<root a=\"before&#x7f;after\">text&#x7f;here</root>";
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = XmlNode::from_document(&doc).unwrap();
+        let output = render_xml(&node, None, false);
+        assert!(!output.contains('\u{7f}'));
+        assert!(output.contains("before\\u007fafter"));
+        assert!(output.contains("text\\u007fhere"));
+    }
+
+    #[test]
+    fn escapes_control_bytes_in_an_xml_element_name() {
+        // Element/attribute *names* can't contain a raw or referenced
+        // control character per the XML Name grammar, but this guards the
+        // escaping path itself regardless of whether real XML can trigger
+        // it, matching how JSON keys are covered even though JSON's own
+        // grammar is more permissive there.
+        let xml = "<root><ok>x</ok></root>";
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let mut node = XmlNode::from_document(&doc).unwrap();
+        node.children[0].name = "before\u{1b}after".to_string();
+        let output = render_xml(&node, None, false);
+        assert!(!output.contains('\u{1b}'));
+        assert!(output.contains("before\\u001bafter"));
+    }
+
+    #[test]
+    fn escapes_control_bytes_in_an_xml_element_name_truncated_by_max_depth() {
+        // The ellipsis branch (`--depth` cutting off a node with children)
+        // is a separate render path from `xml_label` and was missed on the
+        // first pass of this fix.
+        let xml = "<root><ok><inner>x</inner></ok></root>";
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let mut node = XmlNode::from_document(&doc).unwrap();
+        node.children[0].name = "before\u{1b}after".to_string();
+        let output = render_xml(&node, Some(1), false);
+        assert!(!output.contains('\u{1b}'));
+        assert!(output.contains("before\\u001bafter: …"));
     }
 
     #[test]

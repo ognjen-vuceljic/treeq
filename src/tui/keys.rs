@@ -1,3 +1,4 @@
+use super::flatten::display_path;
 use super::state::AppState;
 use crate::clipboard::copy_to_clipboard;
 use crossterm::event::KeyCode;
@@ -255,10 +256,10 @@ fn toggle_tag(state: &mut AppState, tag: u8) {
     // the node you're looking at.
     if state.tags.get(&path) == Some(&tag) {
         state.tags.remove(&path);
-        state.status_message = Some(format!("untagged: {}", path.join(".")));
+        state.status_message = Some(format!("untagged: {}", display_path(&path)));
     } else {
         state.tags.insert(path.clone(), tag);
-        state.status_message = Some(format!("tagged {tag}: {}", path.join(".")));
+        state.status_message = Some(format!("tagged {tag}: {}", display_path(&path)));
     }
 }
 
@@ -353,12 +354,13 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('y') => {
             if let Some(line) = state.lines.get(state.cursor) {
                 let path = if line.is_array_summary {
-                    array_path_for_summary_line(&line.path).join(".")
+                    array_path_for_summary_line(&line.path)
                 } else {
-                    line.path.join(".")
+                    line.path.as_slice()
                 };
-                state.status_message = Some(match copy_to_clipboard(&path) {
-                    Ok(()) => format!("copied: {path}"),
+                let raw = path.join(".");
+                state.status_message = Some(match copy_to_clipboard(&raw) {
+                    Ok(()) => format!("copied: {}", display_path(path)),
                     Err(e) => format!("copy failed: {e}"),
                 });
             }
@@ -375,7 +377,11 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
                 };
                 let jq = to_jq_path(path);
                 state.status_message = Some(match copy_to_clipboard(&jq) {
-                    Ok(()) => format!("copied: {jq}"),
+                    // The copied jq filter is already escaped for jq syntax
+                    // (`to_jq_path`); this is a *further*, separate escape
+                    // for terminal safety on the status line only, not on
+                    // what actually gets copied.
+                    Ok(()) => format!("copied: {}", crate::json_tree::escape_display_str(&jq)),
                     Err(e) => format!("copy failed: {e}"),
                 });
             }
@@ -572,6 +578,16 @@ mod tests {
             Some("copied: user.age"),
             "yank must strip the synthetic marker segment, not include it"
         );
+    }
+
+    #[test]
+    fn yank_status_message_escapes_control_bytes_in_the_path() {
+        let mut state = fixture();
+        state.lines[0] = line("before\u{1b}after", true, &["before\u{1b}after"]);
+        handle_key(&mut state, KeyCode::Char('y'));
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(!msg.contains('\u{1b}'));
+        assert_eq!(msg, "copied: before\\u001bafter");
     }
 
     #[test]
@@ -1447,6 +1463,22 @@ mod tests {
             Some("tagged 2: user"),
             "tagging the cursor's own line has no visible background change, \
              so the status message is the only feedback"
+        );
+    }
+
+    #[test]
+    fn tag_status_message_escapes_control_bytes_in_the_path() {
+        let mut state = fixture();
+        state.lines[0] = line("before\u{1b}after", true, &["before\u{1b}after"]);
+        handle_key(&mut state, KeyCode::Char('2'));
+        let msg = state.status_message.as_deref().unwrap();
+        assert!(!msg.contains('\u{1b}'));
+        assert_eq!(msg, "tagged 2: before\\u001bafter");
+        // The actual tags map key must stay the real, unescaped path.
+        assert!(
+            state
+                .tags
+                .contains_key(&vec!["before\u{1b}after".to_string()])
         );
     }
 
