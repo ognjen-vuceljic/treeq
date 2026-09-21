@@ -1,5 +1,5 @@
 use crate::color::{Color, paint};
-use crate::json_tree::JsonNode;
+use crate::json_tree::{JsonNode, JsonScalar};
 use crate::xml_tree::XmlNode;
 
 pub fn render_json(
@@ -10,10 +10,20 @@ pub fn render_json(
     use_color: bool,
 ) -> String {
     let mut out = String::new();
-    out.push_str(root_label);
-    out.push('\n');
-    render_json_children(node, "", 0, max_depth, array_limit, use_color, &mut out);
+    match node {
+        JsonNode::Scalar(s) => out.push_str(&scalar_line(root_label, s, use_color)),
+        _ => {
+            out.push_str(root_label);
+            out.push('\n');
+            render_json_children(node, "", 0, max_depth, array_limit, use_color, &mut out);
+        }
+    }
     out
+}
+
+fn scalar_line(label: &str, s: &JsonScalar, use_color: bool) -> String {
+    let value_str = paint(&s.display(), s.color(), use_color);
+    format!("{label}: {value_str}\n")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -51,8 +61,11 @@ fn render_json_children(
         let label_str = paint(&label, Color::Key, use_color);
         match child {
             JsonNode::Scalar(s) => {
-                let value_str = paint(&s.display(), s.color(), use_color);
-                out.push_str(&format!("{branch_str}{label_str}: {value_str}\n"));
+                out.push_str(&scalar_line(
+                    &format!("{branch_str}{label_str}"),
+                    s,
+                    use_color,
+                ));
             }
             _ if max_depth.is_some_and(|d| depth + 1 >= d) => {
                 let ellipsis = paint("…", Color::Structural, use_color);
@@ -163,6 +176,23 @@ mod tests {
         let output = render_json(&node, "root", None, None, true);
         assert!(output.contains("\x1b[36mname\x1b[0m"));
         assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
+    }
+
+    #[test]
+    fn renders_a_scalar_root_as_its_own_key_value_line_instead_of_nothing() {
+        let value = json!(42);
+        let node = JsonNode::from_value(&value);
+        let output = render_json(&node, "count", None, None, false);
+        assert_eq!(output, "count: 42\n");
+    }
+
+    #[test]
+    fn renders_a_colored_scalar_root() {
+        let value = json!("Alice");
+        let node = JsonNode::from_value(&value);
+        let output = render_json(&node, "name", None, None, true);
+        assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
+        assert!(output.starts_with("name: "));
     }
 
     #[test]
