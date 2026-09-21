@@ -206,6 +206,15 @@ fn reports_invalid_xml() {
 }
 
 #[test]
+fn reports_deeply_nested_xml_as_a_graceful_error_instead_of_crashing() {
+    let depth = 50_000;
+    let xml = format!("{}leaf{}", "<a>".repeat(depth), "</a>".repeat(depth));
+    let (_stdout, stderr, code) = run_treeq(&["--stats"], &xml);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("max depth"));
+}
+
+#[test]
 fn reports_unresolved_xml_path_segment() {
     let (_stdout, stderr, code) = run_treeq(
         &["--static", "--path", "missing"],

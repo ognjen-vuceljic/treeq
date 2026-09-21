@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn rebuild_xml_lines_repopulates_lines_from_the_tree() {
         let doc = roxmltree::Document::parse("<root><a/><b/></root>").unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let mut state = state_with_cursor(5);
         rebuild_xml_lines(&mut state, &node);
         assert_eq!(state.lines.len(), 2);

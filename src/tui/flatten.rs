@@ -351,7 +351,7 @@ mod tests {
     fn flattens_xml_elements_with_text_children() {
         let xml = r#"<root><user><name>Alice</name></user></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let mut out = Vec::new();
         flatten_xml(&node, &[], 0, &HashSet::new(), &mut out);
 
@@ -369,7 +369,7 @@ mod tests {
         // attributes (no text) renders with no value segment at all.
         let xml = r#"<root><user id="1"></user></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let mut out = Vec::new();
         flatten_xml(&node, &[], 0, &HashSet::new(), &mut out);
 
@@ -382,7 +382,7 @@ mod tests {
     fn does_not_recurse_into_collapsed_xml_containers() {
         let xml = r#"<root><user><name>Alice</name></user></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let mut collapsed = HashSet::new();
         collapsed.insert(path(&["user"]));
         let mut out = Vec::new();
@@ -410,7 +410,7 @@ mod tests {
     fn collects_all_xml_container_paths() {
         let xml = r#"<root><user><name>Alice</name></user><flag>true</flag></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let mut out = HashSet::new();
         collect_container_paths_xml(&node, &[], &mut out);
 
@@ -453,7 +453,7 @@ mod tests {
     fn collects_every_xml_node_path_including_leaves() {
         let xml = r#"<root><user><name>Alice</name></user><flag>true</flag></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let mut out = Vec::new();
         collect_all_paths_xml(&node, &[], &mut out);
         let paths: Vec<_> = out.iter().map(|(p, _)| p.clone()).collect();
@@ -467,7 +467,7 @@ mod tests {
     fn collects_every_xml_leafs_search_text_includes_its_text() {
         let xml = r#"<root><author>user0</author></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let mut out = Vec::new();
         collect_all_paths_xml(&node, &[], &mut out);
 
@@ -508,19 +508,19 @@ mod tests {
     fn xml_type_label_describes_each_kind_of_node() {
         let with_children = roxmltree::Document::parse("<a><b/><c/></a>").unwrap();
         assert_eq!(
-            xml_type_label(&XmlNode::from_document(&with_children)),
+            xml_type_label(&XmlNode::from_document(&with_children).unwrap()),
             "element (2 children)"
         );
 
         let with_text = roxmltree::Document::parse("<a>hello</a>").unwrap();
         assert_eq!(
-            xml_type_label(&XmlNode::from_document(&with_text)),
+            xml_type_label(&XmlNode::from_document(&with_text).unwrap()),
             "string (5 chars)"
         );
 
         let empty = roxmltree::Document::parse("<a/>").unwrap();
         assert_eq!(
-            xml_type_label(&XmlNode::from_document(&empty)),
+            xml_type_label(&XmlNode::from_document(&empty).unwrap()),
             "empty element"
         );
     }
