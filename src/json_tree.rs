@@ -1,4 +1,5 @@
 use crate::color::Color;
+use std::fmt::Write as _;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsonScalar {
@@ -8,6 +9,33 @@ pub enum JsonScalar {
     Null,
 }
 
+/// Escapes `\`, `"`, and C0 control characters (other than the printable
+/// `\n`/`\r`/`\t` triad, which get their own short escapes) as `\u00XX`.
+/// Without this, untrusted string content -- a JSON/YAML scalar value, but
+/// also an object key, or an XML element name/attribute/text (any of which
+/// can carry the same raw bytes) -- would be written to the terminal
+/// verbatim, letting a crafted file inject terminal escape sequences (OSC
+/// 52 clipboard writes, title-bar spoofing, ...) into whoever views it with
+/// treeq. Used both for `JsonScalar::display()` and directly by callers
+/// (`render.rs`, `tui/flatten.rs`) rendering any other untrusted text.
+pub(crate) fn escape_display_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 impl JsonScalar {
     /// Strings are quoted so the type of a value is recoverable from plain
     /// text alone (no ANSI color needed) — e.g. `"30"` (a string) reads
@@ -15,9 +43,7 @@ impl JsonScalar {
     /// self-describing as bare identifiers and stay unquoted.
     pub fn display(&self) -> String {
         match self {
-            JsonScalar::Str(s) => {
-                format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
-            }
+            JsonScalar::Str(s) => format!("\"{}\"", escape_display_str(s)),
             JsonScalar::Number(s) => s.clone(),
             JsonScalar::Bool(b) => b.to_string(),
             JsonScalar::Null => "null".to_string(),
@@ -151,6 +177,31 @@ mod tests {
         assert_eq!(
             JsonScalar::Str("back\\slash".to_string()).display(),
             "\"back\\\\slash\""
+        );
+    }
+
+    #[test]
+    fn display_escapes_control_bytes_instead_of_passing_them_to_the_terminal_raw() {
+        // A malicious JSON value could otherwise inject a real terminal
+        // escape sequence (e.g. an OSC 52 clipboard write) into stdout.
+        let evil = "before\u{1b}]52;c;aGFja2VkCg==\u{7}after";
+        let out = JsonScalar::Str(evil.to_string()).display();
+        assert!(
+            !out.contains('\u{1b}'),
+            "raw ESC byte must not survive display()"
+        );
+        assert!(
+            !out.contains('\u{7}'),
+            "raw BEL byte must not survive display()"
+        );
+        assert_eq!(out, "\"before\\u001b]52;c;aGFja2VkCg==\\u0007after\"");
+    }
+
+    #[test]
+    fn display_uses_short_escapes_for_newline_tab_and_carriage_return() {
+        assert_eq!(
+            JsonScalar::Str("a\nb\tc\rd".to_string()).display(),
+            "\"a\\nb\\tc\\rd\""
         );
     }
 

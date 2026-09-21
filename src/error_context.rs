@@ -58,7 +58,11 @@ fn format_error_context(
         column_is_byte_offset,
     ));
     let _ = writeln!(out);
-    out.push_str(message);
+    // The underlying parser can format an offending byte straight into its
+    // error message (e.g. roxmltree's `InvalidChar` variants use `{}` on
+    // the raw `char`), so this needs the same sanitization as the snippet
+    // line above it, not just the source text.
+    out.push_str(&sanitize_control_chars(message));
     out
 }
 
@@ -75,6 +79,7 @@ fn render_snippet(
     let width = end.to_string().len();
     let mut out = String::new();
     for (i, text) in lines.iter().enumerate().take(end).skip(start) {
+        let text = &sanitize_control_chars(text);
         let lineno = i + 1;
         if lineno == line {
             let char_col = char_column(text, column, column_is_byte_offset);
@@ -116,6 +121,23 @@ fn char_column(line: &str, column: usize, column_is_byte_offset: bool) -> usize 
 
 fn expand_tabs(text: &str) -> String {
     text.replace('\t', &" ".repeat(TAB_WIDTH))
+}
+
+/// Replaces C0/DEL control characters (other than `\t`, which `expand_tabs`
+/// handles) with a single visible placeholder, one-for-one so caret column
+/// math stays correct. A malformed file's offending line is echoed verbatim
+/// into this error snippet, so without this a crafted invalid JSON/XML file
+/// could inject a raw terminal escape sequence via its own parse error.
+fn sanitize_control_chars(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c != '\t' && (c.is_control() || c == '\u{7f}') {
+                '\u{fffd}'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 fn expanded_char_column(original_line: &str, char_col: usize) -> usize {
@@ -209,6 +231,37 @@ mod tests {
         assert!(out.contains(&format!("line {display_line}")));
         assert!(out.contains(&format!("{display_line} | ")));
         assert!(out.contains(&err.to_string()));
+    }
+
+    #[test]
+    fn sanitizes_raw_control_bytes_in_the_offending_line_instead_of_echoing_them() {
+        // A malformed file could otherwise inject a real terminal escape
+        // sequence into stderr via its own parse-error snippet.
+        let input = "{\"a\": \u{1b}]0;PWNED\u{7}bad}";
+        let err = parse_json_err(input);
+        let out = json_error_context(input, &err);
+        assert!(
+            !out.contains('\u{1b}'),
+            "raw ESC byte must not survive the snippet"
+        );
+        assert!(
+            !out.contains('\u{7}'),
+            "raw BEL byte must not survive the snippet"
+        );
+    }
+
+    #[test]
+    fn sanitizes_raw_control_bytes_that_the_underlying_parser_formats_into_its_own_message() {
+        // roxmltree's InvalidChar-family errors format the offending byte
+        // straight into the message text via `{}` on the raw `char`, a
+        // separate leak from the echoed source snippet above.
+        let input = "<root a=\u{1b}\"v\"/>";
+        let err = parse_xml_err(input);
+        let out = xml_error_context(input, &err);
+        assert!(
+            !out.contains('\u{1b}'),
+            "raw ESC byte from the parser's own message must not survive"
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::json_tree::{JsonNode, JsonScalar};
+use crate::json_tree::{JsonNode, JsonScalar, escape_display_str};
 use crate::xml_tree::XmlNode;
 use std::collections::BTreeSet;
 
@@ -195,7 +195,7 @@ fn shape_label_and_fields(shape: &Shape) -> (String, Option<&[(String, Shape)]>)
 fn format_field(name: &str, shape: &Shape, depth: usize, out: &mut String) {
     let indent = "  ".repeat(depth);
     let (label, fields) = shape_label_and_fields(shape);
-    out.push_str(&format!("{indent}{name}: {label}\n"));
+    out.push_str(&format!("{indent}{}: {label}\n", escape_display_str(name)));
     if let Some(fields) = fields {
         format_object_fields(fields, depth + 1, out);
     }
@@ -268,10 +268,11 @@ fn format_xml_child(parents: &[&XmlNode], name: &str, depth: usize, out: &mut St
         .filter(|c| c.name == name)
         .collect();
     let indent = "  ".repeat(depth);
-    let mut line = format!("{indent}{name}");
+    let mut line = format!("{indent}{}", escape_display_str(name));
     let attrs = union_attribute_names(&siblings);
     if !attrs.is_empty() {
-        line.push_str(&format!(" [{}]", attrs.join(", ")));
+        let escaped_attrs: Vec<String> = attrs.iter().map(|a| escape_display_str(a)).collect();
+        line.push_str(&format!(" [{}]", escaped_attrs.join(", ")));
     }
     if siblings.len() > 1 {
         line.push_str(" (repeated)");
@@ -310,6 +311,13 @@ mod tests {
     fn infers_object_with_scalar_and_array_fields() {
         let out = schema_of(json!({"user": {"name": "Alice", "tags": ["admin", "user"]}}));
         assert_eq!(out, "user: object\n  name: string\n  tags: array<string>\n");
+    }
+
+    #[test]
+    fn escapes_control_bytes_in_a_field_name() {
+        let out = schema_of(json!({"before\u{1b}after": 1}));
+        assert!(!out.contains('\u{1b}'));
+        assert_eq!(out, "before\\u001bafter: number\n");
     }
 
     #[test]
@@ -409,6 +417,23 @@ mod tests {
         let node = XmlNode::from_document(&doc).unwrap();
         let out = xml_schema(&node);
         assert_eq!(out, "user [id, class] (repeated)\n");
+    }
+
+    #[test]
+    fn xml_schema_escapes_control_bytes_in_an_element_name_and_attribute_name() {
+        // The XML Name grammar disallows a raw or referenced control
+        // character in a real element/attribute name, so this exercises
+        // the escaping path directly rather than via a parsed document --
+        // matching how issue #69's render.rs/flatten.rs tests cover the
+        // same defense-in-depth case.
+        let xml = r#"<root><user id="1"/></root>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let mut node = XmlNode::from_document(&doc).unwrap();
+        node.children[0].name = "before\u{1b}after".to_string();
+        node.children[0].attributes[0].0 = "attr\u{1b}name".to_string();
+        let out = xml_schema(&node);
+        assert!(!out.contains('\u{1b}'));
+        assert_eq!(out, "before\\u001bafter [attr\\u001bname]\n");
     }
 
     #[test]

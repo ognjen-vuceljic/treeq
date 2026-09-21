@@ -75,6 +75,65 @@ pub fn xml_nesting_exceeds(input: &str, max_depth: usize) -> bool {
     false
 }
 
+/// A cap on any single element's attribute count, checked lexically before
+/// handing input to roxmltree: roxmltree's attribute parsing is quadratic in
+/// the number of attributes on one element (empirically, 500,000 attributes
+/// on a single tag hangs for well over a minute), so a document that would
+/// trigger that needs to be rejected before roxmltree ever sees it, the same
+/// way `xml_nesting_exceeds` pre-empts its unguarded recursion.
+pub const MAX_XML_ATTRIBUTES_PER_ELEMENT: usize = 10_000;
+
+/// Counts `=` followed by a quote character (optionally with whitespace in
+/// between, since XML's grammar allows `Eq ::= S? '=' S?`), a proxy for
+/// attribute assignments that doesn't require a real parser. A quote
+/// *inside* an attribute value can make this overcount (e.g. `attr='a="b"'`
+/// counts 2, not 1), but must never undercount -- the failure mode of a
+/// proxy check like this must be "reject a few more documents than
+/// strictly necessary", not "let a genuinely oversized element slip
+/// through" (an earlier version that required the quote immediately after
+/// `=` did exactly that for `a = "v"`-style spacing).
+fn count_attributes(tag: &str) -> usize {
+    let bytes = tag.as_bytes();
+    let mut count = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b != b'=' {
+            continue;
+        }
+        let after_ws = bytes[i + 1..]
+            .iter()
+            .position(|b| !b.is_ascii_whitespace())
+            .map(|offset| i + 1 + offset);
+        if let Some(j) = after_ws
+            && (bytes[j] == b'"' || bytes[j] == b'\'')
+        {
+            count += 1;
+        }
+    }
+    count
+}
+
+pub fn xml_attribute_count_exceeds(input: &str, max_attributes: usize) -> bool {
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        let Some(end) = find_tag_end(bytes, i) else {
+            break;
+        };
+        let tag = &input[i..=end];
+        let is_element_tag =
+            !tag.starts_with("<!") && !tag.starts_with("<?") && !tag.starts_with("</");
+        if is_element_tag && count_attributes(tag) > max_attributes {
+            return true;
+        }
+        i = end + 1;
+    }
+    false
+}
+
 impl XmlNode {
     pub fn from_document(doc: &roxmltree::Document) -> Result<XmlNode, String> {
         Self::from_element(doc.root_element(), 0)
@@ -224,5 +283,58 @@ mod tests {
 
         let doc = roxmltree::Document::parse(&xml).unwrap();
         assert_eq!(doc.root_element().attribute("attr"), Some("/>"));
+    }
+
+    #[test]
+    fn attribute_count_precheck_rejects_an_element_with_too_many_attributes() {
+        let attrs: String = (0..MAX_XML_ATTRIBUTES_PER_ELEMENT + 10)
+            .map(|i| format!(" a{i}=\"v\""))
+            .collect();
+        let xml = format!("<root{attrs}/>");
+        assert!(xml_attribute_count_exceeds(
+            &xml,
+            MAX_XML_ATTRIBUTES_PER_ELEMENT
+        ));
+    }
+
+    #[test]
+    fn attribute_count_precheck_is_not_fooled_by_whitespace_around_the_equals_sign() {
+        // XML's grammar allows `Eq ::= S? '=' S?`, so `a = "v"` is just as
+        // valid as `a="v"`; a version that required the quote immediately
+        // after `=` undercounted this form and let it slip past the guard.
+        let attrs: String = (0..MAX_XML_ATTRIBUTES_PER_ELEMENT + 10)
+            .map(|i| format!(" a{i} = \"v\""))
+            .collect();
+        let xml = format!("<root{attrs}/>");
+        assert!(xml_attribute_count_exceeds(
+            &xml,
+            MAX_XML_ATTRIBUTES_PER_ELEMENT
+        ));
+    }
+
+    #[test]
+    fn attribute_count_precheck_accepts_an_element_at_exactly_the_limit() {
+        let attrs: String = (0..MAX_XML_ATTRIBUTES_PER_ELEMENT)
+            .map(|i| format!(" a{i}=\"v\""))
+            .collect();
+        let xml = format!("<root{attrs}/>");
+        assert!(!xml_attribute_count_exceeds(
+            &xml,
+            MAX_XML_ATTRIBUTES_PER_ELEMENT
+        ));
+    }
+
+    #[test]
+    fn attribute_count_precheck_sums_per_element_not_across_the_whole_document() {
+        // Many elements each with a normal attribute count must not trip
+        // the guard just because the document as a whole has many attributes.
+        let xml: String = (0..MAX_XML_ATTRIBUTES_PER_ELEMENT * 2)
+            .map(|i| format!("<item a=\"{i}\"/>"))
+            .collect();
+        let xml = format!("<root>{xml}</root>");
+        assert!(!xml_attribute_count_exceeds(
+            &xml,
+            MAX_XML_ATTRIBUTES_PER_ELEMENT
+        ));
     }
 }
