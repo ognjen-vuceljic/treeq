@@ -245,11 +245,7 @@ fn toggle_tag(state: &mut AppState, tag: u8) {
     let Some(line) = state.lines.get(state.cursor) else {
         return;
     };
-    let path = if line.is_array_summary {
-        array_path_for_summary_line(&line.path).to_vec()
-    } else {
-        line.path.clone()
-    };
+    let path = real_path(line).to_vec();
     // The tag background is suppressed on the cursor's own line, so this
     // status message is the only feedback for the common case of tagging
     // the node you're looking at.
@@ -275,6 +271,62 @@ fn collapse_all_ancestors(state: &mut AppState) {
     }
     move_cursor_to_path(state, &path[..1]);
     state.status_message = Some("collapsed ancestors".to_string());
+}
+
+/// The real path a line represents, resolving the array-summary line's
+/// synthetic marker segment to its actual (array) path -- the same
+/// resolution every other path-consuming key (tag, yank, ...) applies.
+fn real_path(line: &super::state::Line) -> &[String] {
+    if line.is_array_summary {
+        array_path_for_summary_line(&line.path)
+    } else {
+        &line.path
+    }
+}
+
+fn collapse_all(state: &mut AppState) {
+    // Collapsing everything means every array's expand-past-limit preview
+    // becomes irrelevant too -- without this, re-expanding an array Tab
+    // shows it fully expanded instead of reset to the truncated preview,
+    // contradicting the invariant `recollapsing_an_array_clears_its_expand_override`
+    // enforces for the single-node Tab/Space path.
+    state.array_overrides.clear();
+    let root = state
+        .lines
+        .get(state.cursor)
+        .and_then(|l| real_path(l).first().cloned());
+    state.collapsed = state.all_container_paths.clone();
+    state.status_message = Some("collapsed all".to_string());
+    // Every node below the top level is now hidden, so the cursor can only
+    // meaningfully land on the root ancestor of wherever it was. This is a
+    // *whole-document* collapse, so earlier siblings can also lose rows and
+    // shift everything after them -- unlike `collapse_all_ancestors`, which
+    // only ever touches descendants of the target and so can reposition the
+    // cursor immediately, this must go through `pending_cursor_path` and
+    // get re-resolved by path against the rebuilt list, not a stale index.
+    if let Some(root) = root {
+        state.pending_cursor_path = Some(vec![root]);
+    }
+}
+
+fn expand_all(state: &mut AppState) {
+    // `expand_all` only clears `collapsed`, never `array_overrides`, so a
+    // still-truncated array's summary line survives completely unchanged --
+    // anchor on the line's own path (marker segment included), not
+    // `real_path`'s resolved container path, or the cursor would jump off a
+    // summary line that never moved onto the array's own line instead.
+    let anchor = state.lines.get(state.cursor).map(|l| l.path.clone());
+    state.collapsed.clear();
+    state.status_message = Some("expanded all".to_string());
+    // Expanding only reveals more lines, so the node the cursor was on is
+    // still there -- put the cursor back on it instead of leaving the
+    // numeric index pointing at whatever now occupies that same slot. Newly
+    // revealed rows earlier in the document can shift everything after
+    // them, so (as in `collapse_all`) this must defer to
+    // `pending_cursor_path` rather than resolve against the stale list.
+    if let Some(path) = anchor {
+        state.pending_cursor_path = Some(path);
+    }
 }
 
 pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
@@ -352,11 +404,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('i') => state.inspect_visible = true,
         KeyCode::Char('y') => {
             if let Some(line) = state.lines.get(state.cursor) {
-                let path = if line.is_array_summary {
-                    array_path_for_summary_line(&line.path).join(".")
-                } else {
-                    line.path.join(".")
-                };
+                let path = real_path(line).join(".");
                 state.status_message = Some(match copy_to_clipboard(&path) {
                     Ok(()) => format!("copied: {path}"),
                     Err(e) => format!("copy failed: {e}"),
@@ -368,11 +416,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
                 state.status_message =
                     Some("jq path is only available for JSON documents".to_string());
             } else if let Some(line) = state.lines.get(state.cursor) {
-                let path = if line.is_array_summary {
-                    array_path_for_summary_line(&line.path)
-                } else {
-                    &line.path
-                };
+                let path = real_path(line);
                 let jq = to_jq_path(path);
                 state.status_message = Some(match copy_to_clipboard(&jq) {
                     Ok(()) => format!("copied: {jq}"),
@@ -383,14 +427,8 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Backspace => collapse_nearest_parent(state),
         KeyCode::Char('C') => collapse_all_ancestors(state),
         KeyCode::Char(c @ '1'..='8') => toggle_tag(state, c as u8 - b'0'),
-        KeyCode::Char('c') => {
-            state.collapsed = state.all_container_paths.clone();
-            state.status_message = Some("collapsed all".to_string());
-        }
-        KeyCode::Char('e') => {
-            state.collapsed.clear();
-            state.status_message = Some("expanded all".to_string());
-        }
+        KeyCode::Char('c') => collapse_all(state),
+        KeyCode::Char('e') => expand_all(state),
         KeyCode::Char('x') => {
             let n = state.tags.len();
             state.tags.clear();
@@ -1181,6 +1219,149 @@ mod tests {
         handle_key(&mut state, KeyCode::Char('e'));
         assert!(state.collapsed.is_empty());
         assert_eq!(state.status_message.as_deref(), Some("expanded all"));
+    }
+
+    fn three_siblings_state() -> (AppState, crate::json_tree::JsonNode) {
+        use super::super::flatten::{collect_all_paths_json, flatten_json};
+        use crate::json_tree::JsonNode;
+
+        let value = serde_json::json!({"a": {"x": 1}, "b": {"y": 1}, "c": {"z": 1}});
+        let node = JsonNode::from_value(&value);
+        let mut all_paths = Vec::new();
+        collect_all_paths_json(&node, &[], &mut all_paths);
+        let mut lines = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        let state = AppState {
+            lines,
+            collapsed: HashSet::new(),
+            all_container_paths: HashSet::from([
+                vec!["a".to_string()],
+                vec!["b".to_string()],
+                vec!["c".to_string()],
+            ]),
+            array_overrides: HashSet::new(),
+            tags: HashMap::new(),
+            cursor: 0,
+            search: String::new(),
+            searching: false,
+            use_color: false,
+            status_message: None,
+            help_visible: false,
+            is_json: true,
+            scroll_offset: std::cell::Cell::new(0),
+            all_paths,
+            pending_cursor_path: None,
+            count_buffer: None,
+            popup_visible: false,
+            popup_query: String::new(),
+            popup_selected: 0,
+            inspect_visible: false,
+            popup_scroll_offset: std::cell::Cell::new(0),
+        };
+        (state, node)
+    }
+
+    #[test]
+    fn collapse_all_repositions_the_cursor_to_the_root_ancestor_not_an_unrelated_node() {
+        use super::super::state::rebuild_json_lines;
+        let (mut state, node) = three_siblings_state();
+        // Flat order is [a, x, b, y, c, z]; put the cursor on "y" (child of "b").
+        move_cursor_to_path(&mut state, &["b".to_string(), "y".to_string()]);
+        assert_eq!(state.lines[state.cursor].key, "y");
+
+        handle_key(&mut state, KeyCode::Char('c'));
+        rebuild_json_lines(&mut state, &node);
+
+        assert_eq!(
+            state.lines[state.cursor].path,
+            vec!["b".to_string()],
+            "cursor must land on the ancestor of the node it was on, not clamp to \
+             whatever numeric index happens to survive"
+        );
+    }
+
+    #[test]
+    fn expand_all_repositions_the_cursor_back_onto_the_same_node() {
+        use super::super::state::rebuild_json_lines;
+        let (mut state, node) = three_siblings_state();
+        state.collapsed.insert(vec!["a".to_string()]);
+        rebuild_json_lines(&mut state, &node);
+        // Flat order is now [a, b, y, c, z]; put the cursor on "b".
+        move_cursor_to_path(&mut state, &["b".to_string()]);
+        assert_eq!(state.lines[state.cursor].key, "b");
+
+        handle_key(&mut state, KeyCode::Char('e'));
+        rebuild_json_lines(&mut state, &node);
+
+        assert_eq!(
+            state.lines[state.cursor].path,
+            vec!["b".to_string()],
+            "cursor must stay on the same logical node once newly-revealed rows \
+             shift its numeric index"
+        );
+    }
+
+    #[test]
+    fn expand_all_leaves_the_cursor_on_a_still_truncated_arrays_summary_line() {
+        use super::super::flatten::flatten_json;
+        use super::super::state::rebuild_json_lines;
+        use crate::json_tree::JsonNode;
+
+        // expand_all() only clears `collapsed`, never `array_overrides`, so
+        // an over-the-preview-limit array's summary line survives it
+        // completely unchanged -- the cursor must stay right there, not
+        // jump to the array's own container line.
+        let items: Vec<serde_json::Value> = (0..205).map(|_| serde_json::json!("x")).collect();
+        let value = serde_json::json!({ "items": items });
+        let node = JsonNode::from_value(&value);
+        let mut lines = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        let mut state = AppState {
+            lines,
+            collapsed: HashSet::new(),
+            all_container_paths: HashSet::from([vec!["items".to_string()]]),
+            array_overrides: HashSet::new(),
+            tags: HashMap::new(),
+            cursor: 0,
+            search: String::new(),
+            searching: false,
+            use_color: false,
+            status_message: None,
+            help_visible: false,
+            is_json: true,
+            scroll_offset: std::cell::Cell::new(0),
+            all_paths: Vec::new(),
+            pending_cursor_path: None,
+            count_buffer: None,
+            popup_visible: false,
+            popup_query: String::new(),
+            popup_selected: 0,
+            inspect_visible: false,
+            popup_scroll_offset: std::cell::Cell::new(0),
+        };
+        move_cursor_to_path(&mut state, &["items".to_string(), "…more".to_string()]);
+        assert!(state.lines[state.cursor].is_array_summary);
+
+        handle_key(&mut state, KeyCode::Char('e'));
+        rebuild_json_lines(&mut state, &node);
+
+        assert_eq!(
+            state.lines[state.cursor].path,
+            vec!["items".to_string(), "…more".to_string()],
+            "the summary line never moved, so the cursor shouldn't move off it either"
+        );
+    }
+
+    #[test]
+    fn collapse_all_clears_array_overrides_so_a_recollapsed_array_resets_to_preview() {
+        let mut state = fixture();
+        state.array_overrides.insert(vec!["user".to_string()]);
+        handle_key(&mut state, KeyCode::Char('c'));
+        assert!(
+            state.array_overrides.is_empty(),
+            "collapsing everything must reset every array's expand-past-limit \
+             preview, the same invariant Tab/Space already enforces for a single node"
+        );
     }
 
     #[test]
