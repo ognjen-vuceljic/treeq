@@ -95,7 +95,7 @@ mod tests {
     fn computes_xml_stats() {
         let xml = r#"<root a="1"><child>text</child><child2/></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let stats = xml_stats(&node);
         assert_eq!(
             stats,

@@ -207,7 +207,7 @@ mod tests {
     fn renders_xml_tree_with_attributes_and_text_without_color() {
         let xml = r#"<person id="1"><name>Alice</name></person>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let output = render_xml(&node, None, false);
         assert_eq!(output, "person [id=\"1\"]\n└── name: Alice\n");
     }
@@ -216,7 +216,7 @@ mod tests {
     fn renders_xml_tree_with_color() {
         let xml = r#"<person id="1"><name>Alice</name></person>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
-        let node = XmlNode::from_document(&doc);
+        let node = XmlNode::from_document(&doc).unwrap();
         let output = render_xml(&node, None, true);
         assert!(output.contains("\x1b[36mperson\x1b[0m"));
         assert!(output.contains("\x1b[32mAlice\x1b[0m"));
