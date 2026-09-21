@@ -90,6 +90,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("F", "search-results popup (whole document)"),
     ("i", "inspect node (type, size, path, tag)"),
     ("1-8", "tag / untag node"),
+    ("x", "clear all tags"),
     ("y", "yank current path"),
     ("Y", "yank as jq path (JSON only)"),
     ("c", "collapse all"),

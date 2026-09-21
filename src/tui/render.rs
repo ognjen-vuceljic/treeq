@@ -1064,8 +1064,15 @@ mod tests {
             std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
         for (key, _) in HELP_LEGEND {
             let first_key = key.split(" / ").next().unwrap();
+            // Every table row starts with a backtick-wrapped key, either alone
+            // ("| `x` | ...") or paired ("| `↑` / `↓` | ..."), so anchoring on
+            // that instead of a bare substring avoids a single-character key
+            // like "x" trivially matching unrelated README prose ("explore",
+            // "extracting", ...) even if its row were deleted.
+            let solo_cell = format!("| `{first_key}` |");
+            let paired_cell = format!("| `{first_key}` / ");
             assert!(
-                readme.contains(first_key),
+                readme.contains(&solo_cell) || readme.contains(&paired_cell),
                 "README's keybindings table appears to be missing key '{key}' \
                  (HELP_LEGEND and the README have drifted apart)"
             );
