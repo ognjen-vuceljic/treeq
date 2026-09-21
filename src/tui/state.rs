@@ -166,13 +166,21 @@ pub(super) fn rebuild_xml_lines(state: &mut AppState, node: &XmlNode) {
     state.cursor = state.cursor.min(state.lines.len().saturating_sub(1));
 }
 
+/// Same 24-bit tones as `color::code_truecolor` (kept in sync manually --
+/// crossterm/ratatui negotiate the terminal's actual color depth and
+/// degrade `Rgb` automatically, the same way `tag_color`/`depth_tint_color`
+/// already rely on, so there's no separate ANSI16/truecolor tier to plumb
+/// through the TUI the way the static renderer needs one). `Structural`
+/// stays the original flat `DarkGray`, matching the static renderer's
+/// choice to leave it a plain de-emphasized tone in every tier.
 pub(super) fn ratatui_color(color: TqColor) -> Color {
     match color {
-        TqColor::Key => Color::Cyan,
-        TqColor::Str => Color::Green,
-        TqColor::Number => Color::Yellow,
-        TqColor::Bool => Color::Magenta,
-        TqColor::Null | TqColor::Structural => Color::DarkGray,
+        TqColor::Key => Color::Rgb(86, 182, 194),
+        TqColor::Str => Color::Rgb(152, 195, 121),
+        TqColor::Number => Color::Rgb(229, 192, 123),
+        TqColor::Bool => Color::Rgb(198, 120, 221),
+        TqColor::Null => Color::Rgb(128, 128, 128),
+        TqColor::Structural => Color::DarkGray,
     }
 }
 
@@ -181,16 +189,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn maps_each_type_color_to_a_distinct_ratatui_color() {
-        assert_eq!(ratatui_color(TqColor::Key), Color::Cyan);
-        assert_eq!(ratatui_color(TqColor::Str), Color::Green);
-        assert_eq!(ratatui_color(TqColor::Number), Color::Yellow);
-        assert_eq!(ratatui_color(TqColor::Bool), Color::Magenta);
+    fn maps_each_type_color_to_a_distinct_truecolor_ratatui_color() {
+        let colors = [
+            ratatui_color(TqColor::Key),
+            ratatui_color(TqColor::Str),
+            ratatui_color(TqColor::Number),
+            ratatui_color(TqColor::Bool),
+            ratatui_color(TqColor::Null),
+        ];
+        let unique: HashSet<Color> = colors.into_iter().collect();
+        assert_eq!(unique.len(), 5, "every semantic color must be distinct");
+        for c in colors {
+            assert!(
+                matches!(c, Color::Rgb(..)),
+                "expected a truecolor Rgb value, got {c:?}"
+            );
+        }
     }
 
     #[test]
-    fn null_and_structural_share_the_same_dim_color() {
-        assert_eq!(ratatui_color(TqColor::Null), Color::DarkGray);
+    fn structural_stays_the_original_flat_dark_gray() {
         assert_eq!(ratatui_color(TqColor::Structural), Color::DarkGray);
     }
 

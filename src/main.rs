@@ -168,7 +168,13 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
         let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
         print!(
             "{}",
-            render_json(target, "root", depth, args.array_limit, use_color())
+            render_json(
+                target,
+                "root",
+                depth,
+                args.array_limit,
+                color::ColorMode::detect(use_color())
+            )
         );
         return;
     }
@@ -206,7 +212,13 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
     } else {
         print!(
             "{}",
-            render_json(target, "root", args.depth, args.array_limit, use_color())
+            render_json(
+                target,
+                "root",
+                args.depth,
+                args.array_limit,
+                color::ColorMode::detect(use_color())
+            )
         );
     }
 }
@@ -248,7 +260,10 @@ fn run_xml(input: &str, args: &Args) {
         print_xml_stats(&s, input.len());
         println!();
         let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
-        print!("{}", render_xml(target, depth, use_color()));
+        print!(
+            "{}",
+            render_xml(target, depth, color::ColorMode::detect(use_color()))
+        );
         return;
     }
     if args.paths {
@@ -281,7 +296,10 @@ fn run_xml(input: &str, args: &Args) {
             }
         }
     } else {
-        print!("{}", render_xml(target, args.depth, use_color()));
+        print!(
+            "{}",
+            render_xml(target, args.depth, color::ColorMode::detect(use_color()))
+        );
     }
 }
 

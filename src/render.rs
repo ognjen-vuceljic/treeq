@@ -1,4 +1,4 @@
-use crate::color::{Color, paint, paint_depth};
+use crate::color::{Color, ColorMode, paint, paint_depth};
 use crate::json_tree::{JsonNode, JsonScalar, escape_display_str};
 use crate::xml_tree::XmlNode;
 
@@ -7,22 +7,22 @@ pub fn render_json(
     root_label: &str,
     max_depth: Option<usize>,
     array_limit: Option<usize>,
-    use_color: bool,
+    mode: ColorMode,
 ) -> String {
     let mut out = String::new();
     match node {
-        JsonNode::Scalar(s) => out.push_str(&scalar_line(root_label, s, use_color)),
+        JsonNode::Scalar(s) => out.push_str(&scalar_line(root_label, s, mode)),
         _ => {
             out.push_str(root_label);
             out.push('\n');
-            render_json_children(node, "", 0, max_depth, array_limit, use_color, &mut out);
+            render_json_children(node, "", 0, max_depth, array_limit, mode, &mut out);
         }
     }
     out
 }
 
-fn scalar_line(label: &str, s: &JsonScalar, use_color: bool) -> String {
-    let value_str = paint(&s.display(), s.color(), use_color);
+fn scalar_line(label: &str, s: &JsonScalar, mode: ColorMode) -> String {
+    let value_str = paint(&s.display(), s.color(), mode);
     format!("{label}: {value_str}\n")
 }
 
@@ -33,7 +33,7 @@ fn render_json_children(
     depth: usize,
     max_depth: Option<usize>,
     array_limit: Option<usize>,
-    use_color: bool,
+    mode: ColorMode,
     out: &mut String,
 ) {
     let is_array = matches!(node, JsonNode::Array(_));
@@ -57,18 +57,14 @@ fn render_json_children(
         let is_last = i + 1 == visible && truncated == 0;
         let branch = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
-        let branch_str = paint_depth(&format!("{prefix}{branch}"), depth, use_color);
-        let label_str = paint(&escape_display_str(&label), Color::Key, use_color);
+        let branch_str = paint_depth(&format!("{prefix}{branch}"), depth, mode.enabled());
+        let label_str = paint(&escape_display_str(&label), Color::Key, mode);
         match child {
             JsonNode::Scalar(s) => {
-                out.push_str(&scalar_line(
-                    &format!("{branch_str}{label_str}"),
-                    s,
-                    use_color,
-                ));
+                out.push_str(&scalar_line(&format!("{branch_str}{label_str}"), s, mode));
             }
             _ if max_depth.is_some_and(|d| depth + 1 >= d) => {
-                let ellipsis = paint("…", Color::Structural, use_color);
+                let ellipsis = paint("…", Color::Structural, mode);
                 out.push_str(&format!("{branch_str}{label_str}: {ellipsis}\n"));
             }
             _ => {
@@ -80,33 +76,29 @@ fn render_json_children(
                     depth + 1,
                     max_depth,
                     array_limit,
-                    use_color,
+                    mode,
                     out,
                 );
             }
         }
     }
     if truncated > 0 {
-        let branch_str = paint_depth(&format!("{prefix}└── "), depth, use_color);
-        let msg = paint(
-            &format!("… ({truncated} more)"),
-            Color::Structural,
-            use_color,
-        );
+        let branch_str = paint_depth(&format!("{prefix}└── "), depth, mode.enabled());
+        let msg = paint(&format!("… ({truncated} more)"), Color::Structural, mode);
         out.push_str(&format!("{branch_str}{msg}\n"));
     }
 }
 
-pub fn render_xml(node: &XmlNode, max_depth: Option<usize>, use_color: bool) -> String {
+pub fn render_xml(node: &XmlNode, max_depth: Option<usize>, mode: ColorMode) -> String {
     let mut out = String::new();
-    out.push_str(&xml_label(node, use_color));
+    out.push_str(&xml_label(node, mode));
     out.push('\n');
-    render_xml_children(node, "", 0, max_depth, use_color, &mut out);
+    render_xml_children(node, "", 0, max_depth, mode, &mut out);
     out
 }
 
-fn xml_label(node: &XmlNode, use_color: bool) -> String {
-    let mut label = paint(&escape_display_str(&node.name), Color::Key, use_color);
+fn xml_label(node: &XmlNode, mode: ColorMode) -> String {
+    let mut label = paint(&escape_display_str(&node.name), Color::Key, mode);
     if !node.attributes.is_empty() {
         let attrs: Vec<String> = node
             .attributes
@@ -114,8 +106,8 @@ fn xml_label(node: &XmlNode, use_color: bool) -> String {
             .map(|(k, v)| {
                 format!(
                     "{}=\"{}\"",
-                    paint(&escape_display_str(k), Color::Key, use_color),
-                    paint(&escape_display_str(v), Color::Str, use_color)
+                    paint(&escape_display_str(k), Color::Key, mode),
+                    paint(&escape_display_str(v), Color::Str, mode)
                 )
             })
             .collect();
@@ -124,7 +116,7 @@ fn xml_label(node: &XmlNode, use_color: bool) -> String {
     if let Some(text) = &node.text {
         label.push_str(&format!(
             ": {}",
-            paint(&escape_display_str(text), Color::Str, use_color)
+            paint(&escape_display_str(text), Color::Str, mode)
         ));
     }
     label
@@ -135,7 +127,7 @@ fn render_xml_children(
     prefix: &str,
     depth: usize,
     max_depth: Option<usize>,
-    use_color: bool,
+    mode: ColorMode,
     out: &mut String,
 ) {
     let len = node.children.len();
@@ -143,16 +135,16 @@ fn render_xml_children(
         let is_last = i + 1 == len;
         let branch = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
-        let branch_str = paint_depth(&format!("{prefix}{branch}"), depth, use_color);
+        let branch_str = paint_depth(&format!("{prefix}{branch}"), depth, mode.enabled());
         if !child.children.is_empty() && max_depth.is_some_and(|d| depth + 1 >= d) {
-            let name_str = paint(&escape_display_str(&child.name), Color::Key, use_color);
-            let ellipsis = paint("…", Color::Structural, use_color);
+            let name_str = paint(&escape_display_str(&child.name), Color::Key, mode);
+            let ellipsis = paint("…", Color::Structural, mode);
             out.push_str(&format!("{branch_str}{name_str}: {ellipsis}\n"));
             continue;
         }
-        out.push_str(&format!("{branch_str}{}\n", xml_label(child, use_color)));
+        out.push_str(&format!("{branch_str}{}\n", xml_label(child, mode)));
         let next_prefix = format!("{prefix}{child_prefix}");
-        render_xml_children(child, &next_prefix, depth + 1, max_depth, use_color, out);
+        render_xml_children(child, &next_prefix, depth + 1, max_depth, mode, out);
     }
 }
 
@@ -165,7 +157,7 @@ mod tests {
     fn renders_nested_json_tree_without_color() {
         let value = json!({"name": "Alice", "tags": ["admin", "user"]});
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "root", None, None, false);
+        let output = render_json(&node, "root", None, None, ColorMode::Off);
         assert_eq!(
             output,
             "root\n├── name: \"Alice\"\n└── tags\n    ├── [0]: \"admin\"\n    └── [1]: \"user\"\n"
@@ -176,16 +168,25 @@ mod tests {
     fn renders_json_tree_with_color() {
         let value = json!({"name": "Alice"});
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "root", None, None, true);
+        let output = render_json(&node, "root", None, None, ColorMode::Ansi16);
         assert!(output.contains("\x1b[36mname\x1b[0m"));
         assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
+    }
+
+    #[test]
+    fn renders_json_tree_with_truecolor() {
+        let value = json!({"name": "Alice"});
+        let node = JsonNode::from_value(&value);
+        let output = render_json(&node, "root", None, None, ColorMode::Truecolor);
+        assert!(output.contains("\x1b[38;2;86;182;194mname\x1b[0m"));
+        assert!(output.contains("\x1b[38;2;152;195;121m\"Alice\"\x1b[0m"));
     }
 
     #[test]
     fn json_guide_lines_are_tinted_by_depth_not_all_the_same_dim_gray() {
         let value = json!({"user": {"name": "Alice"}});
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "root", None, None, true);
+        let output = render_json(&node, "root", None, None, ColorMode::Ansi16);
         // depth 0's guide line ("user"'s own branch) keeps the original
         // plain dim; depth 1's guide line ("name"'s branch) gets a
         // distinct tint -- verifying the two don't collapse to one color.
@@ -197,7 +198,7 @@ mod tests {
     fn xml_guide_lines_are_tinted_by_depth() {
         let doc = roxmltree::Document::parse("<root><a><b/></a></root>").unwrap();
         let node = XmlNode::from_document(&doc).unwrap();
-        let output = render_xml(&node, None, true);
+        let output = render_xml(&node, None, ColorMode::Ansi16);
         assert!(output.contains("\x1b[2m└── \x1b[0m"));
         assert!(output.contains("\x1b[2;34m    └── \x1b[0m"));
     }
@@ -208,7 +209,7 @@ mod tests {
         // needs the same treatment or it reaches the terminal raw.
         let value = json!({"before\u{1b}after": 1});
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "root", None, None, false);
+        let output = render_json(&node, "root", None, None, ColorMode::Off);
         assert!(!output.contains('\u{1b}'));
         assert!(output.contains("before\\u001bafter"));
     }
@@ -217,7 +218,7 @@ mod tests {
     fn renders_a_scalar_root_as_its_own_key_value_line_instead_of_nothing() {
         let value = json!(42);
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "count", None, None, false);
+        let output = render_json(&node, "count", None, None, ColorMode::Off);
         assert_eq!(output, "count: 42\n");
     }
 
@@ -225,7 +226,7 @@ mod tests {
     fn renders_a_colored_scalar_root() {
         let value = json!("Alice");
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "name", None, None, true);
+        let output = render_json(&node, "name", None, None, ColorMode::Ansi16);
         assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
         assert!(output.starts_with("name: "));
     }
@@ -234,7 +235,7 @@ mod tests {
     fn truncates_json_tree_at_depth() {
         let value = json!({"user": {"name": "Alice"}});
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "root", Some(1), None, false);
+        let output = render_json(&node, "root", Some(1), None, ColorMode::Off);
         assert_eq!(output, "root\n└── user: …\n");
     }
 
@@ -242,7 +243,7 @@ mod tests {
     fn array_limit_truncates_a_large_array_with_a_summary_line() {
         let value = json!({"tags": ["a", "b", "c", "d", "e"]});
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "root", None, Some(2), false);
+        let output = render_json(&node, "root", None, Some(2), ColorMode::Off);
         assert_eq!(
             output,
             "root\n└── tags\n    ├── [0]: \"a\"\n    ├── [1]: \"b\"\n    └── … (3 more)\n"
@@ -253,7 +254,7 @@ mod tests {
     fn array_limit_does_not_affect_object_field_counts() {
         let value = json!({"a": 1, "b": 2, "c": 3});
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "root", None, Some(2), false);
+        let output = render_json(&node, "root", None, Some(2), ColorMode::Off);
         assert_eq!(output, "root\n├── a: 1\n├── b: 2\n└── c: 3\n");
     }
 
@@ -261,7 +262,7 @@ mod tests {
     fn array_limit_is_a_no_op_when_the_array_is_already_within_the_limit() {
         let value = json!({"tags": ["a", "b"]});
         let node = JsonNode::from_value(&value);
-        let output = render_json(&node, "root", None, Some(5), false);
+        let output = render_json(&node, "root", None, Some(5), ColorMode::Off);
         assert_eq!(
             output,
             "root\n└── tags\n    ├── [0]: \"a\"\n    └── [1]: \"b\"\n"
@@ -273,7 +274,7 @@ mod tests {
         let xml = r#"<person id="1"><name>Alice</name></person>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
         let node = XmlNode::from_document(&doc).unwrap();
-        let output = render_xml(&node, None, false);
+        let output = render_xml(&node, None, ColorMode::Off);
         assert_eq!(output, "person [id=\"1\"]\n└── name: Alice\n");
     }
 
@@ -285,7 +286,7 @@ mod tests {
         let xml = "<root a=\"before&#x7f;after\">text&#x7f;here</root>";
         let doc = roxmltree::Document::parse(xml).unwrap();
         let node = XmlNode::from_document(&doc).unwrap();
-        let output = render_xml(&node, None, false);
+        let output = render_xml(&node, None, ColorMode::Off);
         assert!(!output.contains('\u{7f}'));
         assert!(output.contains("before\\u007fafter"));
         assert!(output.contains("text\\u007fhere"));
@@ -302,7 +303,7 @@ mod tests {
         let doc = roxmltree::Document::parse(xml).unwrap();
         let mut node = XmlNode::from_document(&doc).unwrap();
         node.children[0].name = "before\u{1b}after".to_string();
-        let output = render_xml(&node, None, false);
+        let output = render_xml(&node, None, ColorMode::Off);
         assert!(!output.contains('\u{1b}'));
         assert!(output.contains("before\\u001bafter"));
     }
@@ -316,7 +317,7 @@ mod tests {
         let doc = roxmltree::Document::parse(xml).unwrap();
         let mut node = XmlNode::from_document(&doc).unwrap();
         node.children[0].name = "before\u{1b}after".to_string();
-        let output = render_xml(&node, Some(1), false);
+        let output = render_xml(&node, Some(1), ColorMode::Off);
         assert!(!output.contains('\u{1b}'));
         assert!(output.contains("before\\u001bafter: …"));
     }
@@ -326,7 +327,7 @@ mod tests {
         let xml = r#"<person id="1"><name>Alice</name></person>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
         let node = XmlNode::from_document(&doc).unwrap();
-        let output = render_xml(&node, None, true);
+        let output = render_xml(&node, None, ColorMode::Ansi16);
         assert!(output.contains("\x1b[36mperson\x1b[0m"));
         assert!(output.contains("\x1b[32mAlice\x1b[0m"));
     }
