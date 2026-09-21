@@ -66,7 +66,8 @@ treeq file.json --depth 2             # truncate deep nesting
 treeq file.json --stats               # size/shape summary, no full dump
 treeq file.json --agent               # stats + shallow tree, in one call
 treeq file.xml                        # XML works the same way
-treeq --pick file.json                 # Enter prints the selected path, then exits
+treeq --pick file.json                # Enter prints the selected path, then exits
+treeq --generate zsh > ~/.zfunc/_treeq  # shell completions (zsh/bash/fish)
 ```
 
 ```sh
@@ -124,6 +125,8 @@ XML works the same way as JSON, all through the same keybindings:
   `NO_COLOR` is set — and type stays recoverable from plain text alone
   (strings quoted, numbers/booleans/null bare), for piped output,
   colorblind users, and agents reading color-stripped text.
+- **Shell completions** — `treeq --generate zsh|bash|fish` prints a
+  completion script to stdout.
 
 ## TUI keybindings
 

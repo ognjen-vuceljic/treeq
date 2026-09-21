@@ -18,6 +18,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
 roxmltree = "0.20"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 ratatui = "0.29"
 # `use-dev-tty`: without it, crossterm's default Unix event backend (mio +
 # kqueue) fails to register a freshly-opened `/dev/tty` fd on macOS with
