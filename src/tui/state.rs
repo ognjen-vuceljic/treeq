@@ -77,6 +77,10 @@ pub(super) struct AppState {
     pub(super) is_json: bool,
     /// `Cell` so `render()` can update it without needing `&mut AppState`.
     pub(super) scroll_offset: Cell<usize>,
+    /// Number of tree rows visible inside the list's border, set by
+    /// `render_tree` on every frame; read by `H`/`M`/`L` and PgUp/PgDn to
+    /// know the current viewport's extent. `0` until the first frame draws.
+    pub(super) viewport_height: Cell<usize>,
     /// Every node's path and search text (dotted path plus `: value` for a
     /// leaf), independent of collapse state, so search can reach collapsed
     /// subtrees and match key/value combos.
@@ -137,6 +141,8 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("c", "collapse all"),
     ("e", "expand all"),
     ("V", "visual select (j/k extend; l/h/c/e apply)"),
+    ("H / M / L", "jump to top/middle/bottom of viewport"),
+    ("PgUp / PgDn", "page up / page down"),
     ("?", "toggle this help"),
     ("q / Esc", "quit"),
 ];
@@ -285,6 +291,7 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            viewport_height: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,

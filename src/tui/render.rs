@@ -386,6 +386,11 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         &mut list_state,
     );
     state.scroll_offset.set(list_state.offset());
+    // The `List` block's border occupies one row top and bottom, so the
+    // number of item rows actually visible is the block's height minus 2.
+    state
+        .viewport_height
+        .set(chunks[0].height.saturating_sub(2) as usize);
     let status_line = if state.searching {
         RtLine::from(format!("/{}", state.search))
     } else if let Some(buf) = &state.count_buffer {
@@ -524,6 +529,7 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            viewport_height: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
@@ -869,6 +875,16 @@ mod tests {
         (0..len)
             .map(|i| line(&format!("item{i}"), false, None, 0, &["item"]))
             .collect()
+    }
+
+    #[test]
+    fn render_sets_viewport_height_from_the_lists_bordered_area() {
+        let state = state_with(tall_list(200), 0);
+        // 10 total rows minus: 1 for the status bar, 2 for the list's own
+        // top/bottom border -> 7 visible item rows.
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        assert_eq!(state.viewport_height.get(), 7);
     }
 
     #[test]
@@ -1431,7 +1447,7 @@ mod tests {
     fn render_shows_help_overlay_with_every_keybinding_when_visible() {
         let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
         state.help_visible = true;
-        let mut terminal = Terminal::new(TestBackend::new(60, 21)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(60, 23)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("Keybindings"));
