@@ -268,6 +268,27 @@ fn cycle_popup_selection(state: &mut AppState, delta: i64) {
     state.popup_selected = (((cur + delta) % n + n) % n) as usize;
 }
 
+/// After expanding reveals new rows below the cursor, ratatui's `List` only
+/// guarantees the *selected* row (the cursor's own, unmoved by an expand)
+/// stays visible -- if that row was already the last visible one, the newly
+/// revealed children land entirely off-screen with nothing forcing a
+/// scroll. If the cursor was already at or past the bottom edge of the
+/// last-rendered viewport, pin the scroll offset to the cursor so it
+/// becomes the top-most visible row, showing up to a full screen of new
+/// children immediately (issue #112). A no-op before the first frame has
+/// rendered (`viewport_height` still `0`) or when the cursor is safely
+/// inside the viewport already.
+fn reveal_cursor_in_viewport(state: &AppState) {
+    let height = state.viewport_height.get();
+    if height == 0 {
+        return;
+    }
+    let bottom = state.scroll_offset.get() + height.saturating_sub(1);
+    if state.cursor >= bottom {
+        state.scroll_offset.set(state.cursor);
+    }
+}
+
 /// `l` (nvim-tree convention): expands the current node if it's a
 /// collapsed container, or reveals the rest of a truncated array's preview.
 /// A no-op on a leaf or an already-expanded container -- unlike `Tab`/
@@ -276,11 +297,16 @@ fn expand_current(state: &mut AppState) {
     let Some(line) = state.lines.get(state.cursor) else {
         return;
     };
-    if line.is_array_summary {
+    let revealed = if line.is_array_summary {
         let array_path = array_path_for_summary_line(&line.path).to_vec();
-        state.array_overrides.insert(array_path);
+        state.array_overrides.insert(array_path)
     } else if line.has_children {
-        state.collapsed.remove(&line.path);
+        state.collapsed.remove(&line.path)
+    } else {
+        false
+    };
+    if revealed {
+        reveal_cursor_in_viewport(state);
     }
 }
 
@@ -737,10 +763,13 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
             if let Some(line) = state.lines.get(state.cursor) {
                 if line.is_array_summary {
                     let array_path = array_path_for_summary_line(&line.path).to_vec();
-                    state.array_overrides.insert(array_path);
+                    if state.array_overrides.insert(array_path) {
+                        reveal_cursor_in_viewport(state);
+                    }
                 } else if line.has_children {
                     if state.collapsed.remove(&line.path) {
                         // no-op: re-expanding doesn't touch array_overrides
+                        reveal_cursor_in_viewport(state);
                     } else {
                         state.collapsed.insert(line.path.clone());
                         // Resets the preview so re-expanding starts truncated again.
@@ -974,6 +1003,110 @@ mod tests {
         assert_eq!(state.cursor, 2);
         handle_key(&mut state, KeyCode::Char('k'));
         assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn expanding_a_container_at_the_bottom_edge_of_the_viewport_pins_it_to_the_top() {
+        let mut state = nested_fixture();
+        state.cursor = 1; // "user", a collapsed container
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        // Viewport shows rows 0..=1, so the cursor (row 1) sits exactly at
+        // the bottom edge -- any children revealed below it would be
+        // entirely off-screen without a scroll.
+        state.scroll_offset.set(0);
+        state.viewport_height.set(2);
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert_eq!(
+            state.scroll_offset.get(),
+            1,
+            "must pin the expanded row to the top of the viewport"
+        );
+    }
+
+    #[test]
+    fn expanding_a_container_comfortably_inside_the_viewport_does_not_move_the_scroll_offset() {
+        let mut state = nested_fixture();
+        state.cursor = 1; // "user"
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        state.scroll_offset.set(0);
+        state.viewport_height.set(10); // cursor is nowhere near the bottom
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert_eq!(state.scroll_offset.get(), 0);
+    }
+
+    #[test]
+    fn re_expanding_an_already_expanded_container_does_not_move_the_scroll_offset() {
+        let mut state = nested_fixture();
+        state.cursor = 1; // "user", already expanded (not in `collapsed`)
+        state.scroll_offset.set(0);
+        state.viewport_height.set(2); // cursor is at the bottom edge
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert_eq!(
+            state.scroll_offset.get(),
+            0,
+            "a no-op expand must not move the viewport"
+        );
+    }
+
+    #[test]
+    fn expanding_via_tab_at_the_bottom_edge_also_reveals_the_children() {
+        let mut state = nested_fixture();
+        state.cursor = 1; // "user"
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        state.scroll_offset.set(0);
+        state.viewport_height.set(2);
+        handle_key(&mut state, KeyCode::Tab);
+        assert_eq!(state.scroll_offset.get(), 1);
+    }
+
+    #[test]
+    fn collapsing_via_tab_does_not_trigger_a_reveal() {
+        let mut state = nested_fixture();
+        state.cursor = 1; // "user", expanded
+        state.scroll_offset.set(0);
+        state.viewport_height.set(2); // at the bottom edge
+        handle_key(&mut state, KeyCode::Tab); // collapses it
+        assert!(
+            state
+                .collapsed
+                .contains(&vec!["root".to_string(), "user".to_string()])
+        );
+        assert_eq!(
+            state.scroll_offset.get(),
+            0,
+            "collapsing removes rows, never needs a reveal"
+        );
+    }
+
+    #[test]
+    fn expanding_an_array_summary_marker_at_the_bottom_edge_also_reveals_it() {
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.cursor = 3;
+        state.scroll_offset.set(2);
+        state.viewport_height.set(2); // rows 2..=3 visible; cursor at the edge
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert_eq!(state.scroll_offset.get(), 3);
+    }
+
+    #[test]
+    fn expand_reveal_is_a_no_op_before_the_first_frame_has_rendered() {
+        let mut state = nested_fixture();
+        state.cursor = 1; // "user"
+        state
+            .collapsed
+            .insert(vec!["root".to_string(), "user".to_string()]);
+        // viewport_height defaults to 0 before render_tree ever runs.
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert_eq!(state.scroll_offset.get(), 0);
     }
 
     #[test]
