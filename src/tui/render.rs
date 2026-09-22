@@ -277,9 +277,15 @@ fn infer_json_value_color(value: &str) -> TqColor {
 }
 
 fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title("Search results (Enter: jump, Tab: cycle, Esc: close)");
+    let entries = popup_match_entries(state);
+    let title = if state.popup_query.is_empty() {
+        "Search results (Enter: jump, Tab: cycle, Esc: close)".to_string()
+    } else {
+        let count = entries.len();
+        let noun = if count == 1 { "match" } else { "matches" };
+        format!("Search results ({count} {noun}) (Enter: jump, Tab: cycle, Esc: close)")
+    };
+    let block = Block::default().borders(Borders::ALL).title(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -292,7 +298,6 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
         chunks[0],
     );
 
-    let entries = popup_match_entries(state);
     if state.popup_query.is_empty() {
         frame.render_widget(
             Paragraph::new("type to search the whole document"),
@@ -1020,6 +1025,58 @@ mod tests {
             text.contains("user"),
             "tree content must still be visible behind/around the popup"
         );
+    }
+
+    #[test]
+    fn popup_title_shows_no_count_before_anything_is_typed() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.all_paths = vec![(vec!["user".to_string()], "user".to_string())];
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(!text.contains("match"));
+    }
+
+    #[test]
+    fn popup_title_shows_a_singular_match_count() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.popup_query = "user".to_string();
+        state.all_paths = vec![(vec!["user".to_string()], "user".to_string())];
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Search results (1 match)"));
+    }
+
+    #[test]
+    fn popup_title_shows_a_plural_match_count() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.popup_query = "e".to_string();
+        state.all_paths = vec![
+            (vec!["one".to_string()], "one".to_string()),
+            (vec!["extra".to_string()], "extra".to_string()),
+            (vec!["else".to_string()], "else".to_string()),
+        ];
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Search results (3 matches)"));
+    }
+
+    #[test]
+    fn popup_title_shows_a_zero_count_for_no_matches() {
+        let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
+        state.popup_visible = true;
+        state.popup_query = "zzz".to_string();
+        state.all_paths = vec![(vec!["user".to_string()], "user".to_string())];
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Search results (0 matches)"));
+        assert!(text.contains("no matches"));
     }
 
     #[test]
