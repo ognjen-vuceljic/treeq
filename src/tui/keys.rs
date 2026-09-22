@@ -615,6 +615,47 @@ fn handle_visual_key(state: &mut AppState, key: KeyCode) -> bool {
     false
 }
 
+/// Last visible line index of the current viewport, clamped to the
+/// document's own last line (the viewport can be taller than the document,
+/// e.g. a short file in a tall terminal).
+fn viewport_bottom(state: &AppState) -> usize {
+    let last = state.lines.len().saturating_sub(1);
+    let height = state.viewport_height.get();
+    (state.scroll_offset.get() + height.saturating_sub(1)).min(last)
+}
+
+/// `H`: jump to the first visible line of the viewport.
+fn jump_to_viewport_top(state: &mut AppState) {
+    state.cursor = state
+        .scroll_offset
+        .get()
+        .min(state.lines.len().saturating_sub(1));
+}
+
+/// `M`: jump to the middle visible line of the viewport.
+fn jump_to_viewport_middle(state: &mut AppState) {
+    let top = state.scroll_offset.get();
+    let bottom = viewport_bottom(state);
+    state.cursor = top + (bottom - top) / 2;
+}
+
+/// `L`: jump to the last visible line of the viewport.
+fn jump_to_viewport_bottom(state: &mut AppState) {
+    state.cursor = viewport_bottom(state);
+}
+
+/// PgUp/PgDn: move by one viewport height. Falls back to a single line when
+/// the viewport height isn't known yet (before the first frame renders).
+fn page_up(state: &mut AppState) {
+    let step = state.viewport_height.get().max(1);
+    state.cursor = state.cursor.saturating_sub(step);
+}
+
+fn page_down(state: &mut AppState) {
+    let step = state.viewport_height.get().max(1);
+    state.cursor = (state.cursor + step).min(state.lines.len().saturating_sub(1));
+}
+
 pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
     if state.searching {
         match key {
@@ -685,6 +726,11 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Up | KeyCode::Char('k') => state.cursor = state.cursor.saturating_sub(1),
         KeyCode::Char('l') => expand_current(state),
         KeyCode::Char('h') => collapse_current_or_jump_to_parent(state),
+        KeyCode::Char('H') => jump_to_viewport_top(state),
+        KeyCode::Char('M') => jump_to_viewport_middle(state),
+        KeyCode::Char('L') => jump_to_viewport_bottom(state),
+        KeyCode::PageUp => page_up(state),
+        KeyCode::PageDown => page_down(state),
         KeyCode::Char('n') => cycle_search_match(state, 1),
         KeyCode::Char('N') => cycle_search_match(state, -1),
         KeyCode::Tab | KeyCode::Char(' ') => {
@@ -814,6 +860,7 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            viewport_height: std::cell::Cell::new(0),
             all_paths: vec![
                 (vec!["user".to_string()], "user".to_string()),
                 (
@@ -1172,6 +1219,7 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            viewport_height: std::cell::Cell::new(0),
             all_paths: vec![
                 (vec!["root".to_string()], "root".to_string()),
                 (
@@ -1227,6 +1275,7 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            viewport_height: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
@@ -1240,6 +1289,101 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
         }
+    }
+
+    #[test]
+    fn viewport_nav_keys_do_nothing_on_an_empty_document_instead_of_panicking() {
+        let mut state = tall_fixture(0, 0);
+        state.viewport_height.set(10);
+        for key in [
+            KeyCode::Char('H'),
+            KeyCode::Char('M'),
+            KeyCode::Char('L'),
+            KeyCode::PageUp,
+            KeyCode::PageDown,
+        ] {
+            handle_key(&mut state, key);
+            assert_eq!(state.cursor, 0);
+        }
+    }
+
+    #[test]
+    fn shift_h_jumps_to_the_top_of_the_viewport() {
+        let mut state = tall_fixture(50, 25);
+        state.scroll_offset.set(20);
+        state.viewport_height.set(10);
+        handle_key(&mut state, KeyCode::Char('H'));
+        assert_eq!(state.cursor, 20);
+    }
+
+    #[test]
+    fn shift_l_jumps_to_the_bottom_of_the_viewport() {
+        let mut state = tall_fixture(50, 25);
+        state.scroll_offset.set(20);
+        state.viewport_height.set(10);
+        handle_key(&mut state, KeyCode::Char('L'));
+        assert_eq!(state.cursor, 29, "20 + (10 - 1)");
+    }
+
+    #[test]
+    fn shift_l_clamps_to_the_last_line_when_the_viewport_extends_past_the_document() {
+        let mut state = tall_fixture(5, 0);
+        state.scroll_offset.set(0);
+        state.viewport_height.set(20); // taller than the whole document
+        handle_key(&mut state, KeyCode::Char('L'));
+        assert_eq!(state.cursor, 4, "must clamp to the last real line");
+    }
+
+    #[test]
+    fn shift_m_jumps_to_the_middle_of_the_viewport() {
+        let mut state = tall_fixture(50, 25);
+        state.scroll_offset.set(20);
+        state.viewport_height.set(10);
+        handle_key(&mut state, KeyCode::Char('M'));
+        assert_eq!(state.cursor, 24, "midpoint of visible rows 20..=29");
+    }
+
+    #[test]
+    fn page_down_moves_the_cursor_by_one_viewport_height() {
+        let mut state = tall_fixture(50, 5);
+        state.viewport_height.set(10);
+        handle_key(&mut state, KeyCode::PageDown);
+        assert_eq!(state.cursor, 15);
+    }
+
+    #[test]
+    fn page_down_clamps_to_the_last_line() {
+        let mut state = tall_fixture(20, 15);
+        state.viewport_height.set(10);
+        handle_key(&mut state, KeyCode::PageDown);
+        assert_eq!(state.cursor, 19);
+    }
+
+    #[test]
+    fn page_up_moves_the_cursor_by_one_viewport_height() {
+        let mut state = tall_fixture(50, 25);
+        state.viewport_height.set(10);
+        handle_key(&mut state, KeyCode::PageUp);
+        assert_eq!(state.cursor, 15);
+    }
+
+    #[test]
+    fn page_up_clamps_to_the_first_line_instead_of_underflowing() {
+        let mut state = tall_fixture(50, 5);
+        state.viewport_height.set(10);
+        handle_key(&mut state, KeyCode::PageUp);
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn page_up_and_down_fall_back_to_a_single_line_before_the_first_frame_renders() {
+        let mut state = tall_fixture(50, 10);
+        // viewport_height defaults to 0 before render_tree ever runs.
+        handle_key(&mut state, KeyCode::PageDown);
+        assert_eq!(state.cursor, 11);
+        handle_key(&mut state, KeyCode::PageUp);
+        handle_key(&mut state, KeyCode::PageUp);
+        assert_eq!(state.cursor, 9);
     }
 
     #[test]
@@ -1925,6 +2069,7 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            viewport_height: std::cell::Cell::new(0),
             all_paths,
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
@@ -2010,6 +2155,7 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            viewport_height: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
@@ -2264,6 +2410,7 @@ mod tests {
             help_visible: false,
             is_json: true,
             scroll_offset: std::cell::Cell::new(0),
+            viewport_height: std::cell::Cell::new(0),
             all_paths,
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
