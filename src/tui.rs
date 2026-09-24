@@ -6,7 +6,7 @@ mod state;
 use crate::json_tree::JsonNode;
 use crate::xml_tree::XmlNode;
 use crossterm::ExecutableCommand;
-use crossterm::event::{self, Event};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -39,7 +39,15 @@ where
 
     loop {
         terminal.draw(|f| render_frame(f, &state))?;
-        if let Event::Key(key) = event::read()? {
+        // Non-key events (notably `Resize`) just fall through to the redraw
+        // at the top of the loop; key releases are dropped so Windows
+        // doesn't see every key twice (issue #125).
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            if is_ctrl_c(&key) {
+                break;
+            }
             let quit = handle_key(&mut state, key.code);
             rebuild(&mut state);
             if state.pick_result.is_some() {
@@ -54,6 +62,12 @@ where
     disable_raw_mode()?;
     terminal.backend_mut().execute(LeaveAlternateScreen)?;
     Ok(picked)
+}
+
+/// Raw mode delivers Ctrl+C as a plain key press, and `handle_key` only
+/// sees `key.code` -- without this it ran `c` (collapse all) instead.
+fn is_ctrl_c(key: &KeyEvent) -> bool {
+    key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
 fn open_tty() -> io::Result<std::fs::File> {
@@ -144,5 +158,22 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Op
         run_loop(state, |s| rebuild_xml_lines(s, node), open_tty()?)
     } else {
         run_loop(state, |s| rebuild_xml_lines(s, node), io::stdout())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ctrl_c_quits_but_plain_c_does_not() {
+        assert!(is_ctrl_c(&KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL
+        )));
+        assert!(!is_ctrl_c(&KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::NONE
+        )));
     }
 }
