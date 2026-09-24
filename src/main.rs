@@ -49,11 +49,15 @@ struct Args {
     r#static: bool,
     #[arg(long, value_enum)]
     format: Option<FormatArg>,
-    #[arg(long)]
+    // Mutually exclusive: each of these picks a different one-shot output
+    // mode, and `run_json_tree`/`run_xml_tree` only ever check them in one
+    // fixed order, so combining them used to silently pick whichever came
+    // first in that order instead of erroring (issue #129).
+    #[arg(long, conflicts_with_all = ["paths", "schema", "agent"])]
     stats: bool,
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["schema", "agent"])]
     paths: bool,
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["schema"])]
     agent: bool,
     #[arg(long)]
     ndjson: bool,
@@ -111,7 +115,7 @@ fn use_color() -> bool {
 }
 
 fn print_json_stats(s: &JsonStats, input_len: usize) {
-    println!("input_bytes: {input_len}");
+    println!("file_bytes: {input_len}");
     println!("max_depth: {}", s.max_depth);
     println!("objects: {}", s.objects);
     println!("arrays: {}", s.arrays);
@@ -119,7 +123,7 @@ fn print_json_stats(s: &JsonStats, input_len: usize) {
 }
 
 fn print_xml_stats(s: &XmlStats, input_len: usize) {
-    println!("input_bytes: {input_len}");
+    println!("file_bytes: {input_len}");
     println!("max_depth: {}", s.max_depth);
     println!("elements: {}", s.elements);
     println!("attributes: {}", s.attributes);

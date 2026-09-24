@@ -63,6 +63,18 @@ fn render_json_children(
             JsonNode::Scalar(s) => {
                 out.push_str(&scalar_line(&format!("{branch_str}{label_str}"), s, mode));
             }
+            // An empty object/array has no children to descend into, so
+            // without this it prints as a bare key indistinguishable from a
+            // collapsed container -- show its (empty) shape instead, same
+            // as a scalar leaf (issue #122).
+            JsonNode::Object(f) if f.is_empty() => {
+                let empty = paint("{}", Color::Structural, mode);
+                out.push_str(&format!("{branch_str}{label_str}: {empty}\n"));
+            }
+            JsonNode::Array(items) if items.is_empty() => {
+                let empty = paint("[]", Color::Structural, mode);
+                out.push_str(&format!("{branch_str}{label_str}: {empty}\n"));
+            }
             _ if max_depth.is_some_and(|d| depth + 1 >= d) => {
                 let ellipsis = paint("…", Color::Structural, mode);
                 out.push_str(&format!("{branch_str}{label_str}: {ellipsis}\n"));
@@ -137,9 +149,12 @@ fn render_xml_children(
         let child_prefix = if is_last { "    " } else { "│   " };
         let branch_str = paint_depth(&format!("{prefix}{branch}"), depth, mode.enabled());
         if !child.children.is_empty() && max_depth.is_some_and(|d| depth + 1 >= d) {
-            let name_str = paint(&escape_display_str(&child.name), Color::Key, mode);
+            // `xml_label` (not just the bare name) so a truncated element's
+            // attributes and text stay visible -- only its children are cut
+            // off (issue #129).
+            let label = xml_label(child, mode);
             let ellipsis = paint("…", Color::Structural, mode);
-            out.push_str(&format!("{branch_str}{name_str}: {ellipsis}\n"));
+            out.push_str(&format!("{branch_str}{label} {ellipsis}\n"));
             continue;
         }
         out.push_str(&format!("{branch_str}{}\n", xml_label(child, mode)));
@@ -319,7 +334,10 @@ mod tests {
         node.children[0].name = "before\u{1b}after".to_string();
         let output = render_xml(&node, Some(1), ColorMode::Off);
         assert!(!output.contains('\u{1b}'));
-        assert!(output.contains("before\\u001bafter: …"));
+        // No colon: `xml_label` already appends its own `: text` when the
+        // truncated element has text, so `label` + `: …` would double up
+        // (issue #129's depth-truncation fix).
+        assert!(output.contains("before\\u001bafter …"));
     }
 
     #[test]
