@@ -11,7 +11,7 @@ keywords = ["json", "xml", "tui", "cli", "tree"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
 # NOTE: serde_yaml is marked deprecated upstream with no actively maintained
 # successor as of writing. It's the only mature YAML crate for this use case;
 # revisit if a maintained replacement (e.g. `serde_yml` or similar) matures.
