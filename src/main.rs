@@ -73,13 +73,36 @@ struct Args {
 const AGENT_DEFAULT_DEPTH: usize = 3;
 
 fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
-    match file {
-        Some(path) => fs::read_to_string(path),
+    let buf = match file {
+        Some(path) => fs::read_to_string(path)?,
         None => {
             let mut buf = String::new();
             io::stdin().read_to_string(&mut buf)?;
-            Ok(buf)
+            buf
         }
+    };
+    // A leading UTF-8 BOM isn't whitespace, so it would otherwise defeat
+    // format detection and every parser (issue #121).
+    Ok(match buf.strip_prefix('\u{feff}') {
+        Some(rest) => rest.to_string(),
+        None => buf,
+    })
+}
+
+/// Buffered, so large `--paths` output isn't one `write(2)` per line
+/// (issue #128). A closed pipe (`treeq --paths f | head`) exits quietly.
+fn print_lines(lines: Vec<String>) {
+    use std::io::Write;
+    let mut out = io::BufWriter::new(io::stdout().lock());
+    let res = lines
+        .iter()
+        .try_for_each(|l| writeln!(out, "{l}"))
+        .and_then(|()| out.flush());
+    if let Err(e) = res
+        && e.kind() != io::ErrorKind::BrokenPipe
+    {
+        eprintln!("error: {e}");
+        process::exit(1);
     }
 }
 
@@ -179,9 +202,7 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
         return;
     }
     if args.paths {
-        for p in json_paths(target) {
-            println!("{p}");
-        }
+        print_lines(json_paths(target));
         return;
     }
     if args.stats {
@@ -267,9 +288,7 @@ fn run_xml(input: &str, args: &Args) {
         return;
     }
     if args.paths {
-        for p in xml_paths(target) {
-            println!("{p}");
-        }
+        print_lines(xml_paths(target));
         return;
     }
     if args.stats {

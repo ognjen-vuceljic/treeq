@@ -591,3 +591,27 @@ fn reports_yaml_tag_when_nested_below_the_root() {
         "got: {stderr}"
     );
 }
+
+#[test]
+fn strips_a_leading_utf8_bom_for_json_and_xml() {
+    let (out, _, code) = run_treeq(&["--static"], "\u{feff}{\"a\":1}");
+    assert_eq!((out.as_str(), code), ("root\n└── a: 1\n", 0));
+    let (out, _, code) = run_treeq(&["--static"], "\u{feff}<a><b>1</b></a>");
+    assert_eq!((out.as_str(), code), ("a\n└── b: 1\n", 0));
+}
+
+#[test]
+fn preserves_json_number_literals_exactly() {
+    let (out, _, _) = run_treeq(
+        &["--static"],
+        r#"{"id": 12345678901234567890123, "f": 1e2, "p": 0.1000000000000000055511151231257827}"#,
+    );
+    assert!(out.contains("id: 12345678901234567890123"), "{out}");
+    // serde_json's arbitrary_precision normalizes the exponent sign but
+    // keeps the digits -- previously this printed the float `100.0`.
+    assert!(out.contains("f: 1e+2"), "{out}");
+    assert!(
+        out.contains("p: 0.1000000000000000055511151231257827"),
+        "{out}"
+    );
+}
