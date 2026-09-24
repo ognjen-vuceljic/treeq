@@ -376,22 +376,18 @@ fn agent_flag_respects_path_scoping() {
 }
 
 #[test]
-fn agent_flag_takes_precedence_over_stats_and_paths() {
+fn conflicting_output_mode_flags_are_rejected_instead_of_silently_resolved() {
+    // Previously each mode flag was checked in a fixed order, so combining
+    // them silently picked a winner instead of erroring (issue #129).
     let input = r#"{"a": 1}"#;
 
-    let (agent_stats, _stderr, code) = run_treeq(&["--agent", "--stats"], input);
-    assert_eq!(code, 0);
-    assert!(
-        agent_stats.contains("root"),
-        "--agent should still render the tree"
-    );
+    let (_stdout, stderr, code) = run_treeq(&["--agent", "--stats"], input);
+    assert_ne!(code, 0);
+    assert!(stderr.contains("cannot be used with"), "got: {stderr}");
 
-    let (agent_paths, _stderr, code) = run_treeq(&["--agent", "--paths"], input);
-    assert_eq!(code, 0);
-    assert!(
-        agent_paths.contains("root") && agent_paths.contains("max_depth:"),
-        "--agent must take precedence over --paths too, got: {agent_paths}"
-    );
+    let (_stdout, stderr, code) = run_treeq(&["--agent", "--paths"], input);
+    assert_ne!(code, 0);
+    assert!(stderr.contains("cannot be used with"), "got: {stderr}");
 }
 
 #[test]
@@ -614,4 +610,22 @@ fn preserves_json_number_literals_exactly() {
         out.contains("p: 0.1000000000000000055511151231257827"),
         "{out}"
     );
+}
+
+#[test]
+fn empty_arrays_and_objects_show_their_own_shape_instead_of_a_bare_key() {
+    let (out, _, _) = run_treeq(&["--static"], r#"{"a": [], "b": {}, "c": ""}"#);
+    assert_eq!(
+        out, "root\n├── a: []\n├── b: {}\n└── c: \"\"\n",
+        "got: {out}"
+    );
+}
+
+#[test]
+fn xml_depth_truncation_keeps_the_elements_attributes_and_text_visible() {
+    let (out, _, _) = run_treeq(
+        &["--static", "--depth", "1"],
+        r#"<r><a id="7">t<b/></a></r>"#,
+    );
+    assert!(out.contains(r#"a [id="7"]: t …"#), "got: {out}");
 }

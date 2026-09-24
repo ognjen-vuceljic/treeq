@@ -40,7 +40,11 @@ pub(super) fn jump_to_next_match(state: &mut AppState) {
         return;
     }
     let n = state.lines.len();
-    for offset in 1..=n {
+    // Starts at the cursor's own line (`0..n`, not `1..=n`): this runs after
+    // every typed character, and the line the cursor is already on can still
+    // match the longer query -- skipping straight to `1` jumped past it to
+    // a later match instead (issue #126).
+    for offset in 0..n {
         let idx = (state.cursor + offset) % n;
         if fuzzy_matches(&line_search_text(&state.lines[idx]), &state.search) {
             state.cursor = idx;
@@ -386,6 +390,23 @@ fn escape_jq_string(s: &str) -> String {
         }
     }
     out
+}
+
+/// Converts a TUI path (raw segments, arrays marked `[i]`) into the same
+/// dotted, `\.`-escaped format `--path`/`--paths` use, so a yanked path
+/// round-trips back through `--path` (issue #123) -- unlike a bare
+/// `path.join(".")`, which emits `user.tags.[0]` (an unresolvable segment)
+/// and leaves a literal `.` in a key unescaped.
+pub(super) fn to_cli_path(path: &[String]) -> String {
+    path.iter()
+        .map(
+            |seg| match seg.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                Some(digits) if is_array_index_segment(seg) => digits.to_string(),
+                _ => crate::json_tree::escape_path_segment(seg),
+            },
+        )
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 /// e.g. `["user", "tags", "[0]"]` -> `.user.tags[0]`.
@@ -736,7 +757,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
                 state.pick_result = Some(if state.is_json {
                     to_jq_path(path)
                 } else {
-                    path.join(".")
+                    to_cli_path(path)
                 });
             }
             return true;
@@ -792,7 +813,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('y') => {
             if let Some(line) = state.lines.get(state.cursor) {
                 let path = real_path(line);
-                let raw = path.join(".");
+                let raw = to_cli_path(path);
                 state.status_message = Some(match copy_to_clipboard(&raw) {
                     Ok(()) => format!("copied: {}", display_path(path)),
                     Err(e) => format!("copy failed: {e}"),
@@ -836,7 +857,26 @@ mod tests {
     use super::super::state::Line;
     use super::*;
     use crate::color::Color as TqColor;
+    use crate::json_tree::find_json_path;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn to_cli_path_round_trips_through_find_json_path() {
+        // Regression test for issue #123: a TUI path yanked with `y` must
+        // resolve back through `--path`, unlike a bare `path.join(".")`
+        // (which emitted an unresolvable `user.tags.[0]` and left a literal
+        // `.` in a key unescaped).
+        assert_eq!(
+            to_cli_path(&["user".to_string(), "tags".to_string(), "[0]".to_string()]),
+            "user.tags.0"
+        );
+        assert_eq!(to_cli_path(&["a.b".to_string()]), "a\\.b");
+
+        let value = serde_json::json!({"user": {"tags": ["x", "y"]}, "a.b": 1});
+        let node = crate::json_tree::JsonNode::from_value(&value);
+        let path = to_cli_path(&["user".to_string(), "tags".to_string(), "[1]".to_string()]);
+        assert!(find_json_path(&node, &path).is_ok(), "path: {path}");
+    }
 
     fn line(key: &str, has_children: bool, path: &[&str]) -> Line {
         Line {
@@ -2345,11 +2385,36 @@ mod tests {
 
     #[test]
     fn jump_to_next_match_wraps_from_the_last_line_back_to_the_first() {
-        let mut state = fixture();
+        // Independent top-level paths (not `fixture()`'s "user"/"user.name"/
+        // "user.age", which all share the "user" prefix and so all match a
+        // "user" query via the ancestor chain, defeating this test) so
+        // "zzq" matches only the first line and a wrap is actually observed.
+        let mut state = AppState {
+            lines: vec![
+                line("zzq", false, &["zzq"]),
+                line("name", false, &["name"]),
+                line("age", false, &["age"]),
+            ],
+            ..fixture()
+        };
         state.cursor = 2; // sitting on the last line ("age")
-        state.search = "USER".to_string(); // only matches line 0, case-insensitively
+        state.search = "zzq".to_string();
         jump_to_next_match(&mut state);
         assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn jump_to_next_match_checks_the_cursors_own_line_before_advancing() {
+        // Regression test for issue #126: typing an extra search character
+        // must not skip past a still-matching current line.
+        let mut state = fixture();
+        state.cursor = 1; // "name"
+        state.search = "nam".to_string();
+        jump_to_next_match(&mut state);
+        assert_eq!(
+            state.cursor, 1,
+            "must stay on \"name\", which still matches"
+        );
     }
 
     #[test]
@@ -2504,9 +2569,14 @@ mod tests {
         let mut state = nested_fixture();
         state.search = "user".to_string();
         jump_to_next_match(&mut state);
+        // The cursor starts on "city" (path "root.user.address.city"),
+        // which already matches "user" via its own displayed ancestor
+        // chain -- checking the cursor's own line first (issue #126) means
+        // this is now found immediately, without even reaching line 1's
+        // "user" line or the collapsed-subtree fallback.
         assert_eq!(
-            state.cursor, 1,
-            "a match already visible must win without touching collapsed state"
+            state.cursor, 3,
+            "a match already visible on the cursor's own line must win without touching collapsed state"
         );
         assert!(state.pending_cursor_path.is_none());
     }

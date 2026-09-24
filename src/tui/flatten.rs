@@ -77,8 +77,17 @@ pub(super) fn flatten_json(
     for (label, child) in entries.into_iter().take(visible) {
         let mut child_path = path.to_vec();
         child_path.push(label.clone());
+        // An empty object/array has nothing to expand into, so show its
+        // (empty) shape as a value instead of a bare key indistinguishable
+        // from a collapsed container (issue #122).
         let (value, has_children) = match child {
             JsonNode::Scalar(s) => (Some((s.display(), s.color())), false),
+            JsonNode::Object(f) if f.is_empty() => {
+                (Some(("{}".to_string(), TqColor::Structural)), false)
+            }
+            JsonNode::Array(items) if items.is_empty() => {
+                (Some(("[]".to_string(), TqColor::Structural)), false)
+            }
             _ => (None, true),
         };
         out.push(Line {
