@@ -6,12 +6,39 @@ use super::state::{AppState, HELP_LEGEND, Line, depth_tint_color, ratatui_color,
 use crate::color::Color as TqColor;
 use ratatui::prelude::*;
 use ratatui::text::Line as RtLine;
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph};
 
 /// Splits `text` into spans, adding `Modifier::UNDERLINED` on top of
 /// `base_style` for exactly the char positions in `highlight` -- lets a
 /// fuzzy/non-contiguous match (from `fuzzy_match_char_indices`) underline
 /// the individual matched characters instead of the whole span.
+/// Cursor row background in color mode: a soft tint that keeps each span's
+/// syntax color, instead of `REVERSED` inverting them all into one harsh
+/// block (issue #140). `REVERSED` stays the no-color fallback, where a
+/// background tint would be the only thing a NO_COLOR user can't rely on.
+const CURSOR_BG: Color = Color::Rgb(55, 62, 80);
+
+fn cursor_style(use_color: bool) -> Style {
+    if use_color {
+        Style::default().bg(CURSOR_BG)
+    } else {
+        Style::default().add_modifier(Modifier::REVERSED)
+    }
+}
+
+/// Rounded border shared by every block; popups also get a `Key`-colored
+/// border in color mode so they read as floating cards (issue #144).
+fn rounded_block<'a>(accent: bool, use_color: bool) -> Block<'a> {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded);
+    if accent && use_color {
+        block.border_style(Style::default().fg(ratatui_color(TqColor::Key)))
+    } else {
+        block
+    }
+}
+
 fn highlighted_spans(text: &str, base_style: Style, highlight: &[usize]) -> Vec<Span<'static>> {
     if highlight.is_empty() {
         return vec![Span::styled(text.to_string(), base_style)];
@@ -192,8 +219,7 @@ fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
         }
         None => vec![RtLine::from("no node under the cursor")],
     };
-    let paragraph =
-        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Inspect"));
+    let paragraph = Paragraph::new(lines).block(rounded_block(true, use_color).title("Inspect"));
     frame.render_widget(paragraph, area);
 }
 
@@ -285,7 +311,7 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
         let noun = if count == 1 { "match" } else { "matches" };
         format!("Search results ({count} {noun}) (Enter: jump, Tab: cycle, Esc: close)")
     };
-    let block = Block::default().borders(Borders::ALL).title(title);
+    let block = rounded_block(true, state.use_color).title(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -326,7 +352,7 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
         .with_offset(state.popup_scroll_offset.get())
         .with_selected(Some(state.popup_selected));
     frame.render_stateful_widget(
-        List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+        List::new(items).highlight_style(cursor_style(state.use_color)),
         chunks[1],
         &mut list_state,
     );
@@ -367,7 +393,7 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
             if i == state.cursor {
                 // The cursor's own reversed-video highlight takes priority
                 // over both a selection and a tag background.
-                style = style.add_modifier(Modifier::REVERSED);
+                style = cursor_style(state.use_color);
             } else if is_selected {
                 style = style.bg(VISUAL_SELECTION_BG);
             } else if state.use_color
@@ -386,7 +412,7 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         .with_offset(state.scroll_offset.get())
         .with_selected(Some(state.cursor));
     frame.render_stateful_widget(
-        List::new(items).block(Block::default().borders(Borders::ALL)),
+        List::new(items).block(rounded_block(false, state.use_color)),
         chunks[0],
         &mut list_state,
     );
@@ -469,8 +495,7 @@ fn render_help(frame: &mut Frame, area: Rect, use_color: bool) {
         footer_style,
     )));
     let paragraph = Paragraph::new(lines).block(
-        Block::default()
-            .borders(Borders::ALL)
+        rounded_block(false, use_color)
             .title("Help")
             .border_style(border_style),
     );
@@ -937,6 +962,19 @@ mod tests {
         let state = state_with(vec![], 0);
         let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
+    }
+
+    #[test]
+    fn color_mode_cursor_row_is_tinted_not_reversed_and_borders_are_rounded() {
+        let mut state = state_with(tall_list(20), 3);
+        state.use_color = true;
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let y = row_containing(buffer, "item3").expect("cursor line must be on screen");
+        assert_eq!(buffer[(1, y)].bg, CURSOR_BG);
+        assert!(!buffer[(1, y)].modifier.contains(Modifier::REVERSED));
+        assert_eq!(buffer[(0, 0)].symbol(), "╭");
     }
 
     #[test]
