@@ -22,6 +22,38 @@ use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io;
 
+/// Best-effort terminal restore: raw mode off, and `LeaveAlternateScreen`
+/// written straight to `/dev/tty` (not `out`, which the panic hook below
+/// doesn't have access to, and which is the same terminal in both pick and
+/// normal mode -- pick mode is the one case `out` differs from it, and pick
+/// mode renders over `/dev/tty` for exactly this reason). Errors are
+/// swallowed: this only ever runs while already unwinding an error or a
+/// panic, and a second error here must not shadow or block that.
+fn restore_terminal_best_effort() {
+    let _ = disable_raw_mode();
+    if let Ok(mut tty) = OpenOptions::new().write(true).open("/dev/tty") {
+        let _ = tty.execute(LeaveAlternateScreen);
+    }
+}
+
+/// Installs a panic hook that restores the terminal before the default
+/// hook prints the panic message -- otherwise a panic anywhere in the loop
+/// (a `render`/`handle_key` bug, not just an `io::Result` `?`) leaves the
+/// terminal in raw mode on the alternate screen with no visible message
+/// and no working shell until the user runs `reset` (issue #127). Installs
+/// only once per process; a second TUI session in the same run (there
+/// isn't one today, but nothing prevents it) doesn't stack duplicate hooks.
+fn install_panic_restore_hook() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            restore_terminal_best_effort();
+            previous(info);
+        }));
+    });
+}
+
 /// Renders over `/dev/tty` in pick mode rather than stdout, since pick
 /// mode's whole point is capturing stdout (`$(treeq --pick file.json)` or
 /// a pipe into `tmux load-buffer`) -- the UI must stay off that stream.
@@ -30,38 +62,54 @@ where
     W: io::Write,
     F: FnMut(&mut AppState),
 {
+    install_panic_restore_hook();
     enable_raw_mode()?;
     let mut out = out;
-    out.execute(EnterAlternateScreen)?;
+    if let Err(e) = out.execute(EnterAlternateScreen) {
+        let _ = disable_raw_mode();
+        return Err(e);
+    }
     let backend = CrosstermBackend::new(out);
-    let mut terminal = Terminal::new(backend)?;
-    let mut picked = None;
+    let mut terminal = match Terminal::new(backend) {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = disable_raw_mode();
+            return Err(e);
+        }
+    };
 
-    loop {
-        terminal.draw(|f| render_frame(f, &state))?;
-        // Non-key events (notably `Resize`) just fall through to the redraw
-        // at the top of the loop; key releases are dropped so Windows
-        // doesn't see every key twice (issue #125).
-        if let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            if is_ctrl_c(&key) {
-                break;
-            }
-            let quit = handle_key(&mut state, key.code);
-            rebuild(&mut state);
-            if state.pick_result.is_some() {
-                picked = state.pick_result.take();
-            }
-            if quit {
-                break;
+    // However the loop below ends -- a clean quit, or an `io::Result` `?`
+    // propagating out of `draw`/`event::read` -- the terminal must be
+    // restored on every path, not just the success one (issue #127).
+    let result = (|| -> io::Result<Option<String>> {
+        let mut picked = None;
+        loop {
+            terminal.draw(|f| render_frame(f, &state))?;
+            // Non-key events (notably `Resize`) just fall through to the redraw
+            // at the top of the loop; key releases are dropped so Windows
+            // doesn't see every key twice (issue #125).
+            if let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press
+            {
+                if is_ctrl_c(&key) {
+                    break;
+                }
+                let quit = handle_key(&mut state, key.code);
+                rebuild(&mut state);
+                if state.pick_result.is_some() {
+                    picked = state.pick_result.take();
+                }
+                if quit {
+                    break;
+                }
             }
         }
-    }
+        Ok(picked)
+    })();
 
-    disable_raw_mode()?;
-    terminal.backend_mut().execute(LeaveAlternateScreen)?;
-    Ok(picked)
+    let _ = disable_raw_mode();
+    let _ = terminal.backend_mut().execute(LeaveAlternateScreen);
+    result
 }
 
 /// Raw mode delivers Ctrl+C as a plain key press, and `handle_key` only
@@ -175,5 +223,18 @@ mod tests {
             KeyCode::Char('c'),
             KeyModifiers::NONE
         )));
+    }
+
+    /// Regression guard for issue #127: `run_json_tui`/`run_xml_tui` call
+    /// this on every invocation, so installing it more than once (as a
+    /// panic hook, a process-wide resource) must be safe and a no-op past
+    /// the first call. Doesn't drive an actual panic through it: the panic
+    /// hook is process-global, and replacing it here would also intercept
+    /// unrelated `#[should_panic]`/`catch_unwind` tests running
+    /// concurrently in the same test binary.
+    #[test]
+    fn panic_restore_hook_installs_idempotently() {
+        install_panic_restore_hook();
+        install_panic_restore_hook();
     }
 }
