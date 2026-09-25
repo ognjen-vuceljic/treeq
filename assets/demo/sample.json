@@ -1,0 +1,19 @@
+{
+  "service": "checkout-api",
+  "version": "2.4.1",
+  "healthy": true,
+  "region": null,
+  "tags": [],
+  "config": {},
+  "endpoints": ["/health", "/pay", "/refund"],
+  "owner": {
+    "team": "payments",
+    "oncall": "Alice",
+    "slack": "#payments-oncall"
+  },
+  "metrics": {
+    "p50_ms": 42,
+    "p99_ms": 310,
+    "error_rate": 0.0021
+  }
+}
