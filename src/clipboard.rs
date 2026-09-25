@@ -26,17 +26,43 @@ pub fn base64_encode(data: &[u8]) -> String {
 /// Copies `text` to the system clipboard via the OSC 52 terminal escape
 /// sequence, which most modern terminals (and SSH sessions) support without
 /// needing a native clipboard library or X11/Wayland access.
+///
+/// Writes to `/dev/tty` rather than stdout: in `--pick` mode the TUI itself
+/// renders over `/dev/tty` precisely so stdout stays clean for
+/// `$(treeq --pick f.json)` / `| tmux load-buffer -`, but the escape
+/// sequence was still going to stdout, corrupting the very output pick mode
+/// exists to keep clean (issue #124). Falling back to stdout when
+/// `/dev/tty` can't be opened keeps this working outside pick mode and on
+/// platforms without a `/dev/tty` (there stdout was already the terminal).
 pub fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
     use std::io::Write;
     let encoded = base64_encode(text.as_bytes());
-    let mut stdout = std::io::stdout();
-    write!(stdout, "\x1b]52;c;{encoded}\x07")?;
-    stdout.flush()
+    let sequence = format!("\x1b]52;c;{encoded}\x07");
+    match std::fs::OpenOptions::new().write(true).open("/dev/tty") {
+        Ok(mut tty) => {
+            write!(tty, "{sequence}")?;
+            tty.flush()
+        }
+        Err(_) => {
+            let mut stdout = std::io::stdout();
+            write!(stdout, "{sequence}")?;
+            stdout.flush()
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copy_to_clipboard_succeeds_even_without_a_controlling_terminal() {
+        // No `/dev/tty` in a test harness process (or none reachable) must
+        // still fall back to stdout rather than erroring outright -- the
+        // `/dev/tty`-first change for issue #124 must not regress the
+        // no-tty case (e.g. output piped to a file with no session tty).
+        assert!(copy_to_clipboard("hello").is_ok());
+    }
 
     #[test]
     fn encodes_rfc4648_test_vectors() {
