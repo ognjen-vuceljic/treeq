@@ -8,7 +8,7 @@ for humans who are tired of squinting at minified blobs, and for coding
 agents that need to explore a large document without dumping the whole
 thing into a tool result.
 
-![treeq interactive TUI demo: piping JSON into treeq for a colorized static render, tagging nodes with the polished dim-tint palette, count-prefixed jumps with viewport scrolling, the inspect popup, the syntax-colored fzf-style search popup with Tab-cycling, and a key/value combo search](assets/demo.gif)
+![treeq interactive TUI demo: navigating a service config, showing typed empty containers ([]/{}) and the soft cursor tint, tagging a node, the rounded-border inspect popup showing its type and path, the fzf-style search popup jumping to a match, incremental / search, then collapsing the whole tree](assets/demo.gif)
 
 ## Contents
 
