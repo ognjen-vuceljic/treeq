@@ -370,7 +370,7 @@ fn is_jq_identifier(s: &str) -> bool {
 /// A real object key spelled like `"[0]"` is indistinguishable from a
 /// synthesized array index here — a pre-existing ambiguity shared with 'y'
 /// yank and `--path`.
-fn is_array_index_segment(s: &str) -> bool {
+pub(super) fn is_array_index_segment(s: &str) -> bool {
     s.strip_prefix('[')
         .and_then(|s| s.strip_suffix(']'))
         .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))

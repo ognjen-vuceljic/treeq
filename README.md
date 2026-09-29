@@ -85,7 +85,9 @@ root
 ```
 
 In a real terminal, output is colorized by type (keys, strings, numbers,
-booleans, null each a distinct color), and dropping `--static` opens the
+`true`/`false`, null each a distinct color; URLs underlined and ISO dates
+highlighted; `:` separators and `[N]` array indices dimmed so keys and values
+stand out), and dropping `--static` opens the
 interactive TUI instead.
 
 ### XML in action

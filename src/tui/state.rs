@@ -189,8 +189,12 @@ pub(super) fn ratatui_color(color: TqColor) -> Color {
         TqColor::Key => Color::Rgb(86, 182, 194),
         TqColor::Str => Color::Rgb(152, 195, 121),
         TqColor::Number => Color::Rgb(229, 192, 123),
-        TqColor::Bool => Color::Rgb(198, 120, 221),
+        TqColor::True => Color::Rgb(76, 217, 100),
+        TqColor::False => Color::Rgb(224, 108, 117),
         TqColor::Null => Color::Rgb(128, 128, 128),
+        // Underlined on top of this color; see `render::value_style`.
+        TqColor::Url => Color::Rgb(97, 175, 239),
+        TqColor::Date => Color::Rgb(198, 120, 221),
         TqColor::Structural => Color::DarkGray,
     }
 }
@@ -205,11 +209,14 @@ mod tests {
             ratatui_color(TqColor::Key),
             ratatui_color(TqColor::Str),
             ratatui_color(TqColor::Number),
-            ratatui_color(TqColor::Bool),
+            ratatui_color(TqColor::True),
+            ratatui_color(TqColor::False),
             ratatui_color(TqColor::Null),
+            ratatui_color(TqColor::Url),
+            ratatui_color(TqColor::Date),
         ];
         let unique: HashSet<Color> = colors.into_iter().collect();
-        assert_eq!(unique.len(), 5, "every semantic color must be distinct");
+        assert_eq!(unique.len(), 8, "every semantic color must be distinct");
         for c in colors {
             assert!(
                 matches!(c, Color::Rgb(..)),

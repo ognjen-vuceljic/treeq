@@ -1,6 +1,7 @@
 use super::flatten::display_path;
 use super::keys::{
-    array_path_for_summary_line, fuzzy_match_char_indices, line_search_text, popup_match_entries,
+    array_path_for_summary_line, fuzzy_match_char_indices, is_array_index_segment,
+    line_search_text, popup_match_entries,
 };
 use super::state::{AppState, HELP_LEGEND, Line, depth_tint_color, ratatui_color, tag_color};
 use crate::color::Color as TqColor;
@@ -39,7 +40,12 @@ fn rounded_block<'a>(accent: bool, use_color: bool) -> Block<'a> {
     }
 }
 
-fn highlighted_spans(text: &str, base_style: Style, highlight: &[usize]) -> Vec<Span<'static>> {
+fn highlighted_spans(
+    text: &str,
+    base_style: Style,
+    highlight: &[usize],
+    use_color: bool,
+) -> Vec<Span<'static>> {
     if highlight.is_empty() {
         return vec![Span::styled(text.to_string(), base_style)];
     }
@@ -54,24 +60,64 @@ fn highlighted_spans(text: &str, base_style: Style, highlight: &[usize]) -> Vec<
                 std::mem::take(&mut run),
                 base_style,
                 run_is_highlighted,
+                use_color,
             ));
         }
         run.push(ch);
         run_is_highlighted = is_highlighted;
     }
     if !run.is_empty() {
-        spans.push(styled_run(run, base_style, run_is_highlighted));
+        spans.push(styled_run(run, base_style, run_is_highlighted, use_color));
     }
     spans
 }
 
-fn styled_run(text: String, base_style: Style, highlighted: bool) -> Span<'static> {
-    let style = if highlighted {
-        base_style.add_modifier(Modifier::UNDERLINED)
-    } else {
-        base_style
+/// Background for a search-matched character in color mode (issue #140): an
+/// underline alone is easy to miss, so matches get a fzf-style amber block
+/// with bright bold text (white keeps enough contrast against the amber
+/// whatever syntax color the character had).
+const MATCH_BG: Color = Color::Rgb(150, 110, 0);
+
+fn styled_run(
+    text: String,
+    base_style: Style,
+    highlighted: bool,
+    use_color: bool,
+) -> Span<'static> {
+    let style = match (highlighted, use_color) {
+        (false, _) => base_style,
+        (true, true) => base_style
+            .bg(MATCH_BG)
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+        // No color to lean on (`NO_COLOR`): underline stays the cue.
+        (true, false) => base_style.add_modifier(Modifier::UNDERLINED),
     };
     Span::styled(text, style)
+}
+
+/// A scalar value's style: its color, plus an underline for URLs so they
+/// read as links.
+fn value_style(color: TqColor, use_color: bool) -> Style {
+    if !use_color {
+        return Style::default();
+    }
+    let style = Style::default().fg(ratatui_color(color));
+    if color == TqColor::Url {
+        style.add_modifier(Modifier::UNDERLINED)
+    } else {
+        style
+    }
+}
+
+/// The dimmed style shared by `: ` separators and `[N]` array indices
+/// (issue #143), matching the static renderer's `Structural` dimming.
+fn dim_style(use_color: bool) -> Style {
+    if use_color {
+        Style::default().fg(ratatui_color(TqColor::Structural))
+    } else {
+        Style::default()
+    }
 }
 
 fn line_spans(line: &Line, use_color: bool, search: &str) -> Vec<Span<'static>> {
@@ -82,25 +128,33 @@ fn line_spans(line: &Line, use_color: bool, search: &str) -> Vec<Span<'static>> 
     } else {
         Style::default()
     };
-    let key_style = if use_color {
+    let key_style = if !use_color {
+        Style::default()
+    } else if is_array_index_segment(&line.key) {
+        // `[N]` is position, not a name: dim it so real keys stand out.
+        dim_style(use_color)
+    } else {
         // Bold distinguishes a key from its value by weight, not just hue.
         Style::default()
             .fg(ratatui_color(TqColor::Key))
             .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
     };
     let (key_highlight, value_highlight) = search_highlight_ranges(line, search);
     let mut spans = vec![Span::styled(format!("{indent}{marker}"), structural_style)];
-    spans.extend(highlighted_spans(&line.key, key_style, &key_highlight));
+    spans.extend(highlighted_spans(
+        &line.key,
+        key_style,
+        &key_highlight,
+        use_color,
+    ));
     if let Some((text, color)) = &line.value {
-        let value_style = if use_color {
-            Style::default().fg(ratatui_color(*color))
-        } else {
-            Style::default()
-        };
-        spans.push(Span::raw(": "));
-        spans.extend(highlighted_spans(text, value_style, &value_highlight));
+        spans.push(Span::styled(": ", dim_style(use_color)));
+        spans.extend(highlighted_spans(
+            text,
+            value_style(*color, use_color),
+            &value_highlight,
+            use_color,
+        ));
     }
     spans
 }
@@ -265,18 +319,14 @@ fn match_spans(
     let indices = fuzzy_match_char_indices(text, query).unwrap_or_default();
     let path_len = path_text.chars().count();
     let path_highlight: Vec<usize> = indices.iter().copied().filter(|&i| i < path_len).collect();
-    let mut spans = highlighted_spans(&path_text, path_style, &path_highlight);
+    let mut spans = highlighted_spans(&path_text, path_style, &path_highlight, use_color);
     if let Some(value) = value_text {
         let color = if is_json {
             infer_json_value_color(value)
         } else {
             TqColor::Str
         };
-        let value_style = if use_color {
-            Style::default().fg(ratatui_color(color))
-        } else {
-            Style::default()
-        };
+        let value_style = value_style(color, use_color);
         let value_start = path_len + 2; // ": " separator
         let value_highlight: Vec<usize> = indices
             .iter()
@@ -284,8 +334,13 @@ fn match_spans(
             .filter(|&i| i >= value_start)
             .map(|i| i - value_start)
             .collect();
-        spans.push(Span::raw(": "));
-        spans.extend(highlighted_spans(value, value_style, &value_highlight));
+        spans.push(Span::styled(": ", dim_style(use_color)));
+        spans.extend(highlighted_spans(
+            value,
+            value_style,
+            &value_highlight,
+            use_color,
+        ));
     }
     spans
 }
@@ -295,9 +350,17 @@ fn match_spans(
 /// always plain, so callers must not use this for XML.
 fn infer_json_value_color(value: &str) -> TqColor {
     match value {
-        "true" | "false" => TqColor::Bool,
+        "true" => TqColor::True,
+        "false" => TqColor::False,
         "null" => TqColor::Null,
-        v if v.starts_with('"') => TqColor::Str,
+        // Same URL/date detection as the tree's own lines
+        // (`JsonScalar::color`), on the string minus its surrounding quotes
+        // -- the closing one matters: a date must end right after its last
+        // digit (or at a `T`/space), so `2026-09-29"` wouldn't match.
+        v if v.starts_with('"') => {
+            let inner = &v[1..];
+            crate::json_tree::semantic_str_color(inner.strip_suffix('"').unwrap_or(inner))
+        }
         _ => TqColor::Number,
     }
 }
@@ -575,14 +638,125 @@ mod tests {
         }
     }
 
+    fn json_lines(value: serde_json::Value) -> Vec<Line> {
+        let node = crate::json_tree::JsonNode::from_value(&value);
+        let mut lines = Vec::new();
+        super::super::flatten::flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut lines,
+        );
+        lines
+    }
+
+    #[test]
+    fn tui_value_colors_distinguish_true_false_urls_and_dates_from_plain_values() {
+        // Issue #145: at the line level, so it doesn't depend on rendering.
+        let lines = json_lines(serde_json::json!(
+            {"t": true, "f": false, "u": "https://x.io", "d": "2026-09-29", "s": "plain"}
+        ));
+        let color_of = |k: &str| {
+            lines
+                .iter()
+                .find(|l| l.key == k)
+                .and_then(|l| l.value.as_ref())
+                .map(|(_, c)| *c)
+                .unwrap()
+        };
+        assert_ne!(color_of("t"), color_of("f"), "true and false must differ");
+        assert_ne!(
+            color_of("u"),
+            color_of("s"),
+            "a URL must differ from a plain string"
+        );
+        assert_ne!(
+            color_of("d"),
+            color_of("s"),
+            "a date must differ from a plain string"
+        );
+        assert_ne!(color_of("u"), color_of("d"));
+    }
+
+    #[test]
+    fn tui_underlines_url_values_in_color_mode_only() {
+        let lines = json_lines(serde_json::json!({"u": "https://x.io", "s": "plain"}));
+        let mut state = state_with(lines, 1);
+        state.use_color = true;
+        let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
+        terminal.draw(|f| render(f, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let url_row = row_containing(buffer, "https").expect("url row");
+        let plain_row = row_containing(buffer, "plain").expect("plain row");
+        let col_of = |row: u16, needle: char| {
+            (0..buffer.area.width)
+                .find(|&x| buffer[(x, row)].symbol() == needle.to_string())
+                .unwrap()
+        };
+        let h = col_of(url_row, 'h');
+        assert!(buffer[(h, url_row)].modifier.contains(Modifier::UNDERLINED));
+        let p = col_of(plain_row, 'p');
+        assert!(
+            !buffer[(p, plain_row)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+    }
+
+    #[test]
+    fn tui_dims_the_colon_separator_and_array_index_keys_in_color_mode() {
+        // Issue #143.
+        let index_line = line(
+            "[0]",
+            false,
+            Some(("7", TqColor::Number)),
+            0,
+            &["list", "[0]"],
+        );
+        let spans = line_spans(&index_line, true, "");
+        let dim = Some(ratatui_color(TqColor::Structural));
+        let key = spans.iter().find(|s| s.content.as_ref() == "[0]").unwrap();
+        assert_eq!(key.style.fg, dim, "array index label dims");
+        assert!(!key.style.add_modifier.contains(Modifier::BOLD));
+        let sep = spans.iter().find(|s| s.content.as_ref() == ": ").unwrap();
+        assert_eq!(sep.style.fg, dim, "separator dims");
+
+        let obj_line = line("name", false, Some(("7", TqColor::Number)), 0, &["name"]);
+        let spans = line_spans(&obj_line, true, "");
+        let key = spans.iter().find(|s| s.content.as_ref() == "name").unwrap();
+        assert_eq!(key.style.fg, Some(ratatui_color(TqColor::Key)));
+        assert!(key.style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn color_mode_search_matches_get_a_background_highlight_not_just_an_underline() {
+        // Issue #140: an underline alone is easy to miss.
+        let path = vec!["ab".to_string()];
+        let spans = match_spans(&path, "ab: xyz", true, true, "az");
+        assert_eq!(spans[0].content.as_ref(), "a");
+        assert!(spans[0].style.bg.is_some(), "matched char needs a bg");
+        assert_eq!(spans[0].style.fg, Some(Color::White));
+        assert!(spans[0].style.add_modifier.contains(Modifier::BOLD));
+        assert!(spans[1].style.bg.is_none(), "unmatched 'b' stays plain");
+        // No-color mode has no color to lean on: underline stays the cue.
+        let plain = match_spans(&path, "ab: xyz", true, false, "az");
+        assert!(plain[0].style.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(plain[0].style.bg.is_none());
+    }
+
     #[test]
     fn infer_value_color_covers_every_json_scalar_kind() {
         assert_eq!(infer_json_value_color("\"hi\""), TqColor::Str);
         assert_eq!(infer_json_value_color("42"), TqColor::Number);
         assert_eq!(infer_json_value_color("-1.5"), TqColor::Number);
-        assert_eq!(infer_json_value_color("true"), TqColor::Bool);
-        assert_eq!(infer_json_value_color("false"), TqColor::Bool);
+        assert_eq!(infer_json_value_color("true"), TqColor::True);
+        assert_eq!(infer_json_value_color("false"), TqColor::False);
         assert_eq!(infer_json_value_color("null"), TqColor::Null);
+        // Same URL/date detection as the tree's own lines.
+        assert_eq!(infer_json_value_color("\"https://x.io\""), TqColor::Url);
+        assert_eq!(infer_json_value_color("\"2026-09-29\""), TqColor::Date);
     }
 
     #[test]
@@ -604,7 +778,7 @@ mod tests {
         let path = vec!["ab".to_string()];
         // "az" matches 'a' (path index 0) and 'z' (inside the value, after
         // the ": " separator) -- neither 'b' nor the earlier value chars.
-        let spans = match_spans(&path, "ab: xyz", true, true, "az");
+        let spans = match_spans(&path, "ab: xyz", true, false, "az");
         // path "ab": 'a' highlighted, 'b' not -> two spans.
         assert_eq!(spans[0].content.as_ref(), "a");
         assert!(spans[0].style.add_modifier.contains(Modifier::UNDERLINED));
@@ -988,7 +1162,7 @@ mod tests {
     }
 
     #[test]
-    fn tag_background_and_search_underline_still_work_after_scrolling() {
+    fn tag_background_and_search_highlight_still_work_after_scrolling() {
         let mut lines = tall_list(200);
         lines[180] = line("findme", false, None, 0, &["item", "findme"]);
         let mut state = state_with(lines, 185);
@@ -1002,8 +1176,10 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let buffer = terminal.backend().buffer();
         let y = row_containing(buffer, "findme").expect("tagged line must be on screen");
-        assert_eq!(buffer[(1, y)].bg, tag_color(3));
-        assert!(buffer[(1, y)].modifier.contains(Modifier::UNDERLINED));
+        // The row keeps its tag background where nothing matched, and the
+        // matched characters get the search highlight on top of it.
+        assert_eq!(buffer[(30, y)].bg, tag_color(3));
+        assert_eq!(buffer[(1, y)].bg, MATCH_BG);
     }
 
     #[test]
@@ -1229,8 +1405,10 @@ mod tests {
         )];
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
+        // "leaf" is past the matched "zq", so it shows the path's own color
+        // (matched characters get the search highlight instead).
         assert_eq!(
-            find_match_row_fg(terminal.backend().buffer(), "zqx.leaf"),
+            find_match_row_fg(terminal.backend().buffer(), "leaf"),
             ratatui_color(TqColor::Key)
         );
     }
@@ -1260,7 +1438,7 @@ mod tests {
         );
         assert_eq!(
             find_match_row_fg(buffer, "true"),
-            ratatui_color(TqColor::Bool)
+            ratatui_color(TqColor::True)
         );
         assert_eq!(
             find_match_row_fg(buffer, "null"),
