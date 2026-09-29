@@ -629,3 +629,56 @@ fn xml_depth_truncation_keeps_the_elements_attributes_and_text_visible() {
     );
     assert!(out.contains(r#"a [id="7"]: t …"#), "got: {out}");
 }
+
+const BOOKS: &str = "<c><book><t>A</t></book><book><t>B</t></book></c>";
+
+#[test]
+fn xml_paths_index_same_named_siblings_but_leave_unique_names_plain() {
+    // Issue #118: repeated tags used to print as duplicate paths.
+    let (out, _, code) = run_treeq(&["--paths"], BOOKS);
+    assert_eq!(code, 0);
+    assert_eq!(out, "book[0]\nbook[0].t\nbook[1]\nbook[1].t\n");
+
+    let (out, _, _) = run_treeq(&["--paths"], "<c><a/><b><x/></b></c>");
+    assert_eq!(out, "a\nb\nb.x\n");
+}
+
+#[test]
+fn xml_path_can_select_the_nth_same_named_sibling() {
+    let (out, _, code) = run_treeq(&["--path", "book[1].t"], BOOKS);
+    assert_eq!((out.as_str(), code), ("t: B\n", 0));
+
+    // A bare name still means "the first one", as before.
+    let (out, _, _) = run_treeq(&["--path", "book.t"], BOOKS);
+    assert_eq!(out, "t: A\n");
+
+    // Every path `--paths` prints round-trips through `--path`.
+    let (paths, _, _) = run_treeq(&["--paths"], BOOKS);
+    for p in paths.lines() {
+        let (_, stderr, code) = run_treeq(&["--path", p], BOOKS);
+        assert_eq!(code, 0, "`--path {p}` failed: {stderr}");
+    }
+}
+
+#[test]
+fn xml_path_index_out_of_range_reports_the_segment() {
+    let (_, stderr, code) = run_treeq(&["--path", "book[5]"], BOOKS);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("book[5]"), "got: {stderr}");
+}
+
+#[test]
+fn xml_names_keep_their_namespace_prefix() {
+    // Issue #119: `x:type` and `type` used to both render as `type`.
+    let xml = r#"<s:E xmlns:s="urn:s" xmlns:x="urn:x"><s:B x:type="a" type="b">v</s:B></s:E>"#;
+    let (out, _, code) = run_treeq(&["--static"], xml);
+    assert_eq!(code, 0);
+    assert_eq!(out, "s:E\n└── s:B [x:type=\"a\" type=\"b\"]: v\n");
+
+    let (out, _, _) = run_treeq(&["--path", "s:B"], xml);
+    assert!(out.starts_with("s:B "), "got: {out}");
+
+    // The default namespace has no prefix, so plain names are unchanged.
+    let (out, _, _) = run_treeq(&["--static"], r#"<r xmlns="urn:d"><a>1</a></r>"#);
+    assert_eq!(out, "r\n└── a: 1\n");
+}

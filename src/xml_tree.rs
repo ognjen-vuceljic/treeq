@@ -139,13 +139,30 @@ impl XmlNode {
         Self::from_element(doc.root_element(), 0)
     }
 
+    /// `prefix:local` as written in the source when `namespace` is bound to
+    /// a prefix in scope, plain `local` otherwise (no namespace, or the
+    /// default namespace, which has no prefix). roxmltree's `name()` is the
+    /// *local* name only, so without this `x:type` and `type` collided
+    /// (issue #119).
+    fn qualified(el: roxmltree::Node, namespace: Option<&str>, local: &str) -> String {
+        match namespace.and_then(|ns| el.lookup_prefix(ns)) {
+            Some(prefix) if !prefix.is_empty() => format!("{prefix}:{local}"),
+            _ => local.to_string(),
+        }
+    }
+
     fn from_element(el: roxmltree::Node, depth: usize) -> Result<XmlNode, String> {
         if depth > MAX_XML_DEPTH {
             return Err(format!("XML nesting exceeds max depth ({MAX_XML_DEPTH})"));
         }
         let attributes = el
             .attributes()
-            .map(|a| (a.name().to_string(), a.value().to_string()))
+            .map(|a| {
+                (
+                    Self::qualified(el, a.namespace(), a.name()),
+                    a.value().to_string(),
+                )
+            })
             .collect();
         let children = el
             .children()
@@ -161,7 +178,7 @@ impl XmlNode {
             .collect::<Vec<_>>()
             .join(" ");
         Ok(XmlNode {
-            name: el.tag_name().name().to_string(),
+            name: Self::qualified(el, el.tag_name().namespace(), el.tag_name().name()),
             attributes,
             text: if text.is_empty() { None } else { Some(text) },
             children,
@@ -169,14 +186,56 @@ impl XmlNode {
     }
 }
 
+/// Path segments for `node`'s children, in order: the plain element name
+/// when it's unique among its siblings, `name[k]` (`k` = 0-based rank among
+/// same-named siblings) when it repeats. Without the index, sibling
+/// elements sharing a tag name shared one path -- `--paths` printed
+/// duplicates, `--path` could only ever reach the first, and the TUI's
+/// collapse/tag state (keyed by path) hit every same-named sibling at once
+/// (issue #118). `[` isn't a legal XML name character, so `name[k]` can
+/// never collide with a real element name. Computed for all children in one
+/// pass so a wide parent (10k `<item>`s) stays linear, not quadratic.
+pub fn child_segments(node: &XmlNode) -> Vec<String> {
+    let mut totals: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for child in &node.children {
+        *totals.entry(child.name.as_str()).or_default() += 1;
+    }
+    let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    node.children
+        .iter()
+        .map(|child| {
+            if totals[child.name.as_str()] == 1 {
+                return child.name.clone();
+            }
+            let rank = seen.entry(child.name.as_str()).or_default();
+            let segment = format!("{}[{}]", child.name, rank);
+            *rank += 1;
+            segment
+        })
+        .collect()
+}
+
+/// Splits a trailing `[k]` sibling index off a path segment, if present.
+fn split_sibling_index(segment: &str) -> (&str, Option<usize>) {
+    segment
+        .strip_suffix(']')
+        .and_then(|s| s.rsplit_once('['))
+        .and_then(|(name, k)| k.parse::<usize>().ok().map(|k| (name, Some(k))))
+        .unwrap_or((segment, None))
+}
+
+/// A bare `name` still resolves to the first same-named child (unchanged
+/// behavior for every existing script); `name[k]` picks the k-th.
 pub fn find_xml_path<'a>(node: &'a XmlNode, path: &str) -> Result<&'a XmlNode, String> {
     let mut current = node;
     for segment in crate::json_tree::split_path_segments(path) {
-        current = current
+        let (name, index) = split_sibling_index(&segment);
+        let found = current
             .children
             .iter()
-            .find(|c| c.name == segment)
-            .ok_or(segment)?;
+            .filter(|c| c.name == name)
+            .nth(index.unwrap_or(0));
+        current = found.ok_or(segment)?;
     }
     Ok(current)
 }

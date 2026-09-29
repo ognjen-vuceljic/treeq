@@ -1,5 +1,5 @@
 use crate::json_tree::{JsonNode, escape_path_segment};
-use crate::xml_tree::XmlNode;
+use crate::xml_tree::{XmlNode, child_segments};
 
 /// Lists every path in the tree, one entry per node (containers and
 /// leaves), in the same dotted format `find_json_path` expects -- so output
@@ -46,9 +46,9 @@ pub fn xml_paths(node: &XmlNode) -> Vec<String> {
 }
 
 fn walk_xml(node: &XmlNode, path: &[String], out: &mut Vec<String>) {
-    for child in &node.children {
+    for (child, segment) in node.children.iter().zip(child_segments(node)) {
         let mut child_path = path.to_vec();
-        child_path.push(child.name.clone());
+        child_path.push(segment);
         out.push(display_path(&child_path));
         walk_xml(child, &child_path, out);
     }
