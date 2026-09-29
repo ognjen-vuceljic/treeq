@@ -1,7 +1,7 @@
 use super::state::Line;
 use crate::color::Color as TqColor;
 use crate::json_tree::{JsonNode, JsonScalar, escape_display_str};
-use crate::xml_tree::XmlNode;
+use crate::xml_tree::{XmlNode, child_segments};
 use std::collections::HashSet;
 
 fn plural_suffix(n: usize) -> &'static str {
@@ -135,9 +135,9 @@ pub(super) fn flatten_xml(
     collapsed: &HashSet<Vec<String>>,
     out: &mut Vec<Line>,
 ) {
-    for child in &node.children {
+    for (child, segment) in node.children.iter().zip(child_segments(node)) {
         let mut child_path = path.to_vec();
-        child_path.push(child.name.clone());
+        child_path.push(segment.clone());
         let has_children = !child.children.is_empty();
         let value = child
             .text
@@ -145,7 +145,10 @@ pub(super) fn flatten_xml(
             .map(|t| (escape_display_str(t), TqColor::Str));
         out.push(Line {
             depth,
-            key: escape_display_str(&child.name),
+            // The last path segment (`book[1]` for a repeated tag), not the
+            // bare name: `render::search_highlight_ranges` assumes `key` is
+            // exactly the path's final displayed segment.
+            key: escape_display_str(&segment),
             value,
             path: child_path.clone(),
             has_children,
@@ -188,12 +191,12 @@ pub(super) fn collect_container_paths_xml(
     path: &[String],
     out: &mut HashSet<Vec<String>>,
 ) {
-    for child in &node.children {
+    for (child, segment) in node.children.iter().zip(child_segments(node)) {
         if child.children.is_empty() {
             continue;
         }
         let mut child_path = path.to_vec();
-        child_path.push(child.name.clone());
+        child_path.push(segment);
         out.insert(child_path.clone());
         collect_container_paths_xml(child, &child_path, out);
     }
@@ -256,9 +259,9 @@ pub(super) fn collect_all_paths_xml(
     path: &[String],
     out: &mut Vec<(Vec<String>, String)>,
 ) {
-    for child in &node.children {
+    for (child, segment) in node.children.iter().zip(child_segments(node)) {
         let mut child_path = path.to_vec();
-        child_path.push(child.name.clone());
+        child_path.push(segment);
         let text = child.text.as_deref().map(escape_display_str);
         out.push((
             child_path.clone(),
