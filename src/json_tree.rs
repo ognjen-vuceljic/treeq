@@ -101,6 +101,37 @@ pub(crate) fn split_path_segments(path: &str) -> Vec<String> {
     segments.iter().map(|s| unescape_path_segment(s)).collect()
 }
 
+/// `Url` for an `http(s)://` string, `Date` for an ISO-8601 date/timestamp
+/// (`2026-09-29`, `2026-09-29T10:00:00Z`, `2026-09-29 10:00`), plain `Str`
+/// otherwise. Only the start of the string is inspected, so it's also
+/// correct on an already-quoted/escaped display string with the leading
+/// quote removed. Deliberately cheap prefix checks, not a validator.
+pub(crate) fn semantic_str_color(s: &str) -> Color {
+    if s.starts_with("http://") || s.starts_with("https://") {
+        Color::Url
+    } else if looks_like_iso_date(s) {
+        Color::Date
+    } else {
+        Color::Str
+    }
+}
+
+fn looks_like_iso_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() < 10 || b[4] != b'-' || b[7] != b'-' {
+        return false;
+    }
+    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+    if !(digits(0..4) && digits(5..7) && digits(8..10)) {
+        return false;
+    }
+    let month = (b[5] - b'0') * 10 + (b[6] - b'0');
+    let day = (b[8] - b'0') * 10 + (b[9] - b'0');
+    (1..=12).contains(&month)
+        && (1..=31).contains(&day)
+        && (b.len() == 10 || matches!(b[10], b'T' | b' '))
+}
+
 impl JsonScalar {
     /// Strings are quoted so the type of a value is recoverable from plain
     /// text alone (no ANSI color needed) — e.g. `"30"` (a string) reads
@@ -117,9 +148,10 @@ impl JsonScalar {
 
     pub fn color(&self) -> Color {
         match self {
-            JsonScalar::Str(_) => Color::Str,
+            JsonScalar::Str(s) => semantic_str_color(s),
             JsonScalar::Number(_) => Color::Number,
-            JsonScalar::Bool(_) => Color::Bool,
+            JsonScalar::Bool(true) => Color::True,
+            JsonScalar::Bool(false) => Color::False,
             JsonScalar::Null => Color::Null,
         }
     }
@@ -268,6 +300,52 @@ mod tests {
             JsonScalar::Str("a\nb\tc\rd".to_string()).display(),
             "\"a\\nb\\tc\\rd\""
         );
+    }
+
+    #[test]
+    fn semantic_str_color_recognizes_urls_and_iso_dates_and_nothing_looser() {
+        use crate::color::Color;
+        for url in ["http://x", "https://example.com/a?b=1"] {
+            assert_eq!(semantic_str_color(url), Color::Url, "{url}");
+        }
+        for date in [
+            "2026-09-29",
+            "2026-09-29T10:00:00Z",
+            "2026-09-29T10:00:00+01:00",
+            "2026-09-29 10:00",
+            "1999-12-31",
+        ] {
+            assert_eq!(semantic_str_color(date), Color::Date, "{date}");
+        }
+        for plain in [
+            "",
+            "plain",
+            "http",             // no scheme separator
+            "ftp://x",          // only http(s) counts
+            "see https://x.io", // must *start* with the scheme
+            "2026-13-01",       // month out of range
+            "2026-00-10",       // month zero
+            "2026-09-32",       // day out of range
+            "2026-09-29x",      // junk right after the date
+            "2026-9-29",        // not zero-padded
+            "20260929",         // no separators
+            "date: 2026-09-29", // must start with the date
+            "12345",            // a number-ish string, not a date
+        ] {
+            assert_eq!(semantic_str_color(plain), Color::Str, "{plain:?}");
+        }
+    }
+
+    #[test]
+    fn scalar_colors_split_booleans_and_pick_up_semantic_strings() {
+        use crate::color::Color;
+        assert_eq!(JsonScalar::Bool(true).color(), Color::True);
+        assert_eq!(JsonScalar::Bool(false).color(), Color::False);
+        assert_eq!(JsonScalar::Str("https://x".into()).color(), Color::Url);
+        assert_eq!(JsonScalar::Str("2026-01-02".into()).color(), Color::Date);
+        assert_eq!(JsonScalar::Str("hello".into()).color(), Color::Str);
+        assert_eq!(JsonScalar::Number("1".into()).color(), Color::Number);
+        assert_eq!(JsonScalar::Null.color(), Color::Null);
     }
 
     #[test]

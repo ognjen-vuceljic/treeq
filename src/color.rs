@@ -3,8 +3,16 @@ pub enum Color {
     Key,
     Str,
     Number,
-    Bool,
+    /// `true` and `false` get separate colors (issue #145) -- one shared
+    /// hue made them read as the same thing at a glance.
+    True,
+    False,
     Null,
+    /// A string value that looks like an `http(s)://` URL: underlined in
+    /// addition to its color, so it reads as a link even without color.
+    Url,
+    /// A string value that looks like an ISO-8601 date/timestamp.
+    Date,
     Structural,
 }
 
@@ -15,8 +23,12 @@ fn code_ansi16(color: Color) -> &'static str {
         Color::Key => "\x1b[36m",
         Color::Str => "\x1b[32m",
         Color::Number => "\x1b[33m",
-        Color::Bool => "\x1b[35m",
+        // Bold, so it stays distinct from `Str`'s plain green in 16 colors.
+        Color::True => "\x1b[1;32m",
+        Color::False => "\x1b[31m",
         Color::Null => "\x1b[90m",
+        Color::Url => "\x1b[4;34m",
+        Color::Date => "\x1b[35m",
         Color::Structural => "\x1b[2m",
     }
 }
@@ -31,8 +43,14 @@ fn code_truecolor(color: Color) -> &'static str {
         Color::Key => "\x1b[38;2;86;182;194m",
         Color::Str => "\x1b[38;2;152;195;121m",
         Color::Number => "\x1b[38;2;229;192;123m",
-        Color::Bool => "\x1b[38;2;198;120;221m",
+        // A more saturated green than `Str`'s sage, so `true` doesn't read
+        // as a string.
+        Color::True => "\x1b[38;2;76;217;100m",
+        Color::False => "\x1b[38;2;224;108;117m",
         Color::Null => "\x1b[38;2;128;128;128m",
+        Color::Url => "\x1b[4;38;2;97;175;239m",
+        // The purple booleans used to have, now free.
+        Color::Date => "\x1b[38;2;198;120;221m",
         Color::Structural => "\x1b[2m",
     }
 }
@@ -148,7 +166,10 @@ mod tests {
         assert_eq!(code_for(Color::Key, ColorMode::Ansi16), "\x1b[36m");
         assert_eq!(code_for(Color::Str, ColorMode::Ansi16), "\x1b[32m");
         assert_eq!(code_for(Color::Number, ColorMode::Ansi16), "\x1b[33m");
-        assert_eq!(code_for(Color::Bool, ColorMode::Ansi16), "\x1b[35m");
+        assert_eq!(code_for(Color::True, ColorMode::Ansi16), "\x1b[1;32m");
+        assert_eq!(code_for(Color::False, ColorMode::Ansi16), "\x1b[31m");
+        assert_eq!(code_for(Color::Url, ColorMode::Ansi16), "\x1b[4;34m");
+        assert_eq!(code_for(Color::Date, ColorMode::Ansi16), "\x1b[35m");
         assert_eq!(code_for(Color::Null, ColorMode::Ansi16), "\x1b[90m");
         assert_eq!(code_for(Color::Structural, ColorMode::Ansi16), "\x1b[2m");
     }
@@ -159,20 +180,23 @@ mod tests {
             Color::Key,
             Color::Str,
             Color::Number,
-            Color::Bool,
+            Color::True,
+            Color::False,
             Color::Null,
+            Color::Url,
+            Color::Date,
         ]
         .map(|c| code_for(c, ColorMode::Truecolor))
         .into_iter()
         .collect();
         assert_eq!(
             codes.len(),
-            5,
+            8,
             "every non-structural bucket must be distinct"
         );
         for c in codes {
             assert!(
-                c.starts_with("\x1b[38;2;"),
+                c.contains("38;2;"),
                 "expected a 24-bit truecolor escape, got {c:?}"
             );
         }

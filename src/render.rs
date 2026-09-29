@@ -21,9 +21,15 @@ pub fn render_json(
     out
 }
 
+/// The `: ` between a label and its value, dimmed (issue #143) so keys and
+/// values stand out. Plain `": "` when color is off, so text is unchanged.
+fn separator(mode: ColorMode) -> String {
+    paint(": ", Color::Structural, mode)
+}
+
 fn scalar_line(label: &str, s: &JsonScalar, mode: ColorMode) -> String {
     let value_str = paint(&s.display(), s.color(), mode);
-    format!("{label}: {value_str}\n")
+    format!("{label}{}{value_str}\n", separator(mode))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -58,7 +64,13 @@ fn render_json_children(
         let branch = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
         let branch_str = paint_depth(&format!("{prefix}{branch}"), depth, mode.enabled());
-        let label_str = paint(&escape_display_str(&label), Color::Key, mode);
+        // `[N]` array indices are positional noise next to real keys (#143).
+        let label_color = if is_array {
+            Color::Structural
+        } else {
+            Color::Key
+        };
+        let label_str = paint(&escape_display_str(&label), label_color, mode);
         match child {
             JsonNode::Scalar(s) => {
                 out.push_str(&scalar_line(&format!("{branch_str}{label_str}"), s, mode));
@@ -69,15 +81,24 @@ fn render_json_children(
             // as a scalar leaf (issue #122).
             JsonNode::Object(f) if f.is_empty() => {
                 let empty = paint("{}", Color::Structural, mode);
-                out.push_str(&format!("{branch_str}{label_str}: {empty}\n"));
+                out.push_str(&format!(
+                    "{branch_str}{label_str}{}{empty}\n",
+                    separator(mode)
+                ));
             }
             JsonNode::Array(items) if items.is_empty() => {
                 let empty = paint("[]", Color::Structural, mode);
-                out.push_str(&format!("{branch_str}{label_str}: {empty}\n"));
+                out.push_str(&format!(
+                    "{branch_str}{label_str}{}{empty}\n",
+                    separator(mode)
+                ));
             }
             _ if max_depth.is_some_and(|d| depth + 1 >= d) => {
                 let ellipsis = paint("…", Color::Structural, mode);
-                out.push_str(&format!("{branch_str}{label_str}: {ellipsis}\n"));
+                out.push_str(&format!(
+                    "{branch_str}{label_str}{}{ellipsis}\n",
+                    separator(mode)
+                ));
             }
             _ => {
                 out.push_str(&format!("{branch_str}{label_str}\n"));
@@ -127,7 +148,8 @@ fn xml_label(node: &XmlNode, mode: ColorMode) -> String {
     }
     if let Some(text) = &node.text {
         label.push_str(&format!(
-            ": {}",
+            "{}{}",
+            separator(mode),
             paint(&escape_display_str(text), Color::Str, mode)
         ));
     }
@@ -188,6 +210,73 @@ mod tests {
         assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
     }
 
+    const SEMANTIC: &str = r#"{"ok": true, "bad": false, "u": "https://x.io/a", "d": "2026-09-29T10:00:00Z", "s": "plain"}"#;
+
+    #[test]
+    fn booleans_urls_and_dates_get_their_own_truecolor_treatment() {
+        // Issue #145: true/false used to share one purple; URLs and dates
+        // were indistinguishable from any other string.
+        let node = JsonNode::from_value(&serde_json::from_str(SEMANTIC).unwrap());
+        let out = render_json(&node, "root", None, None, ColorMode::Truecolor);
+        assert!(out.contains("\x1b[38;2;76;217;100mtrue\x1b[0m"), "{out:?}");
+        assert!(
+            out.contains("\x1b[38;2;224;108;117mfalse\x1b[0m"),
+            "{out:?}"
+        );
+        assert!(
+            out.contains("\x1b[4;38;2;97;175;239m\"https://x.io/a\"\x1b[0m"),
+            "URLs must be underlined: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[38;2;198;120;221m\"2026-09-29T10:00:00Z\"\x1b[0m"),
+            "{out:?}"
+        );
+        // Everything else is still a plain string.
+        assert!(
+            out.contains("\x1b[38;2;152;195;121m\"plain\"\x1b[0m"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn booleans_urls_and_dates_stay_distinguishable_in_the_ansi16_tier() {
+        let node = JsonNode::from_value(&serde_json::from_str(SEMANTIC).unwrap());
+        let out = render_json(&node, "root", None, None, ColorMode::Ansi16);
+        assert!(out.contains("\x1b[1;32mtrue\x1b[0m"), "{out:?}");
+        assert!(out.contains("\x1b[31mfalse\x1b[0m"), "{out:?}");
+        assert!(
+            out.contains("\x1b[4;34m\"https://x.io/a\"\x1b[0m"),
+            "{out:?}"
+        );
+        assert!(
+            out.contains("\x1b[35m\"2026-09-29T10:00:00Z\"\x1b[0m"),
+            "{out:?}"
+        );
+        assert!(out.contains("\x1b[32m\"plain\"\x1b[0m"), "{out:?}");
+    }
+
+    #[test]
+    fn colon_separators_and_array_indices_are_dimmed_but_object_keys_are_not() {
+        // Issue #143.
+        let node = JsonNode::from_value(&json!({"k": 1, "list": [7]}));
+        let out = render_json(&node, "root", None, None, ColorMode::Ansi16);
+        assert!(
+            out.contains("\x1b[36mk\x1b[0m\x1b[2m: \x1b[0m\x1b[33m1\x1b[0m"),
+            "object key stays Key-colored, separator dims: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[2m[0]\x1b[0m\x1b[2m: \x1b[0m\x1b[33m7\x1b[0m"),
+            "array index dims: {out:?}"
+        );
+    }
+
+    #[test]
+    fn dimmed_separators_never_change_the_plain_text() {
+        let node = JsonNode::from_value(&json!({"k": 1, "list": [7]}));
+        let out = render_json(&node, "root", None, None, ColorMode::Off);
+        assert_eq!(out, "root\n├── k: 1\n└── list\n    └── [0]: 7\n");
+    }
+
     #[test]
     fn renders_json_tree_with_truecolor() {
         let value = json!({"name": "Alice"});
@@ -243,7 +332,9 @@ mod tests {
         let node = JsonNode::from_value(&value);
         let output = render_json(&node, "name", None, None, ColorMode::Ansi16);
         assert!(output.contains("\x1b[32m\"Alice\"\x1b[0m"));
-        assert!(output.starts_with("name: "));
+        // The ": " separator is dimmed (issue #143), so it's no longer a bare
+        // `name: ` prefix in color mode.
+        assert!(output.starts_with("name\x1b[2m: \x1b[0m"), "{output:?}");
     }
 
     #[test]
