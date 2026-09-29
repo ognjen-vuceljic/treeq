@@ -860,6 +860,82 @@ mod tests {
     use crate::json_tree::find_json_path;
     use std::collections::{HashMap, HashSet};
 
+    /// An `AppState` over a parsed XML document, the way `run_xml_tui`
+    /// builds one.
+    fn xml_state(xml: &str) -> (AppState, crate::xml_tree::XmlNode) {
+        use super::super::flatten::{
+            collect_all_paths_xml, collect_container_paths_xml, flatten_xml,
+        };
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = crate::xml_tree::XmlNode::from_document(&doc).unwrap();
+        let mut lines = Vec::new();
+        flatten_xml(&node, &[], 0, &HashSet::new(), &mut lines);
+        let mut all_container_paths = HashSet::new();
+        collect_container_paths_xml(&node, &[], &mut all_container_paths);
+        let mut all_paths = Vec::new();
+        collect_all_paths_xml(&node, &[], &mut all_paths);
+        let state = AppState {
+            lines,
+            all_paths,
+            all_container_paths,
+            is_json: false,
+            ..fixture()
+        };
+        (state, node)
+    }
+
+    const TWO_BOOKS: &str = "<c><book><t>alpha</t></book><book><t>beta</t></book></c>";
+
+    #[test]
+    fn same_named_xml_siblings_get_distinct_lines_and_independent_collapse_state() {
+        // Issue #118: both `<book>`s used to share the path ["book"], so
+        // collapsing one collapsed both.
+        let (mut state, node) = xml_state(TWO_BOOKS);
+        let keys: Vec<&str> = state.lines.iter().map(|l| l.key.as_str()).collect();
+        assert_eq!(keys, ["book[0]", "t", "book[1]", "t"]);
+        let paths: HashSet<_> = state.lines.iter().map(|l| l.path.clone()).collect();
+        assert_eq!(
+            paths.len(),
+            state.lines.len(),
+            "every line needs a unique path"
+        );
+
+        state.cursor = 0; // book[0]
+        handle_key(&mut state, KeyCode::Tab); // collapse it
+        super::super::state::rebuild_xml_lines(&mut state, &node);
+        let keys: Vec<&str> = state.lines.iter().map(|l| l.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["book[0]", "book[1]", "t"],
+            "book[1] must stay expanded"
+        );
+    }
+
+    #[test]
+    fn tagging_one_same_named_xml_sibling_does_not_tag_the_other() {
+        let (mut state, _) = xml_state(TWO_BOOKS);
+        state.cursor = 2; // book[1]
+        handle_key(&mut state, KeyCode::Char('1'));
+        assert_eq!(state.tags.len(), 1);
+        assert!(state.tags.contains_key(&vec!["book[1]".to_string()]));
+    }
+
+    #[test]
+    fn popup_enter_lands_on_the_selected_same_named_xml_sibling_not_the_first() {
+        // Issue #82: Enter used to resolve the shared path to its first
+        // occurrence, so picking the match inside the second `<book>` jumped
+        // to the first.
+        let (mut state, node) = xml_state(TWO_BOOKS);
+        state.popup_visible = true;
+        state.popup_query = "beta".to_string();
+        assert_eq!(popup_matches(&state).len(), 1);
+        handle_key(&mut state, KeyCode::Enter);
+        super::super::state::rebuild_xml_lines(&mut state, &node);
+        assert_eq!(state.lines[state.cursor].path, ["book[1]", "t"]);
+        assert_eq!(state.lines[state.cursor].key, "t");
+        assert_eq!(state.cursor, 3);
+    }
+
     #[test]
     fn to_cli_path_round_trips_through_find_json_path() {
         // Regression test for issue #123: a TUI path yanked with `y` must
