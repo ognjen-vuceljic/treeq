@@ -694,3 +694,33 @@ fn depth_truncation_reports_how_many_children_each_cut_off_container_hides() {
     let (out, _, _) = run_treeq(&["--static"], input);
     assert!(out.contains("├── tags\n"), "{out}");
 }
+
+#[test]
+fn path_error_lists_available_keys_and_suggests_the_closest() {
+    let (_, err, code) = run_treeq_with_file(
+        &["--static", "--path", "user.nmae"],
+        r#"{"user": {"name": "A", "age": 3}}"#,
+    );
+    assert_eq!(code, 1);
+    assert!(err.contains("'nmae' not found"), "{err}");
+    assert!(err.contains("did you mean 'name'?"), "{err}");
+    assert!(err.contains("available: name, age"), "{err}");
+}
+
+#[test]
+fn path_error_on_array_reports_length() {
+    let (_, err, code) = run_treeq_with_file(&["--static", "--path", "a.5"], r#"{"a": [1, 2]}"#);
+    assert_eq!(code, 1);
+    assert!(err.contains("array has 2 items"), "{err}");
+}
+
+#[test]
+fn path_error_in_xml_lists_child_names() {
+    let (_, err, code) = run_treeq_with_file(
+        &["--static", "--path", "usr"],
+        "<root><user/><items/></root>",
+    );
+    assert_eq!(code, 1);
+    assert!(err.contains("did you mean 'user'?"), "{err}");
+    assert!(err.contains("available: user, items"), "{err}");
+}

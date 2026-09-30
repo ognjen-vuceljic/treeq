@@ -181,8 +181,8 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
     let target = match &args.path {
         Some(p) => match find_json_path(tree, p) {
             Ok(t) => t,
-            Err(seg) => {
-                eprintln!("error: path segment '{seg}' not found");
+            Err(e) => {
+                eprintln!("error: {}", e.message());
                 process::exit(1);
             }
         },
@@ -273,8 +273,8 @@ fn run_xml(input: &str, args: &Args) {
     let target = match &args.path {
         Some(p) => match find_xml_path(&tree, p) {
             Ok(t) => t,
-            Err(seg) => {
-                eprintln!("error: path segment '{seg}' not found");
+            Err(e) => {
+                eprintln!("error: {}", e.message());
                 process::exit(1);
             }
         },

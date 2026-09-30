@@ -226,7 +226,10 @@ fn split_sibling_index(segment: &str) -> (&str, Option<usize>) {
 
 /// A bare `name` still resolves to the first same-named child (unchanged
 /// behavior for every existing script); `name[k]` picks the k-th.
-pub fn find_xml_path<'a>(node: &'a XmlNode, path: &str) -> Result<&'a XmlNode, String> {
+pub fn find_xml_path<'a>(
+    node: &'a XmlNode,
+    path: &str,
+) -> Result<&'a XmlNode, crate::json_tree::PathError> {
     let mut current = node;
     for segment in crate::json_tree::split_path_segments(path) {
         let (name, index) = split_sibling_index(&segment);
@@ -235,7 +238,19 @@ pub fn find_xml_path<'a>(node: &'a XmlNode, path: &str) -> Result<&'a XmlNode, S
             .iter()
             .filter(|c| c.name == name)
             .nth(index.unwrap_or(0));
-        current = found.ok_or(segment)?;
+        current = found.ok_or_else(|| {
+            let mut available: Vec<String> = Vec::new();
+            for c in &current.children {
+                if !available.contains(&c.name) {
+                    available.push(c.name.clone());
+                }
+            }
+            crate::json_tree::PathError {
+                segment,
+                available,
+                array_len: None,
+            }
+        })?;
     }
     Ok(current)
 }
@@ -280,7 +295,7 @@ mod tests {
         let doc = roxmltree::Document::parse(xml).unwrap();
         let node = XmlNode::from_document(&doc).unwrap();
         let err = find_xml_path(&node, "user.missing.deeper").unwrap_err();
-        assert_eq!(err, "missing");
+        assert_eq!(err.segment, "missing");
     }
 
     #[test]
