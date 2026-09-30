@@ -53,6 +53,9 @@ pub(super) struct Line {
     /// True only for the synthetic "N more (Tab to show all)" line, so a
     /// real key spelled the same way is never mistaken for it.
     pub(super) is_array_summary: bool,
+    /// `[3]` / `{2}` / `(4)`: how many children a container has, shown dim
+    /// after its key (issue #134). `None` for scalars and empty containers.
+    pub(super) count_label: Option<String>,
     /// Human-readable type/size, e.g. "object (3 fields)", "string (5 chars)".
     pub(super) type_label: String,
 }
@@ -109,6 +112,11 @@ pub(super) struct AppState {
     pub(super) popup_query: String,
     pub(super) popup_selected: usize,
     pub(super) inspect_visible: bool,
+    /// First visible row of the inspect popup's (possibly wrapped) content;
+    /// a `Cell` so `render` can clamp it to the real content height.
+    pub(super) inspect_scroll: Cell<usize>,
+    /// `z` was pressed: the next digit picks an expand-to-depth level.
+    pub(super) awaiting_depth: bool,
     pub(super) popup_scroll_offset: Cell<usize>,
     /// `--pick`: Enter prints the current path and exits, instead of doing
     /// nothing.
@@ -133,16 +141,15 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Shift+C", "collapse ancestors"),
     ("/", "fuzzy search (Tab: cycle; n/N: repeat)"),
     ("F", "search-results popup (whole document)"),
-    ("i", "inspect node (type, size, path, tag)"),
+    ("i", "inspect node (type, path, tag, full value)"),
+    ("z1-9", "expand to depth N"),
     ("1-8", "tag / untag node"),
     ("x", "clear all tags"),
-    ("y", "yank current path"),
-    ("Y", "yank as jq path (JSON only)"),
-    ("c", "collapse all"),
-    ("e", "expand all"),
+    ("y / Y", "yank path / as jq path (JSON only)"),
+    ("c / e", "collapse all / expand all"),
     ("V", "visual select (j/k extend; l/h/c/e apply)"),
     ("H / M / L", "jump to top/middle/bottom of viewport"),
-    ("PgUp / PgDn", "page up / page down"),
+    ("PgUp / PgDn", "page up / down (Ctrl+d/u: half)"),
     ("?", "toggle this help"),
     ("q / Esc", "quit"),
 ];
@@ -302,6 +309,8 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
+            awaiting_depth: false,
+            inspect_scroll: std::cell::Cell::new(0),
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
