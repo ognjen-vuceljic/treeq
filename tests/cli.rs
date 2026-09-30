@@ -724,3 +724,58 @@ fn path_error_in_xml_lists_child_names() {
     assert!(err.contains("did you mean 'user'?"), "{err}");
     assert!(err.contains("available: user, items"), "{err}");
 }
+
+#[test]
+fn json_flag_makes_stats_paths_schema_and_agent_machine_readable() {
+    let input = r#"{"a": [1, 2], "b": "x"}"#;
+    let parse = |flags: &[&str]| -> serde_json::Value {
+        let mut args = vec!["--json"];
+        args.extend_from_slice(flags);
+        let (out, err, code) = run_treeq_with_file(&args, input);
+        assert_eq!(code, 0, "{err}");
+        serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}"))
+    };
+    assert_eq!(parse(&["--stats"])["arrays"], 1);
+    assert_eq!(
+        parse(&["--paths"]),
+        serde_json::json!(["a", "a.0", "a.1", "b"])
+    );
+    assert!(
+        parse(&["--schema"])["schema"]
+            .as_str()
+            .unwrap()
+            .contains("string")
+    );
+    let agent = parse(&["--agent"]);
+    assert_eq!(agent["stats"]["objects"], 1);
+    assert!(agent["tree"].as_str().unwrap().contains("b"));
+    assert!(!agent["tree"].as_str().unwrap().contains('\x1b'));
+}
+
+#[test]
+fn json_flag_works_for_xml_and_requires_a_mode() {
+    let (out, _, code) = run_treeq_with_file(&["--json", "--stats"], "<r><a/></r>");
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["elements"], 2);
+    let (_, err, code) = run_treeq_with_file(&["--json"], "{}");
+    assert_eq!(code, 1);
+    assert!(err.contains("--json needs"), "{err}");
+}
+
+#[test]
+fn yaml_and_ndjson_are_detected_without_flags() {
+    let (out, err, code) = run_treeq_with_file(&["--static"], "name: Alice\ntags:\n  - a\n  - b\n");
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("name") && out.contains("tags"), "{out}");
+    let (out, err, code) = run_treeq_with_file(&["--paths"], "{\"a\":1}\n{\"a\":2}\n");
+    assert_eq!(code, 0, "{err}");
+    assert!(out.lines().any(|l| l == "1.a"), "{out}");
+}
+
+#[test]
+fn broken_json_still_reports_a_json_error() {
+    let (_, err, code) = run_treeq_with_file(&["--static"], "{\"a\": ");
+    assert_eq!(code, 1);
+    assert!(err.contains("line 1"), "{err}");
+}
