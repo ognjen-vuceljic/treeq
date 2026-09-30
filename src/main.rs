@@ -61,6 +61,9 @@ struct Args {
     agent: bool,
     #[arg(long)]
     ndjson: bool,
+    /// Machine-readable output for --stats, --paths, --schema and --agent.
+    #[arg(long)]
+    json: bool,
     #[arg(long)]
     schema: bool,
     /// Interactive picker: Enter prints the selected path (a jq filter for
@@ -114,24 +117,83 @@ fn use_color() -> bool {
     io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
 
-fn print_json_stats(s: &JsonStats, input_len: usize) {
-    println!("file_bytes: {input_len}");
-    println!("max_depth: {}", s.max_depth);
-    println!("objects: {}", s.objects);
-    println!("arrays: {}", s.arrays);
-    println!("scalars: {}", s.scalars);
+fn json_stat_pairs(s: &JsonStats, input_len: usize) -> Vec<(&'static str, usize)> {
+    vec![
+        ("file_bytes", input_len),
+        ("max_depth", s.max_depth),
+        ("objects", s.objects),
+        ("arrays", s.arrays),
+        ("scalars", s.scalars),
+    ]
 }
 
-fn print_xml_stats(s: &XmlStats, input_len: usize) {
-    println!("file_bytes: {input_len}");
-    println!("max_depth: {}", s.max_depth);
-    println!("elements: {}", s.elements);
-    println!("attributes: {}", s.attributes);
-    println!("text_nodes: {}", s.text_nodes);
+fn xml_stat_pairs(s: &XmlStats, input_len: usize) -> Vec<(&'static str, usize)> {
+    vec![
+        ("file_bytes", input_len),
+        ("max_depth", s.max_depth),
+        ("elements", s.elements),
+        ("attributes", s.attributes),
+        ("text_nodes", s.text_nodes),
+    ]
 }
 
-fn run_json(input: &str, args: &Args) {
-    let value: serde_json::Value = if args.ndjson {
+fn stats_json(pairs: &[(&'static str, usize)]) -> serde_json::Value {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), (*v).into()))
+        .collect::<serde_json::Map<_, _>>()
+        .into()
+}
+
+fn print_stats(pairs: &[(&'static str, usize)], json: bool) {
+    if json {
+        println!("{}", stats_json(pairs));
+    } else {
+        for (k, v) in pairs {
+            println!("{k}: {v}");
+        }
+    }
+}
+
+fn print_schema(text: String, json: bool) {
+    if json {
+        println!("{}", serde_json::json!({ "schema": text }));
+    } else {
+        print!("{text}");
+    }
+}
+
+fn print_agent(pairs: &[(&'static str, usize)], tree: String, json: bool) {
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "stats": stats_json(pairs), "tree": tree })
+        );
+    } else {
+        print_stats(pairs, false);
+        println!();
+        print!("{tree}");
+    }
+}
+
+fn agent_color(args: &Args) -> color::ColorMode {
+    if args.json {
+        color::ColorMode::Off
+    } else {
+        color::ColorMode::detect(use_color())
+    }
+}
+
+fn print_paths(lines: Vec<String>, json: bool) {
+    if json {
+        println!("{}", serde_json::json!(lines));
+    } else {
+        print_lines(lines);
+    }
+}
+
+fn run_json(input: &str, args: &Args, ndjson: bool) {
+    let value: serde_json::Value = if ndjson {
         parse_ndjson(input).unwrap_or_else(|e| {
             eprintln!("error: invalid NDJSON: {e}");
             process::exit(1);
@@ -181,8 +243,8 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
     let target = match &args.path {
         Some(p) => match find_json_path(tree, p) {
             Ok(t) => t,
-            Err(seg) => {
-                eprintln!("error: path segment '{seg}' not found");
+            Err(e) => {
+                eprintln!("error: {}", e.message());
                 process::exit(1);
             }
         },
@@ -190,32 +252,22 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
     };
     if args.agent {
         let s = json_stats(target);
-        print_json_stats(&s, input.len());
-        println!();
         let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
-        print!(
-            "{}",
-            render_json(
-                target,
-                "root",
-                depth,
-                args.array_limit,
-                color::ColorMode::detect(use_color())
-            )
-        );
+        let tree = render_json(target, "root", depth, args.array_limit, agent_color(args));
+        print_agent(&json_stat_pairs(&s, input.len()), tree, args.json);
         return;
     }
     if args.paths {
-        print_lines(json_paths(target));
+        print_paths(json_paths(target), args.json);
         return;
     }
     if args.stats {
         let s = json_stats(target);
-        print_json_stats(&s, input.len());
+        print_stats(&json_stat_pairs(&s, input.len()), args.json);
         return;
     }
     if args.schema {
-        print!("{}", json_schema(target));
+        print_schema(json_schema(target), args.json);
         return;
     }
     if !args.r#static && (args.pick || io::stdout().is_terminal()) {
@@ -273,8 +325,8 @@ fn run_xml(input: &str, args: &Args) {
     let target = match &args.path {
         Some(p) => match find_xml_path(&tree, p) {
             Ok(t) => t,
-            Err(seg) => {
-                eprintln!("error: path segment '{seg}' not found");
+            Err(e) => {
+                eprintln!("error: {}", e.message());
                 process::exit(1);
             }
         },
@@ -282,26 +334,22 @@ fn run_xml(input: &str, args: &Args) {
     };
     if args.agent {
         let s = xml_stats(target);
-        print_xml_stats(&s, input.len());
-        println!();
         let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
-        print!(
-            "{}",
-            render_xml(target, depth, color::ColorMode::detect(use_color()))
-        );
+        let tree = render_xml(target, depth, agent_color(args));
+        print_agent(&xml_stat_pairs(&s, input.len()), tree, args.json);
         return;
     }
     if args.paths {
-        print_lines(xml_paths(target));
+        print_paths(xml_paths(target), args.json);
         return;
     }
     if args.stats {
         let s = xml_stats(target);
-        print_xml_stats(&s, input.len());
+        print_stats(&xml_stat_pairs(&s, input.len()), args.json);
         return;
     }
     if args.schema {
-        print!("{}", xml_schema(target));
+        print_schema(xml_schema(target), args.json);
         return;
     }
     if !args.r#static && (args.pick || io::stdout().is_terminal()) {
@@ -338,6 +386,10 @@ fn main() {
         eprintln!("error: --ndjson is not supported with --format xml");
         process::exit(1);
     }
+    if args.json && !(args.stats || args.paths || args.schema || args.agent) {
+        eprintln!("error: --json needs one of --stats, --paths, --schema or --agent");
+        process::exit(1);
+    }
     if args.pick && args.r#static {
         eprintln!("error: --pick is not supported with --static");
         process::exit(1);
@@ -347,7 +399,7 @@ fn main() {
         process::exit(1);
     });
     if args.ndjson {
-        run_json(&input, &args);
+        run_json(&input, &args, true);
         return;
     }
     let format = args
@@ -357,7 +409,7 @@ fn main() {
             FormatArg::Xml => Format::Xml,
             FormatArg::Yaml => Format::Yaml,
         })
-        .or_else(|| detect_format(&input))
+        .or_else(|| detect_format(&input, args.file.as_deref()))
         .unwrap_or_else(|| {
             eprintln!("error: empty input");
             process::exit(1);
@@ -367,8 +419,9 @@ fn main() {
         process::exit(1);
     }
     match format {
-        Format::Json => run_json(&input, &args),
+        Format::Json => run_json(&input, &args, false),
         Format::Xml => run_xml(&input, &args),
         Format::Yaml => run_yaml(&input, &args),
+        Format::Ndjson => run_json(&input, &args, true),
     }
 }

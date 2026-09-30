@@ -217,22 +217,77 @@ impl JsonNode {
     }
 }
 
-pub fn find_json_path<'a>(node: &'a JsonNode, path: &str) -> Result<&'a JsonNode, String> {
+/// A `--path` lookup failure: the first segment that didn't resolve, plus
+/// what was available there so the CLI can say what to type instead.
+#[derive(Debug)]
+pub struct PathError {
+    pub segment: String,
+    pub available: Vec<String>,
+    pub array_len: Option<usize>,
+}
+
+impl PathError {
+    pub fn message(&self) -> String {
+        let mut msg = format!("path segment '{}' not found", self.segment);
+        if let Some(n) = self.array_len {
+            msg += &format!(" (array has {n} items, indices 0..{n})");
+        } else if !self.available.is_empty() {
+            if let Some(best) = closest(&self.segment, &self.available) {
+                msg += &format!(" -- did you mean '{best}'?");
+            }
+            let shown: Vec<&str> = self.available.iter().take(20).map(String::as_str).collect();
+            msg += &format!("\n  available: {}", shown.join(", "));
+            if self.available.len() > 20 {
+                msg += &format!(", ... ({} more)", self.available.len() - 20);
+            }
+        }
+        msg
+    }
+}
+
+/// Nearest candidate by edit distance, only if it's plausibly a typo.
+fn closest<'a>(target: &str, candidates: &'a [String]) -> Option<&'a str> {
+    let (dist, best) = candidates
+        .iter()
+        .map(|c| (edit_distance(target, c), c))
+        .min_by_key(|(d, _)| *d)?;
+    (dist <= 2.max(target.chars().count() / 3)).then_some(best.as_str())
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cur = row[j + 1];
+            row[j + 1] = (prev + usize::from(ca != *cb)).min(row[j] + 1).min(cur + 1);
+            prev = cur;
+        }
+    }
+    row[b.len()]
+}
+
+pub fn find_json_path<'a>(node: &'a JsonNode, path: &str) -> Result<&'a JsonNode, PathError> {
     let mut current = node;
     for segment in split_path_segments(path) {
-        current = match current {
-            JsonNode::Object(fields) => fields
-                .iter()
-                .find(|(k, _)| *k == segment)
-                .map(|(_, v)| v)
-                .ok_or(segment)?,
-            JsonNode::Array(items) => segment
-                .parse::<usize>()
-                .ok()
-                .and_then(|i| items.get(i))
-                .ok_or(segment)?,
-            JsonNode::Scalar(_) => return Err(segment),
+        let next = match current {
+            JsonNode::Object(fields) => fields.iter().find(|(k, _)| *k == segment).map(|(_, v)| v),
+            JsonNode::Array(items) => segment.parse::<usize>().ok().and_then(|i| items.get(i)),
+            JsonNode::Scalar(_) => None,
         };
+        current = next.ok_or_else(|| PathError {
+            available: match current {
+                JsonNode::Object(fields) => fields.iter().map(|(k, _)| k.clone()).collect(),
+                _ => vec![],
+            },
+            array_len: match current {
+                JsonNode::Array(items) => Some(items.len()),
+                _ => None,
+            },
+            segment,
+        })?;
     }
     Ok(current)
 }
@@ -394,7 +449,7 @@ mod tests {
         let value = json!({"user": {"name": "Alice"}});
         let node = JsonNode::from_value(&value);
         let err = find_json_path(&node, "user.missing.deeper").unwrap_err();
-        assert_eq!(err, "missing");
+        assert_eq!(err.segment, "missing");
     }
 
     #[test]
@@ -416,7 +471,7 @@ mod tests {
         let value = json!({"a.b": 1});
         let node = JsonNode::from_value(&value);
         let err = find_json_path(&node, "a.b").unwrap_err();
-        assert_eq!(err, "a");
+        assert_eq!(err.segment, "a");
     }
 
     #[test]
