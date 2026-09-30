@@ -662,6 +662,33 @@ fn handle_visual_key(state: &mut AppState, key: KeyCode) -> bool {
     false
 }
 
+/// `z` then `1`-`9` (issue #152): show exactly that many levels -- every
+/// container shallower than the level expanded, everything at or below it
+/// collapsed. Any other key cancels. The cursor moves to its ancestor at
+/// the new bottom level if its own line just got hidden.
+fn apply_depth_key(state: &mut AppState, key: KeyCode) {
+    state.awaiting_depth = false;
+    let KeyCode::Char(c @ '1'..='9') = key else {
+        return;
+    };
+    let level = c as usize - '0' as usize;
+    let anchor = state.lines.get(state.cursor).map(|l| {
+        let path = real_path(l);
+        path[..path.len().min(level)].to_vec()
+    });
+    state.array_overrides.clear();
+    state.collapsed = state
+        .all_container_paths
+        .iter()
+        .filter(|p| p.len() >= level)
+        .cloned()
+        .collect();
+    state.status_message = Some(format!("expanded to depth {level}"));
+    if let Some(path) = anchor {
+        state.pending_cursor_path = Some(path);
+    }
+}
+
 /// Last visible line index of the current viewport, clamped to the
 /// document's own last line (the viewport can be taller than the document,
 /// e.g. a short file in a tall terminal).
@@ -696,6 +723,17 @@ fn jump_to_viewport_bottom(state: &mut AppState) {
 fn page_up(state: &mut AppState) {
     let step = state.viewport_height.get().max(1);
     state.cursor = state.cursor.saturating_sub(step);
+}
+
+/// Ctrl+d / Ctrl+u (issue #88): half a viewport, like vim.
+pub(super) fn half_page_up(state: &mut AppState) {
+    let step = (state.viewport_height.get() / 2).max(1);
+    state.cursor = state.cursor.saturating_sub(step);
+}
+
+pub(super) fn half_page_down(state: &mut AppState) {
+    let step = (state.viewport_height.get() / 2).max(1);
+    state.cursor = (state.cursor + step).min(state.lines.len().saturating_sub(1));
 }
 
 fn page_down(state: &mut AppState) {
@@ -733,11 +771,23 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         return false;
     }
     if state.inspect_visible {
+        let scroll = |state: &AppState, delta: isize| {
+            let next = state.inspect_scroll.get().saturating_add_signed(delta);
+            state.inspect_scroll.set(next); // clamped to the content at render
+        };
         match key {
             KeyCode::Char('q') => return true,
             KeyCode::Char('i') | KeyCode::Esc => state.inspect_visible = false,
+            KeyCode::Down | KeyCode::Char('j') => scroll(state, 1),
+            KeyCode::Up | KeyCode::Char('k') => scroll(state, -1),
+            KeyCode::PageDown => scroll(state, 10),
+            KeyCode::PageUp => scroll(state, -10),
             _ => {}
         }
+        return false;
+    }
+    if state.awaiting_depth {
+        apply_depth_key(state, key);
         return false;
     }
     if state.count_buffer.is_some() {
@@ -809,7 +859,11 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
             state.popup_query = state.search.clone();
             state.popup_selected = 0;
         }
-        KeyCode::Char('i') => state.inspect_visible = true,
+        KeyCode::Char('i') => {
+            state.inspect_visible = true;
+            state.inspect_scroll.set(0);
+        }
+        KeyCode::Char('z') => state.awaiting_depth = true,
         KeyCode::Char('y') => {
             if let Some(line) = state.lines.get(state.cursor) {
                 let path = real_path(line);
@@ -882,6 +936,84 @@ mod tests {
             ..fixture()
         };
         (state, node)
+    }
+
+    /// An `AppState` over a parsed JSON document, the way `run_json_tui`
+    /// builds one.
+    fn json_state(json: &str) -> (AppState, crate::json_tree::JsonNode) {
+        use super::super::flatten::{
+            collect_all_paths_json, collect_container_paths_json, flatten_json,
+        };
+        let node = crate::json_tree::JsonNode::from_value(&serde_json::from_str(json).unwrap());
+        let mut lines = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        let mut all_container_paths = HashSet::new();
+        collect_container_paths_json(&node, &[], &mut all_container_paths);
+        let mut all_paths = Vec::new();
+        collect_all_paths_json(&node, &[], &mut all_paths);
+        let state = AppState {
+            lines,
+            all_paths,
+            all_container_paths,
+            ..fixture()
+        };
+        (state, node)
+    }
+
+    fn visible_keys(state: &AppState) -> Vec<&str> {
+        state.lines.iter().map(|l| l.key.as_str()).collect()
+    }
+
+    const DEEP: &str = r#"{"a":{"b":{"c":{"d":1}}},"x":[1]}"#;
+
+    #[test]
+    fn z_then_a_digit_expands_to_that_depth_and_collapses_everything_deeper() {
+        // Issue #152.
+        let rebuild = super::super::state::rebuild_json_lines;
+        let press = |state: &mut AppState, node, keys: &[char]| {
+            for &k in keys {
+                handle_key(state, KeyCode::Char(k));
+            }
+            rebuild(state, node);
+        };
+
+        let (mut state, node) = json_state(DEEP);
+        press(&mut state, &node, &['z', '1']);
+        assert_eq!(visible_keys(&state), ["a", "x"], "depth 1: top level only");
+
+        let (mut state, node) = json_state(DEEP);
+        press(&mut state, &node, &['z', '2']);
+        assert_eq!(visible_keys(&state), ["a", "b", "x", "[0]"]);
+
+        let (mut state, node) = json_state(DEEP);
+        press(&mut state, &node, &['z', '9']);
+        assert_eq!(visible_keys(&state), ["a", "b", "c", "d", "x", "[0]"]);
+        assert!(
+            state.tags.is_empty(),
+            "the digit after z must not tag the node"
+        );
+    }
+
+    #[test]
+    fn z_depth_keeps_the_cursor_on_a_still_visible_ancestor() {
+        let rebuild = super::super::state::rebuild_json_lines;
+        let (mut state, node) = json_state(DEEP);
+        state.cursor = 3; // "d", four levels down
+        for k in ['z', '2'] {
+            handle_key(&mut state, KeyCode::Char(k));
+        }
+        rebuild(&mut state, &node);
+        assert_eq!(state.lines[state.cursor].path, ["a", "b"]);
+    }
+
+    #[test]
+    fn z_followed_by_a_non_digit_cancels_without_side_effects() {
+        let (mut state, _) = json_state(DEEP);
+        handle_key(&mut state, KeyCode::Char('z'));
+        handle_key(&mut state, KeyCode::Char('j')); // not a digit: cancels
+        handle_key(&mut state, KeyCode::Char('2')); // now a normal tag key again
+        assert!(state.collapsed.is_empty());
+        assert_eq!(state.tags.len(), 1);
     }
 
     const TWO_BOOKS: &str = "<c><book><t>alpha</t></book><book><t>beta</t></book></c>";
@@ -966,6 +1098,7 @@ mod tests {
             path: path.iter().map(|s| s.to_string()).collect(),
             has_children,
             is_array_summary: false,
+            count_label: None,
             type_label: if has_children {
                 "object (0 fields)".to_string()
             } else {
@@ -982,6 +1115,7 @@ mod tests {
             path: path.iter().map(|s| s.to_string()).collect(),
             has_children: false,
             is_array_summary: true,
+            count_label: None,
             type_label: "array preview marker".to_string(),
         }
     }
@@ -1019,6 +1153,8 @@ mod tests {
             ],
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
+            awaiting_depth: false,
+            inspect_scroll: std::cell::Cell::new(0),
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -1495,6 +1631,8 @@ mod tests {
             ],
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
+            awaiting_depth: false,
+            inspect_scroll: std::cell::Cell::new(0),
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -1528,6 +1666,8 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
+            awaiting_depth: false,
+            inspect_scroll: std::cell::Cell::new(0),
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -2200,6 +2340,7 @@ mod tests {
                 path: vec!["item".to_string()],
                 has_children: false,
                 is_array_summary: false,
+                count_label: None,
                 type_label: "number".to_string(),
             })
             .collect();
@@ -2322,6 +2463,8 @@ mod tests {
             all_paths,
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
+            awaiting_depth: false,
+            inspect_scroll: std::cell::Cell::new(0),
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -2408,6 +2551,8 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
+            awaiting_depth: false,
+            inspect_scroll: std::cell::Cell::new(0),
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -2581,6 +2726,7 @@ mod tests {
             path: vec!["author".to_string()],
             has_children: false,
             is_array_summary: false,
+            count_label: None,
             type_label: "string (5 chars)".to_string(),
         });
         state.search = "author: \"user".to_string();
@@ -2693,6 +2839,8 @@ mod tests {
             all_paths,
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
+            awaiting_depth: false,
+            inspect_scroll: std::cell::Cell::new(0),
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),

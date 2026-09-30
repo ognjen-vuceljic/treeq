@@ -155,10 +155,12 @@ lines, precise search-match highlighting, and a truecolor palette:
 | `V` | Enter visual-line select mode: `j`/`k` extend the selection; `l`/`h`/`c`/`e` apply to every selected line, then return to normal mode; `Esc`/`V` cancels |
 | `H` / `M` / `L` | Jump to the top / middle / bottom of the visible viewport |
 | `PgUp` / `PgDn` | Move the cursor by one viewport height |
+| `Ctrl+d` / `Ctrl+u` | Move the cursor by half a viewport height |
+| `z1-9` | Expand to depth N: show N levels, collapse everything deeper (`z2` = top level and its children) |
 | `/` | Incremental fuzzy search |
 | `n` / `N` | Repeat the last search forward / backward |
 | `F` | Open an fzf-style popup listing every match across the whole document (`Tab`/`Shift+Tab` cycles, `Enter` jumps, `Esc` closes) |
-| `i` | Inspect the current node: type, size, full path, and tag |
+| `i` | Inspect the current node: type, size, full path, tag, and its full value (wrapped; `j`/`k` scroll long ones) |
 | `1-8` | Tag/untag current node with a highlight color |
 | `x` | Clear every active tag at once |
 | `y` | Yank current node's dotted path to clipboard (OSC 52) |

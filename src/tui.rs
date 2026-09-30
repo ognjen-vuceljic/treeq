@@ -91,10 +91,7 @@ where
             if let Event::Key(key) = event::read()?
                 && key.kind == KeyEventKind::Press
             {
-                if is_ctrl_c(&key) {
-                    break;
-                }
-                let quit = handle_key(&mut state, key.code);
+                let quit = handle_key_event(&mut state, key);
                 rebuild(&mut state);
                 if state.pick_result.is_some() {
                     picked = state.pick_result.take();
@@ -112,26 +109,45 @@ where
     result
 }
 
-/// Raw mode delivers Ctrl+C as a plain key press, and `handle_key` only
-/// sees `key.code` -- without this it ran `c` (collapse all) instead.
-fn is_ctrl_c(key: &KeyEvent) -> bool {
-    key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
+/// Routes one key press; `true` means quit. `handle_key` only sees
+/// `key.code`, so a Ctrl chord used to arrive as its bare letter: Ctrl+C ran
+/// `c` (collapse all, issue #125) and Ctrl+E ran `e` (expand all). Now Ctrl+C
+/// quits, Ctrl+d/u page (issue #88), and every other Ctrl chord is ignored.
+/// Ctrl+Alt is skipped: on some layouts AltGr reports as Ctrl+Alt and is how
+/// `[`, `{`, `@` etc. are typed, into the search box included.
+fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
+    let ctrl =
+        key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT);
+    if !ctrl {
+        return handle_key(state, key.code);
+    }
+    match key.code {
+        KeyCode::Char('c') => return true,
+        KeyCode::Char('d') => keys::half_page_down(state),
+        KeyCode::Char('u') => keys::half_page_up(state),
+        _ => {}
+    }
+    false
 }
 
 fn open_tty() -> io::Result<std::fs::File> {
     OpenOptions::new().read(true).write(true).open("/dev/tty")
 }
 
-pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<Option<String>> {
-    let collapsed = HashSet::new();
-    let array_overrides = HashSet::new();
-    let mut lines = Vec::new();
-    flatten_json(node, &[], 0, &collapsed, &array_overrides, &mut lines);
-    let mut all_container_paths = HashSet::new();
-    collect_container_paths_json(node, &[], &mut all_container_paths);
-    let mut all_paths = Vec::new();
-    collect_all_paths_json(node, &[], &mut all_paths);
-    let state = AppState {
+/// Every field's starting value, in one place: adding an `AppState` field
+/// is one edit here instead of one per entry point.
+#[allow(clippy::too_many_arguments)]
+fn initial_state(
+    lines: Vec<state::Line>,
+    collapsed: HashSet<Vec<String>>,
+    all_container_paths: HashSet<Vec<String>>,
+    array_overrides: HashSet<Vec<String>>,
+    all_paths: Vec<(Vec<String>, String)>,
+    is_json: bool,
+    use_color: bool,
+    pick: bool,
+) -> AppState {
+    AppState {
         lines,
         collapsed,
         all_container_paths,
@@ -143,12 +159,14 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<
         use_color,
         status_message: None,
         help_visible: false,
-        is_json: true,
+        is_json,
         scroll_offset: std::cell::Cell::new(0),
         viewport_height: std::cell::Cell::new(0),
         all_paths,
         pending_cursor_path: None,
         pending_cursor_occurrence: 0,
+        awaiting_depth: false,
+        inspect_scroll: std::cell::Cell::new(0),
         count_buffer: None,
         popup_visible: false,
         popup_query: String::new(),
@@ -158,7 +176,28 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<
         pick_mode: pick,
         pick_result: None,
         visual_anchor: None,
-    };
+    }
+}
+
+pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<Option<String>> {
+    let collapsed = HashSet::new();
+    let array_overrides = HashSet::new();
+    let mut lines = Vec::new();
+    flatten_json(node, &[], 0, &collapsed, &array_overrides, &mut lines);
+    let mut all_container_paths = HashSet::new();
+    collect_container_paths_json(node, &[], &mut all_container_paths);
+    let mut all_paths = Vec::new();
+    collect_all_paths_json(node, &[], &mut all_paths);
+    let state = initial_state(
+        lines,
+        collapsed,
+        all_container_paths,
+        array_overrides,
+        all_paths,
+        true,
+        use_color,
+        pick,
+    );
     if pick {
         run_loop(state, |s| rebuild_json_lines(s, node), open_tty()?)
     } else {
@@ -174,34 +213,16 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Op
     collect_container_paths_xml(node, &[], &mut all_container_paths);
     let mut all_paths = Vec::new();
     collect_all_paths_xml(node, &[], &mut all_paths);
-    let state = AppState {
+    let state = initial_state(
         lines,
         collapsed,
         all_container_paths,
-        array_overrides: HashSet::new(),
-        tags: HashMap::new(),
-        cursor: 0,
-        search: String::new(),
-        searching: false,
-        use_color,
-        status_message: None,
-        help_visible: false,
-        is_json: false,
-        scroll_offset: std::cell::Cell::new(0),
-        viewport_height: std::cell::Cell::new(0),
+        HashSet::new(),
         all_paths,
-        pending_cursor_path: None,
-        pending_cursor_occurrence: 0,
-        count_buffer: None,
-        popup_visible: false,
-        popup_query: String::new(),
-        popup_selected: 0,
-        inspect_visible: false,
-        popup_scroll_offset: std::cell::Cell::new(0),
-        pick_mode: pick,
-        pick_result: None,
-        visual_anchor: None,
-    };
+        false,
+        use_color,
+        pick,
+    );
     if pick {
         run_loop(state, |s| rebuild_xml_lines(s, node), open_tty()?)
     } else {
@@ -213,16 +234,101 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Op
 mod tests {
     use super::*;
 
+    fn state_for(json: &str) -> AppState {
+        let node = JsonNode::from_value(&serde_json::from_str(json).unwrap());
+        let mut lines = Vec::new();
+        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        let mut containers = HashSet::new();
+        collect_container_paths_json(&node, &[], &mut containers);
+        initial_state(
+            lines,
+            HashSet::new(),
+            containers,
+            HashSet::new(),
+            Vec::new(),
+            true,
+            false,
+            false,
+        )
+    }
+
+    fn press(state: &mut AppState, code: KeyCode, modifiers: KeyModifiers) -> bool {
+        handle_key_event(state, KeyEvent::new(code, modifiers))
+    }
+
     #[test]
-    fn ctrl_c_quits_but_plain_c_does_not() {
-        assert!(is_ctrl_c(&KeyEvent::new(
-            KeyCode::Char('c'),
+    fn ctrl_c_quits_but_plain_c_collapses_all() {
+        let mut state = state_for(r#"{"a":{"b":1}}"#);
+        assert!(press(&mut state, KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(
+            state.collapsed.is_empty(),
+            "Ctrl+C must not run collapse-all"
+        );
+        assert!(!press(&mut state, KeyCode::Char('c'), KeyModifiers::NONE));
+        assert!(!state.collapsed.is_empty(), "plain c is still collapse-all");
+    }
+
+    #[test]
+    fn other_ctrl_chords_are_ignored_instead_of_acting_as_their_bare_letter() {
+        // Ctrl+E used to run `e` (expand all); Ctrl+X ran `x` (clear tags).
+        let mut state = state_for(r#"{"a":{"b":1}}"#);
+        state.collapsed.insert(vec!["a".to_string()]);
+        state.tags.insert(vec!["a".to_string()], 1);
+        assert!(!press(
+            &mut state,
+            KeyCode::Char('e'),
             KeyModifiers::CONTROL
-        )));
-        assert!(!is_ctrl_c(&KeyEvent::new(
-            KeyCode::Char('c'),
-            KeyModifiers::NONE
-        )));
+        ));
+        assert!(!press(
+            &mut state,
+            KeyCode::Char('x'),
+            KeyModifiers::CONTROL
+        ));
+        assert_eq!(state.collapsed.len(), 1);
+        assert_eq!(state.tags.len(), 1);
+    }
+
+    #[test]
+    fn ctrl_d_and_ctrl_u_move_half_a_viewport() {
+        // Issue #88.
+        let many: Vec<String> = (0..100).map(|i| format!("\"k{i}\":{i}")).collect();
+        let mut state = state_for(&format!("{{{}}}", many.join(",")));
+        state.viewport_height.set(20);
+        press(&mut state, KeyCode::Char('d'), KeyModifiers::CONTROL);
+        assert_eq!(state.cursor, 10);
+        press(&mut state, KeyCode::Char('d'), KeyModifiers::CONTROL);
+        assert_eq!(state.cursor, 20);
+        press(&mut state, KeyCode::Char('u'), KeyModifiers::CONTROL);
+        assert_eq!(state.cursor, 10);
+        for _ in 0..5 {
+            press(&mut state, KeyCode::Char('u'), KeyModifiers::CONTROL);
+        }
+        assert_eq!(state.cursor, 0, "clamps at the top");
+        state.cursor = 95;
+        for _ in 0..3 {
+            press(&mut state, KeyCode::Char('d'), KeyModifiers::CONTROL);
+        }
+        assert_eq!(state.cursor, 99, "clamps at the last line");
+    }
+
+    #[test]
+    fn half_page_is_at_least_one_line_before_the_first_frame_sets_a_height() {
+        let mut state = state_for(r#"{"a":1,"b":2,"c":3}"#);
+        press(&mut state, KeyCode::Char('d'), KeyModifiers::CONTROL);
+        assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn altgr_typed_characters_reach_the_search_box() {
+        // Some layouts report AltGr as Ctrl+Alt; `[` must still type.
+        let mut state = state_for(r#"{"a":1}"#);
+        state.searching = true;
+        press(
+            &mut state,
+            KeyCode::Char('['),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        );
+        assert_eq!(state.search, "[");
     }
 
     /// Regression guard for issue #127: `run_json_tui`/`run_xml_tui` call

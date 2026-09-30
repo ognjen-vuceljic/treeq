@@ -90,6 +90,11 @@ pub(super) fn flatten_json(
             }
             _ => (None, true),
         };
+        let count_label = match child {
+            JsonNode::Object(f) if !f.is_empty() => Some(format!("{{{}}}", f.len())),
+            JsonNode::Array(items) if !items.is_empty() => Some(format!("[{}]", items.len())),
+            _ => None,
+        };
         out.push(Line {
             depth,
             key: escape_display_str(&label),
@@ -97,6 +102,7 @@ pub(super) fn flatten_json(
             path: child_path.clone(),
             has_children,
             is_array_summary: false,
+            count_label,
             type_label: json_type_label(child),
         });
         if has_children && !collapsed.contains(&child_path) {
@@ -123,6 +129,7 @@ pub(super) fn flatten_json(
             path: marker_path,
             has_children: false,
             is_array_summary: true,
+            count_label: None,
             type_label: "array preview marker".to_string(),
         });
     }
@@ -153,6 +160,7 @@ pub(super) fn flatten_xml(
             path: child_path.clone(),
             has_children,
             is_array_summary: false,
+            count_label: has_children.then(|| format!("({})", child.children.len())),
             type_label: xml_type_label(child),
         });
         if has_children && !collapsed.contains(&child_path) {

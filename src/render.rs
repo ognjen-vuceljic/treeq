@@ -94,9 +94,16 @@ fn render_json_children(
                 ));
             }
             _ if max_depth.is_some_and(|d| depth + 1 >= d) => {
+                // Hidden children still announce how many there are (#134).
+                let count = match child {
+                    JsonNode::Object(f) => format!("{{{}}}", f.len()),
+                    JsonNode::Array(items) => format!("[{}]", items.len()),
+                    JsonNode::Scalar(_) => String::new(),
+                };
+                let count = paint(&format!(" {count}"), Color::Structural, mode);
                 let ellipsis = paint("…", Color::Structural, mode);
                 out.push_str(&format!(
-                    "{branch_str}{label_str}{}{ellipsis}\n",
+                    "{branch_str}{label_str}{count}{}{ellipsis}\n",
                     separator(mode)
                 ));
             }
@@ -342,7 +349,8 @@ mod tests {
         let value = json!({"user": {"name": "Alice"}});
         let node = JsonNode::from_value(&value);
         let output = render_json(&node, "root", Some(1), None, ColorMode::Off);
-        assert_eq!(output, "root\n└── user: …\n");
+        // The hidden children's count rides along (issue #134).
+        assert_eq!(output, "root\n└── user {1}: …\n");
     }
 
     #[test]

@@ -147,6 +147,9 @@ fn line_spans(line: &Line, use_color: bool, search: &str) -> Vec<Span<'static>> 
         &key_highlight,
         use_color,
     ));
+    if let Some(count) = &line.count_label {
+        spans.push(Span::styled(format!(" {count}"), dim_style(use_color)));
+    }
     if let Some((text, color)) = &line.value {
         spans.push(Span::styled(": ", dim_style(use_color)));
         spans.extend(highlighted_spans(
@@ -214,13 +217,56 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         render_search_popup(frame, popup_area, state);
     }
     if state.inspect_visible {
-        let popup_area = centered_rect(50, 30, area);
+        let popup_area = inspect_popup_rect(state, area);
         frame.render_widget(Clear, popup_area);
         render_inspect_popup(frame, popup_area, state);
     }
 }
 
-fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
+/// Greedy word wrap into lines of at most `width` chars, hard-breaking any
+/// single word longer than a line. Done by hand (not `Paragraph::wrap`) so
+/// the exact row count is known up front -- the popup's height and its
+/// scroll clamp both depend on it, and an estimate that under-counts would
+/// leave the tail of a long value unreachable.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0;
+    for word in text.split(' ') {
+        let chars: Vec<char> = word.chars().collect();
+        if chars.len() > width {
+            if current_len > 0 {
+                lines.push(std::mem::take(&mut current));
+            }
+            let mut chunks = chars.chunks(width).map(|c| c.iter().collect::<String>());
+            let last = chunks.next_back().unwrap_or_default();
+            lines.extend(chunks);
+            current_len = last.chars().count();
+            current = last;
+        } else if current_len == 0 {
+            current = word.to_string();
+            current_len = chars.len();
+        } else if current_len + 1 + chars.len() <= width {
+            current.push(' ');
+            current.push_str(word);
+            current_len += 1 + chars.len();
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current = word.to_string();
+            current_len = chars.len();
+        }
+    }
+    lines.push(current);
+    lines
+}
+
+/// Width of the `value: ` / `type:  ` label column in the inspect popup.
+const INSPECT_LABEL_WIDTH: usize = 7;
+
+/// The inspect popup's rows for the node under the cursor, with the value
+/// (issue #150) wrapped to `inner_width`.
+fn inspect_lines(state: &AppState, inner_width: usize) -> Vec<RtLine<'static>> {
     let use_color = state.use_color;
     let label_style = Style::default().add_modifier(Modifier::BOLD);
     let path_style = if use_color {
@@ -228,52 +274,97 @@ fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         label_style
     };
-    let lines: Vec<RtLine> = match state.lines.get(state.cursor) {
-        Some(line) => {
-            let real_path = if line.is_array_summary {
-                array_path_for_summary_line(&line.path)
-            } else {
-                &line.path
-            };
-            // A container's type has no inherent scalar color; a leaf's type
-            // reuses the exact color already computed for its value line, so
-            // this can't drift out of sync with how the tree colors that
-            // value (see the JSON/XML value-color mismatch this avoided in
-            // issue #51's `infer_json_value_color`).
-            let type_style = match (use_color, &line.value) {
-                (true, Some((_, color))) => Style::default().fg(ratatui_color(*color)),
-                (true, None) => Style::default().fg(ratatui_color(TqColor::Structural)),
-                (false, _) => Style::default(),
-            };
-            let (tag_text, tag_style) = match state.tags.get(real_path) {
-                Some(tag) => (
-                    format!("{tag}"),
-                    if use_color {
-                        Style::default().fg(tag_color(*tag))
-                    } else {
-                        Style::default()
-                    },
-                ),
-                None => ("none".to_string(), Style::default()),
-            };
-            vec![
-                RtLine::from(vec![
-                    Span::styled("type: ", label_style),
-                    Span::styled(line.type_label.clone(), type_style),
-                ]),
-                RtLine::from(vec![
-                    Span::styled("path: ", label_style),
-                    Span::styled(display_path(real_path), path_style),
-                ]),
-                RtLine::from(vec![
-                    Span::styled("tag:  ", label_style),
-                    Span::styled(tag_text, tag_style),
-                ]),
-            ]
-        }
-        None => vec![RtLine::from("no node under the cursor")],
+    let Some(line) = state.lines.get(state.cursor) else {
+        return vec![RtLine::from("no node under the cursor")];
     };
-    let paragraph = Paragraph::new(lines).block(rounded_block(true, use_color).title("Inspect"));
+    let real_path = if line.is_array_summary {
+        array_path_for_summary_line(&line.path)
+    } else {
+        &line.path
+    };
+    // A container's type has no inherent scalar color; a leaf's type
+    // reuses the exact color already computed for its value line, so
+    // this can't drift out of sync with how the tree colors that
+    // value (see the JSON/XML value-color mismatch this avoided in
+    // issue #51's `infer_json_value_color`).
+    let type_style = match (use_color, &line.value) {
+        (true, Some((_, color))) => Style::default().fg(ratatui_color(*color)),
+        (true, None) => Style::default().fg(ratatui_color(TqColor::Structural)),
+        (false, _) => Style::default(),
+    };
+    let (tag_text, tag_style) = match state.tags.get(real_path) {
+        Some(tag) => (
+            format!("{tag}"),
+            if use_color {
+                Style::default().fg(tag_color(*tag))
+            } else {
+                Style::default()
+            },
+        ),
+        None => ("none".to_string(), Style::default()),
+    };
+    let mut rows = vec![
+        RtLine::from(vec![
+            Span::styled("type:  ", label_style),
+            Span::styled(line.type_label.clone(), type_style),
+        ]),
+        RtLine::from(vec![
+            Span::styled("path:  ", label_style),
+            Span::styled(display_path(real_path), path_style),
+        ]),
+        RtLine::from(vec![
+            Span::styled("tag:   ", label_style),
+            Span::styled(tag_text, tag_style),
+        ]),
+    ];
+    // The array-preview marker's "N more" text is UI chrome, not a value.
+    if let (Some((text, color)), false) = (&line.value, line.is_array_summary) {
+        let style = value_style(*color, use_color);
+        let wrapped = wrap_text(text, inner_width.saturating_sub(INSPECT_LABEL_WIDTH));
+        for (i, chunk) in wrapped.into_iter().enumerate() {
+            let label = if i == 0 { "value: " } else { "       " };
+            rows.push(RtLine::from(vec![
+                Span::styled(label, label_style),
+                Span::styled(chunk, style),
+            ]));
+        }
+    }
+    rows
+}
+
+/// Sized to the content (capped at 80% of the screen) rather than a fixed
+/// fraction, so a short value doesn't float in a big empty card and a long
+/// one gets room before it needs to scroll.
+fn inspect_popup_rect(state: &AppState, area: Rect) -> Rect {
+    let width = (area.width as u32 * 60 / 100).max(40.min(area.width as u32)) as u16;
+    let rows = inspect_lines(state, width.saturating_sub(2) as usize).len() as u16;
+    let max_height = (area.height as u32 * 80 / 100) as u16;
+    let height = (rows + 2).min(max_height).max(5.min(area.height));
+    Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width.min(area.width),
+        height.min(area.height),
+    )
+}
+
+fn render_inspect_popup(frame: &mut Frame, area: Rect, state: &AppState) {
+    let inner_width = area.width.saturating_sub(2) as usize;
+    let visible = area.height.saturating_sub(2) as usize;
+    let rows = inspect_lines(state, inner_width);
+    // Clamp here, where the real row count is known, and write it back so
+    // holding `j` past the end doesn't bank invisible scroll.
+    let max_scroll = rows.len().saturating_sub(visible);
+    let scroll = state.inspect_scroll.get().min(max_scroll);
+    state.inspect_scroll.set(scroll);
+    let title = if max_scroll > 0 {
+        "Inspect (j/k: scroll)"
+    } else {
+        "Inspect"
+    };
+    let paragraph = Paragraph::new(rows)
+        .scroll((scroll as u16, 0))
+        .block(rounded_block(true, state.use_color).title(title));
     frame.render_widget(paragraph, area);
 }
 
@@ -438,6 +529,34 @@ fn selected_range(state: &AppState) -> Option<(usize, usize)> {
     })
 }
 
+/// The cursor node's ancestors, e.g. `users › [1843] › addr` (issue #151),
+/// cut from the *left* with `…` when too wide: the nearest ancestors are the
+/// ones that say where you are. `None` for a top-level node.
+fn breadcrumb(state: &AppState, max_width: usize) -> Option<String> {
+    let line = state.lines.get(state.cursor)?;
+    let path = if line.is_array_summary {
+        array_path_for_summary_line(&line.path)
+    } else {
+        &line.path
+    };
+    let ancestors = path.get(..path.len().checked_sub(1)?)?;
+    if ancestors.is_empty() {
+        return None;
+    }
+    let text = ancestors
+        .iter()
+        .map(|s| crate::json_tree::escape_display_str(s))
+        .collect::<Vec<_>>()
+        .join(" › ");
+    let len = text.chars().count();
+    if len <= max_width {
+        return Some(text);
+    }
+    let keep = max_width.saturating_sub(1);
+    let tail: String = text.chars().skip(len - keep).collect();
+    Some(format!("…{tail}"))
+}
+
 fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     let selection = selected_range(state);
     let items: Vec<ListItem> = state
@@ -474,8 +593,12 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     let mut list_state = ListState::default()
         .with_offset(state.scroll_offset.get())
         .with_selected(Some(state.cursor));
+    let mut tree_block = rounded_block(false, state.use_color);
+    if let Some(crumb) = breadcrumb(state, chunks[0].width.saturating_sub(6) as usize) {
+        tree_block = tree_block.title(format!(" {crumb} "));
+    }
     frame.render_stateful_widget(
-        List::new(items).block(rounded_block(false, state.use_color)),
+        List::new(items).block(tree_block),
         chunks[0],
         &mut list_state,
     );
@@ -489,6 +612,8 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         RtLine::from(format!("/{}", state.search))
     } else if let Some(buf) = &state.count_buffer {
         RtLine::from(format!("g{buf}"))
+    } else if state.awaiting_depth {
+        RtLine::from("z (1-9: expand to depth)")
     } else if let Some(msg) = &state.status_message {
         RtLine::from(msg.clone())
     } else {
@@ -587,6 +712,7 @@ mod tests {
             path: path.iter().map(|s| s.to_string()).collect(),
             has_children,
             is_array_summary: false,
+            count_label: None,
             type_label: if has_children {
                 "object (0 fields)".to_string()
             } else {
@@ -626,6 +752,8 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             pending_cursor_occurrence: 0,
+            awaiting_depth: false,
+            inspect_scroll: std::cell::Cell::new(0),
             count_buffer: None,
             popup_visible: false,
             popup_query: String::new(),
@@ -650,6 +778,119 @@ mod tests {
             &mut lines,
         );
         lines
+    }
+
+    fn screen_text(buffer: &Buffer) -> String {
+        let area = buffer.area;
+        (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn draw(state: &AppState, w: u16, h: u16) -> Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| render(f, state)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn containers_show_their_child_count_next_to_the_key() {
+        // Issue #134.
+        let lines = json_lines(serde_json::json!(
+            {"tags": ["a", "b", "c"], "address": {"x": 1, "y": 2}, "s": "str", "e": []}
+        ));
+        let text = screen_text(&draw(&state_with(lines, 0), 50, 12));
+        assert!(text.contains("tags [3]"), "{text}");
+        assert!(text.contains("address {2}"), "{text}");
+        let scalar_row = text.lines().find(|l| l.contains("\"str\"")).unwrap();
+        assert!(
+            !scalar_row.contains('[') && !scalar_row.contains('{'),
+            "scalars get no count: {scalar_row}"
+        );
+        assert!(
+            !text.contains("e [0]"),
+            "an empty container shows `[]`, not a count"
+        );
+    }
+
+    #[test]
+    fn xml_elements_with_children_show_a_child_count() {
+        let doc = roxmltree::Document::parse("<r><book><t>1</t><t>2</t></book><x/></r>").unwrap();
+        let node = crate::xml_tree::XmlNode::from_document(&doc).unwrap();
+        let mut lines = Vec::new();
+        super::super::flatten::flatten_xml(&node, &[], 0, &HashSet::new(), &mut lines);
+        let mut state = state_with(lines, 0);
+        state.is_json = false;
+        let text = screen_text(&draw(&state, 50, 12));
+        assert!(text.contains("book (2)"), "{text}");
+    }
+
+    #[test]
+    fn inspect_popup_shows_the_whole_value_wrapped_not_just_type_and_path() {
+        // Issue #150: a long string cut off at the terminal edge couldn't be
+        // read anywhere.
+        let long: String = (0..30).map(|i| format!("word{i} ")).collect();
+        let lines = json_lines(serde_json::json!({ "msg": long.trim_end() }));
+        let mut state = state_with(lines, 0);
+        state.inspect_visible = true;
+        let text = screen_text(&draw(&state, 70, 24));
+        assert!(text.contains("word0"), "{text}");
+        assert!(
+            text.contains("word29"),
+            "the tail must be readable too: {text}"
+        );
+    }
+
+    #[test]
+    fn inspect_popup_scrolls_when_the_value_is_taller_than_the_popup() {
+        let long: String = (0..400).map(|i| format!("w{i:03} ")).collect();
+        let lines = json_lines(serde_json::json!({ "msg": long.trim_end() }));
+        let mut state = state_with(lines, 0);
+        state.inspect_visible = true;
+        let before = screen_text(&draw(&state, 60, 14));
+        assert!(
+            before.contains("w000") && !before.contains("w399"),
+            "{before}"
+        );
+        for _ in 0..500 {
+            super::super::keys::handle_key(&mut state, crossterm::event::KeyCode::Char('j'));
+        }
+        let after = screen_text(&draw(&state, 60, 14));
+        assert!(
+            after.contains("w399"),
+            "scrolling must reach the end: {after}"
+        );
+        assert!(
+            state.inspect_visible,
+            "j inside inspect scrolls, it doesn't close it"
+        );
+    }
+
+    #[test]
+    fn the_tree_border_title_is_a_breadcrumb_of_the_cursors_ancestors() {
+        // Issue #151.
+        let lines = json_lines(serde_json::json!({"users": [{"addr": {"city": "X"}}]}));
+        let city = lines.iter().position(|l| l.key == "city").unwrap();
+        let text = screen_text(&draw(&state_with(lines, city), 60, 12));
+        let top = text.lines().next().unwrap();
+        assert!(top.contains("users › [0] › addr"), "{top}");
+    }
+
+    #[test]
+    fn a_too_long_breadcrumb_is_truncated_from_the_left_keeping_the_nearest_ancestors() {
+        let lines = json_lines(serde_json::json!(
+            {"aaaaaaaaaa": {"bbbbbbbbbb": {"cccccccccc": {"dddddddddd": {"leaf": 1}}}}}
+        ));
+        let leaf = lines.iter().position(|l| l.key == "leaf").unwrap();
+        let text = screen_text(&draw(&state_with(lines, leaf), 30, 12));
+        let top = text.lines().next().unwrap();
+        assert!(top.contains('…') && top.contains("dddddddddd"), "{top}");
+        assert!(!top.contains("aaaaaaaaaa"), "{top}");
     }
 
     #[test]
@@ -1528,6 +1769,7 @@ mod tests {
             path: vec!["tags".to_string(), "…more".to_string()],
             has_children: false,
             is_array_summary: true,
+            count_label: None,
             type_label: "array preview marker".to_string(),
         };
         let mut state = state_with(vec![summary], 0);
@@ -1537,10 +1779,10 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(
-            !text.contains("path: tags.…more"),
+            !text.contains("path:  tags.…more"),
             "inspect popup must show the array's real path, not the synthetic marker segment"
         );
-        assert!(text.contains("path: tags"));
+        assert!(text.contains("path:  tags"));
         assert!(text.contains("5"));
     }
 
@@ -1720,10 +1962,16 @@ mod tests {
     fn render_shows_help_overlay_with_every_keybinding_when_visible() {
         let mut state = state_with(vec![line("user", true, None, 0, &["user"])], 0);
         state.help_visible = true;
-        let mut terminal = Terminal::new(TestBackend::new(60, 23)).unwrap();
+        // 24 rows is the classic default terminal: the whole legend *and*
+        // the "press ? or Esc to close" footer must fit, not just the rows.
+        let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("Keybindings"));
+        assert!(
+            text.contains("press ? or Esc to close"),
+            "footer cut off: {text}"
+        );
         for (key, desc) in HELP_LEGEND {
             assert!(
                 text.contains(key.split(' ').next().unwrap()),

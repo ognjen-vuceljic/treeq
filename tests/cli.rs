@@ -551,7 +551,8 @@ fn yaml_composes_with_path_depth_stats_and_paths_flags() {
     let (stdout, _stderr, code) =
         run_treeq(&["--static", "--format", "yaml", "--depth", "1"], input);
     assert_eq!(code, 0);
-    assert_eq!(stdout, "root\n└── user: …\n");
+    // Truncated containers say how much they hide (issue #134).
+    assert_eq!(stdout, "root\n└── user {2}: …\n");
 
     let (stdout, _stderr, code) = run_treeq(&["--stats", "--format", "yaml"], input);
     assert_eq!(code, 0);
@@ -681,4 +682,15 @@ fn xml_names_keep_their_namespace_prefix() {
     // The default namespace has no prefix, so plain names are unchanged.
     let (out, _, _) = run_treeq(&["--static"], r#"<r xmlns="urn:d"><a>1</a></r>"#);
     assert_eq!(out, "r\n└── a: 1\n");
+}
+
+#[test]
+fn depth_truncation_reports_how_many_children_each_cut_off_container_hides() {
+    let input = r#"{"tags": ["a", "b", "c"], "owner": {"x": 1, "y": 2}, "n": 1}"#;
+    let (out, _, code) = run_treeq(&["--static", "--depth", "1"], input);
+    assert_eq!(code, 0);
+    assert_eq!(out, "root\n├── tags [3]: …\n├── owner {2}: …\n└── n: 1\n");
+    // Without --depth nothing is hidden, so the plain output is unchanged.
+    let (out, _, _) = run_treeq(&["--static"], input);
+    assert!(out.contains("├── tags\n"), "{out}");
 }
