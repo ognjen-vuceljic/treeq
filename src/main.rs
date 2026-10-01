@@ -245,12 +245,12 @@ fn print_paths(lines: Vec<String>, json: bool) {
 }
 
 fn parse_json_tree(input: &str, ndjson: bool) -> Result<JsonNode, String> {
-    let value: serde_json::Value = if ndjson {
-        parse_ndjson(input).map_err(|e| format!("error: invalid NDJSON: {e}"))?
+    if ndjson {
+        let value = parse_ndjson(input).map_err(|e| format!("error: invalid NDJSON: {e}"))?;
+        Ok(JsonNode::from_value(&value))
     } else {
-        serde_json::from_str(input).map_err(|e| json_error_context(input, &e))?
-    };
-    Ok(JsonNode::from_value(&value))
+        serde_json::from_str::<JsonNode>(input).map_err(|e| json_error_context(input, &e))
+    }
 }
 
 type Reload<'a, T> = Option<&'a dyn Fn() -> Result<T, String>>;
@@ -264,10 +264,17 @@ fn die(msg: String) -> ! {
     process::exit(1);
 }
 
-fn run_json(input: &str, args: &Args, ndjson: bool) {
-    let tree = parse_json_tree(input, ndjson).unwrap_or_else(|e| die(e));
+fn run_json(input: String, args: &Args, ndjson: bool) {
+    let tree = parse_json_tree(&input, ndjson).unwrap_or_else(|e| die(e));
+    let input_len = input.len();
+    drop(input); // the tree is all that's needed from here (issue #133)
     let reload = || parse_json_tree(&read_for_reload(args)?, ndjson);
-    run_json_tree(&tree, input, args, args.file.is_some().then_some(&reload));
+    run_json_tree(
+        &tree,
+        input_len,
+        args,
+        args.file.is_some().then_some(&reload),
+    );
 }
 
 /// Multi-document YAML (`---` separated) becomes an array of documents, like
@@ -309,13 +316,20 @@ fn parse_yaml_tree(input: &str) -> Result<JsonNode, String> {
     JsonNode::from_yaml_value(&value).map_err(|e| format!("error: invalid YAML: {e}"))
 }
 
-fn run_yaml(input: &str, args: &Args) {
-    let tree = parse_yaml_tree(input).unwrap_or_else(|e| die(e));
+fn run_yaml(input: String, args: &Args) {
+    let tree = parse_yaml_tree(&input).unwrap_or_else(|e| die(e));
+    let input_len = input.len();
+    drop(input);
     let reload = || parse_yaml_tree(&read_for_reload(args)?);
-    run_json_tree(&tree, input, args, args.file.is_some().then_some(&reload));
+    run_json_tree(
+        &tree,
+        input_len,
+        args,
+        args.file.is_some().then_some(&reload),
+    );
 }
 
-fn run_json_tree(tree: &JsonNode, input: &str, args: &Args, reload: Reload<'_, JsonNode>) {
+fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<'_, JsonNode>) {
     let target = match &args.path {
         Some(p) => match find_json_path(tree, p) {
             Ok(t) => t,
@@ -330,7 +344,7 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args, reload: Reload<'_, J
         let s = json_stats(target);
         let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
         let tree = render_json(target, "root", depth, args.array_limit, agent_color(args));
-        print_agent(&json_stat_pairs(&s, input.len()), tree, args.json);
+        print_agent(&json_stat_pairs(&s, input_len), tree, args.json);
         return;
     }
     if args.paths {
@@ -339,7 +353,7 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args, reload: Reload<'_, J
     }
     if args.stats {
         let s = json_stats(target);
-        print_stats(&json_stat_pairs(&s, input.len()), args.json);
+        print_stats(&json_stat_pairs(&s, input_len), args.json);
         return;
     }
     if args.schema {
@@ -354,7 +368,7 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args, reload: Reload<'_, J
         } else {
             use_color()
         };
-        clear_progress(input.len());
+        clear_progress(input_len);
         let mut owned: Option<JsonNode> = None;
         let mut saved = None;
         loop {
@@ -421,8 +435,10 @@ fn parse_xml_tree(input: &str) -> Result<XmlNode, String> {
     XmlNode::from_document(&doc).map_err(|e| format!("error: {e}"))
 }
 
-fn run_xml(input: &str, args: &Args) {
-    let tree = parse_xml_tree(input).unwrap_or_else(|e| die(e));
+fn run_xml(input: String, args: &Args) {
+    let tree = parse_xml_tree(&input).unwrap_or_else(|e| die(e));
+    let input_len = input.len();
+    drop(input);
     let reload = || parse_xml_tree(&read_for_reload(args)?);
     let reload: Reload<'_, XmlNode> = args.file.is_some().then_some(&reload);
     let target = match &args.path {
@@ -440,7 +456,7 @@ fn run_xml(input: &str, args: &Args) {
         let s = xml_stats(target);
         let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));
         let tree = render_xml(target, depth, agent_color(args));
-        print_agent(&xml_stat_pairs(&s, input.len()), tree, args.json);
+        print_agent(&xml_stat_pairs(&s, input_len), tree, args.json);
         return;
     }
     if args.paths {
@@ -449,7 +465,7 @@ fn run_xml(input: &str, args: &Args) {
     }
     if args.stats {
         let s = xml_stats(target);
-        print_stats(&xml_stat_pairs(&s, input.len()), args.json);
+        print_stats(&xml_stat_pairs(&s, input_len), args.json);
         return;
     }
     if args.schema {
@@ -462,7 +478,7 @@ fn run_xml(input: &str, args: &Args) {
         } else {
             use_color()
         };
-        clear_progress(input.len());
+        clear_progress(input_len);
         let mut owned: Option<XmlNode> = None;
         let mut saved = None;
         loop {
@@ -545,7 +561,7 @@ fn main() {
     });
     show_progress(input.len(), &args);
     if args.ndjson {
-        run_json(&input, &args, true);
+        run_json(input, &args, true);
         return;
     }
     let format = args
@@ -565,10 +581,10 @@ fn main() {
         process::exit(1);
     }
     match format {
-        Format::Json => run_json(&input, &args, false),
-        Format::Xml => run_xml(&input, &args),
-        Format::Yaml => run_yaml(&input, &args),
-        Format::Ndjson => run_json(&input, &args, true),
+        Format::Json => run_json(input, &args, false),
+        Format::Xml => run_xml(input, &args),
+        Format::Yaml => run_yaml(input, &args),
+        Format::Ndjson => run_json(input, &args, true),
     }
 }
 
