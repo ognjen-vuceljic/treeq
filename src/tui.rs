@@ -168,7 +168,10 @@ where
             let event = event::read()?;
             if let Event::Mouse(m) = event {
                 handle_mouse(&mut state, m);
-                rebuild(&mut state);
+                if matches!(m.kind, MouseEventKind::Down(_)) || state.pending_cursor_path.is_some()
+                {
+                    rebuild(&mut state);
+                }
             } else if let Event::Key(key) = event
                 && key.kind == KeyEventKind::Press
             {
@@ -180,7 +183,9 @@ where
                     return Ok(TuiExit::Reload(save_ui(&state)));
                 }
                 let quit = handle_key_event(&mut state, key);
-                rebuild(&mut state);
+                if key_may_change_lines(&state, &key) {
+                    rebuild(&mut state);
+                }
                 if state.pick_result.is_some() {
                     picked = state.pick_result.take();
                 }
@@ -224,6 +229,28 @@ fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
 /// Wheel moves the cursor three rows; a left click selects the row, and
 /// clicking the row that is already selected toggles it. Ignored while a
 /// modal (help, popup, inspect, text entry) owns the keyboard.
+/// Plain navigation can't change which lines exist, so skip the full
+/// re-flatten for it (issue #132) -- unless a search/goto left a cursor
+/// target to resolve, or filter text is being typed.
+fn key_may_change_lines(state: &AppState, key: &KeyEvent) -> bool {
+    if state.pending_cursor_path.is_some() || state.filter_typing {
+        return true;
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return false; // Ctrl+d/u paging; every other chord is ignored
+    }
+    !matches!(
+        key.code,
+        KeyCode::Down
+            | KeyCode::Up
+            | KeyCode::PageDown
+            | KeyCode::PageUp
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::Char('j' | 'k' | 'G' | 'H' | 'M' | 'L' | 'i' | 'y' | 'Y' | 'v' | '?')
+    )
+}
+
 fn modal_active(state: &AppState) -> bool {
     state.help_visible
         || state.popup_visible
@@ -549,5 +576,20 @@ mod tests {
         finish_restore(&mut fresh, saved);
         assert_eq!(fresh.tags.len(), 1);
         assert_eq!(fresh.cursor, 2);
+    }
+
+    #[test]
+    fn plain_navigation_skips_the_rebuild_but_structural_keys_and_pending_targets_do_not() {
+        let mut state = state_for(r#"{"a": {"x": 1}}"#);
+        let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+        assert!(!key_may_change_lines(&state, &key(KeyCode::Char('j'))));
+        assert!(!key_may_change_lines(&state, &key(KeyCode::Down)));
+        assert!(key_may_change_lines(&state, &key(KeyCode::Tab)));
+        assert!(key_may_change_lines(&state, &key(KeyCode::Char('e'))));
+        state.filter_typing = true;
+        assert!(key_may_change_lines(&state, &key(KeyCode::Char('j'))));
+        state.filter_typing = false;
+        state.pending_cursor_path = Some(vec!["a".to_string()]);
+        assert!(key_may_change_lines(&state, &key(KeyCode::Char('j'))));
     }
 }

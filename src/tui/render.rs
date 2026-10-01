@@ -583,11 +583,26 @@ fn breadcrumb(state: &AppState, max_width: usize) -> Option<String> {
 
 fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     let selection = selected_range(state);
-    let items: Vec<ListItem> = state
-        .lines
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(area);
+    // Only the rows on screen are built (issue #132): the offset is resolved
+    // here, the way `List` would, so cost follows the viewport, not the
+    // document. The block's border takes one row top and bottom.
+    let height = chunks[0].height.saturating_sub(2) as usize;
+    let mut offset = state
+        .scroll_offset
+        .get()
+        .min(state.lines.len().saturating_sub(1));
+    if state.cursor < offset {
+        offset = state.cursor;
+    } else if height > 0 && state.cursor >= offset + height {
+        offset = state.cursor + 1 - height;
+    }
+    let end = (offset + height).min(state.lines.len());
+    let items: Vec<ListItem> = state.lines[offset..end]
         .iter()
         .enumerate()
-        .map(|(i, line)| {
+        .map(|(row, line)| {
+            let i = offset + row;
             let search = if state.searching {
                 state.search.as_str()
             } else {
@@ -615,12 +630,7 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
             ListItem::new(RtLine::from(spans)).style(style)
         })
         .collect();
-    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(area);
-    // Seeding from the persisted offset (not 0) lets the cursor move within
-    // an already-scrolled viewport instead of re-pinning every keystroke.
-    let mut list_state = ListState::default()
-        .with_offset(state.scroll_offset.get())
-        .with_selected(Some(state.cursor));
+    let mut list_state = ListState::default().with_selected(state.cursor.checked_sub(offset));
     let mut tree_block = rounded_block(false, state.use_color);
     if let Some(crumb) = breadcrumb(state, chunks[0].width.saturating_sub(6) as usize) {
         tree_block = tree_block.title(format!(" {crumb} "));
@@ -630,12 +640,8 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         chunks[0],
         &mut list_state,
     );
-    state.scroll_offset.set(list_state.offset());
-    // The `List` block's border occupies one row top and bottom, so the
-    // number of item rows actually visible is the block's height minus 2.
-    state
-        .viewport_height
-        .set(chunks[0].height.saturating_sub(2) as usize);
+    state.scroll_offset.set(offset);
+    state.viewport_height.set(height);
     let status_line = if state.filter_typing {
         RtLine::from(format!("&{}", state.filter.as_deref().unwrap_or("")))
     } else if let Some(input) = &state.goto_input {
