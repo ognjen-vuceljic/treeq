@@ -818,3 +818,14 @@ fn broken_json_still_reports_a_json_error() {
     assert_eq!(code, 1);
     assert!(err.contains("line 1"), "{err}");
 }
+
+#[test]
+fn xml_attributes_are_listed_and_addressable_by_path() {
+    let xml = r#"<root><book id="7" lang="en"><t>x</t></book></root>"#;
+    let (out, err, code) = run_treeq_with_file(&["--paths"], xml);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.lines().any(|l| l == "book.@id"), "{out}");
+    let (out, err, code) = run_treeq_with_file(&["--static", "--path", "book.@lang"], xml);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("en"), "{out}");
+}

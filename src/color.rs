@@ -13,6 +13,8 @@ pub enum Color {
     Url,
     /// A string value that looks like an ISO-8601 date/timestamp.
     Date,
+    /// XML attribute names.
+    Attr,
     Structural,
 }
 
@@ -29,6 +31,7 @@ fn code_ansi16(color: Color) -> &'static str {
         Color::Null => "\x1b[90m",
         Color::Url => "\x1b[4;34m",
         Color::Date => "\x1b[35m",
+        Color::Attr => "\x1b[33m",
         Color::Structural => "\x1b[2m",
     }
 }
@@ -51,6 +54,7 @@ fn code_truecolor(color: Color) -> &'static str {
         Color::Url => "\x1b[4;38;2;97;175;239m",
         // The purple booleans used to have, now free.
         Color::Date => "\x1b[38;2;198;120;221m",
+        Color::Attr => "\x1b[38;2;209;154;102m",
         Color::Structural => "\x1b[2m",
     }
 }

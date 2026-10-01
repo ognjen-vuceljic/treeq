@@ -24,7 +24,7 @@ use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::{fs, io, process};
 use xml_tree::{
-    MAX_XML_ATTRIBUTES_PER_ELEMENT, MAX_XML_DEPTH, XmlNode, find_xml_path,
+    MAX_XML_ATTRIBUTES_PER_ELEMENT, MAX_XML_DEPTH, XmlNode, find_xml_path_or_attr,
     xml_attribute_count_exceeds, xml_nesting_exceeds,
 };
 
@@ -379,15 +379,16 @@ fn run_xml(input: &str, args: &Args) {
         process::exit(1);
     });
     let target = match &args.path {
-        Some(p) => match find_xml_path(&tree, p) {
+        Some(p) => match find_xml_path_or_attr(&tree, p) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("error: {}", e.message());
                 process::exit(1);
             }
         },
-        None => &tree,
+        None => std::borrow::Cow::Borrowed(&tree),
     };
+    let target: &XmlNode = &target;
     if args.agent {
         let s = xml_stats(target);
         let depth = args.depth.or(Some(AGENT_DEFAULT_DEPTH));

@@ -226,6 +226,41 @@ fn split_sibling_index(segment: &str) -> (&str, Option<usize>) {
 
 /// A bare `name` still resolves to the first same-named child (unchanged
 /// behavior for every existing script); `name[k]` picks the k-th.
+/// Like `find_xml_path`, but a final `@name` segment resolves to a synthetic
+/// leaf holding that attribute's value (what the TUI shows for it).
+pub fn find_xml_path_or_attr<'a>(
+    node: &'a XmlNode,
+    path: &str,
+) -> Result<std::borrow::Cow<'a, XmlNode>, crate::json_tree::PathError> {
+    let mut segments = crate::json_tree::split_path_segments(path);
+    let attr = segments
+        .last()
+        .and_then(|s| s.strip_prefix('@'))
+        .map(str::to_string);
+    let Some(attr) = attr else {
+        return find_xml_path(node, path).map(std::borrow::Cow::Borrowed);
+    };
+    segments.pop();
+    let parent = find_xml_path(node, &segments.join("."))?;
+    match parent.attributes.iter().find(|(k, _)| *k == attr) {
+        Some((k, v)) => Ok(std::borrow::Cow::Owned(XmlNode {
+            name: format!("@{k}"),
+            attributes: vec![],
+            text: Some(v.clone()),
+            children: vec![],
+        })),
+        None => Err(crate::json_tree::PathError {
+            segment: format!("@{attr}"),
+            available: parent
+                .attributes
+                .iter()
+                .map(|(k, _)| format!("@{k}"))
+                .collect(),
+            array_len: None,
+        }),
+    }
+}
+
 pub fn find_xml_path<'a>(
     node: &'a XmlNode,
     path: &str,
