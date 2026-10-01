@@ -78,6 +78,9 @@ struct Args {
     /// clean for piping/command substitution.
     #[arg(long)]
     pick: bool,
+    /// Don't capture the mouse (keeps native text selection in the terminal).
+    #[arg(long)]
+    no_mouse: bool,
     /// Colour palette: `dark` or `light` (default: guessed from COLORFGBG, else dark).
     #[arg(long, value_enum)]
     theme: Option<ThemeArg>,
@@ -346,7 +349,7 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
             use_color()
         };
         clear_progress(input.len());
-        match tui::run_json_tui(target, use_color, args.pick) {
+        match tui::run_json_tui(target, use_color, args.pick, !args.no_mouse) {
             Ok(Some(picked)) => println!("{picked}"),
             Ok(None) => {}
             Err(e) => {
@@ -425,7 +428,7 @@ fn run_xml(input: &str, args: &Args) {
             use_color()
         };
         clear_progress(input.len());
-        match tui::run_xml_tui(target, use_color, args.pick) {
+        match tui::run_xml_tui(target, use_color, args.pick, !args.no_mouse) {
             Ok(Some(picked)) => println!("{picked}"),
             Ok(None) => {}
             Err(e) => {

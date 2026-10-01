@@ -66,6 +66,7 @@ treeq file.json --depth 2             # truncate deep nesting
 treeq file.json --stats               # size/shape summary, no full dump
 treeq file.json --stats --json        # machine-readable (also --paths/--schema/--agent)
 treeq config.yaml                     # YAML and NDJSON are auto-detected
+treeq file.json --no-mouse            # leave mouse to the terminal (wheel/click are on by default)
 treeq file.json --theme light         # palette for light terminals (auto via COLORFGBG)
 treeq file.json --agent               # stats + shallow tree, in one call
 treeq file.xml                        # XML works the same way
@@ -168,6 +169,8 @@ lines, precise search-match highlighting, and a truecolor palette:
 | `x` | Clear every active tag at once |
 | `y` | Yank current node's dotted path to clipboard (OSC 52) |
 | `v` | Yank the node's value (compact JSON, or the element's XML; max 100 KB) |
+| `&` | Filter: show only lines matching the query (and their ancestors); `Enter` keeps it, `Esc` clears |
+| mouse | Wheel scrolls, click selects, click the selected row to toggle (`--no-mouse` disables) |
 | `:` | Jump to a typed path (`user.tags.0`, `book.@id`); `Enter` jumps, `Esc` cancels |
 | `Y` | Yank current node as a jq filter, e.g. `.user.tags[0]` (JSON/YAML only) |
 | `?` | Toggle the in-app keybinding help overlay |

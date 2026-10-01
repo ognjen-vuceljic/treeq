@@ -101,6 +101,10 @@ pub(super) enum Source<'a> {
 }
 
 pub(super) struct AppState<'a> {
+    /// Active `&` filter: only matching lines (and their ancestors) show.
+    pub(super) filter: Option<String>,
+    /// True while the filter's text is being typed.
+    pub(super) filter_typing: bool,
     /// `Some` while typing a `:` jump-to-path.
     pub(super) goto_input: Option<String>,
     pub(super) source: Source<'a>,
@@ -183,7 +187,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
     ("/", "fuzzy search (Tab: cycle; n/N: repeat)"),
-    ("F / :", "search popup / jump to typed path"),
+    ("F / : / &", "search popup / jump to path / filter"),
     ("i", "inspect node (type, path, tag, full value)"),
     ("z1-9", "expand to depth N"),
     ("1-8", "tag / untag node"),
@@ -204,6 +208,45 @@ fn apply_pending_cursor_path(state: &mut AppState) {
     }
 }
 
+/// Hides lines that neither match the `&` filter nor sit on the way to (or
+/// under) a match. Matching reuses the search index (`all_paths`).
+fn apply_filter(state: &mut AppState) {
+    let Some(filter) = state.filter.as_deref().filter(|f| !f.is_empty()) else {
+        return;
+    };
+    let (matches, ancestors) = filter_sets(state, filter);
+    state.lines.retain(|l| {
+        ancestors.contains(&l.path) || (0..=l.path.len()).any(|n| matches.contains(&l.path[..n]))
+    });
+}
+
+fn filter_sets(state: &AppState, filter: &str) -> (HashSet<Vec<String>>, HashSet<Vec<String>>) {
+    let mut matches = HashSet::new();
+    let mut ancestors = HashSet::new();
+    for (path, text) in &state.all_paths {
+        if super::keys::fuzzy_matches(text, filter) {
+            for n in 1..=path.len() {
+                ancestors.insert(path[..n].to_vec());
+            }
+            matches.insert(path.clone());
+        }
+    }
+    (matches, ancestors)
+}
+
+/// Expands every ancestor of a filter match so matches inside collapsed
+/// subtrees are reachable.
+pub(super) fn expand_filter_matches(state: &mut AppState) {
+    let Some(filter) = state.filter.clone().filter(|f| !f.is_empty()) else {
+        return;
+    };
+    let (_, ancestors) = filter_sets(state, &filter);
+    for path in ancestors {
+        state.collapsed.remove(&path);
+        state.array_overrides.insert(path);
+    }
+}
+
 pub(super) fn rebuild_json_lines(state: &mut AppState, node: &JsonNode) {
     let mut lines = Vec::new();
     flatten_json(
@@ -215,6 +258,7 @@ pub(super) fn rebuild_json_lines(state: &mut AppState, node: &JsonNode) {
         &mut lines,
     );
     state.lines = lines;
+    apply_filter(state);
     apply_pending_cursor_path(state);
     state.cursor = state.cursor.min(state.lines.len().saturating_sub(1));
 }
@@ -223,6 +267,7 @@ pub(super) fn rebuild_xml_lines(state: &mut AppState, node: &XmlNode) {
     let mut lines = Vec::new();
     flatten_xml(node, &[], 0, &state.collapsed, &mut lines);
     state.lines = lines;
+    apply_filter(state);
     apply_pending_cursor_path(state);
     state.cursor = state.cursor.min(state.lines.len().saturating_sub(1));
 }
@@ -355,6 +400,8 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
             goto_input: None,
+            filter: None,
+            filter_typing: false,
             source: Default::default(),
         }
     }
