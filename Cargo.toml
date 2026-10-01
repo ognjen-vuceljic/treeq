@@ -30,6 +30,7 @@ ratatui = "0.29"
 # feature selects uses a plain poll(2) call instead and doesn't have that
 # problem. See issue #85.
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
+mimalloc = "0.1.52"
 
 [profile.release]
 lto = "fat"
