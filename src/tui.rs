@@ -32,6 +32,70 @@ use std::io;
 /// mode renders over `/dev/tty` for exactly this reason). Errors are
 /// swallowed: this only ever runs while already unwinding an error or a
 /// panic, and a second error here must not shadow or block that.
+/// UI state carried across an `r` reload, matched by path: whatever no longer
+/// exists in the new tree is dropped.
+#[derive(Default)]
+pub struct SavedUi {
+    collapsed: HashSet<Vec<String>>,
+    array_overrides: HashSet<Vec<String>>,
+    tags: HashMap<Vec<String>, u8>,
+    cursor_path: Option<Vec<String>>,
+    /// Shown in the status bar on the next start (e.g. a reload error).
+    pub message: Option<String>,
+}
+
+pub enum TuiExit {
+    Done(Option<String>),
+    Reload(SavedUi),
+}
+
+pub struct TuiOpts {
+    pub use_color: bool,
+    pub pick: bool,
+    pub mouse: bool,
+    /// `r` reloads (only offered when the input is a file).
+    pub reload_ok: bool,
+    pub saved: Option<SavedUi>,
+}
+
+fn save_ui(state: &AppState) -> SavedUi {
+    SavedUi {
+        collapsed: state.collapsed.clone(),
+        array_overrides: state.array_overrides.clone(),
+        tags: state.tags.clone(),
+        cursor_path: state.lines.get(state.cursor).map(|l| {
+            if l.is_array_summary {
+                keys::array_path_for_summary_line(&l.path).to_vec()
+            } else {
+                l.path.clone()
+            }
+        }),
+        message: None,
+    }
+}
+
+/// The saved sets that still make sense for the new tree.
+fn restored(
+    saved: &SavedUi,
+    containers: &HashSet<Vec<String>>,
+) -> (HashSet<Vec<String>>, HashSet<Vec<String>>) {
+    let keep = |set: &HashSet<Vec<String>>| set.intersection(containers).cloned().collect();
+    (keep(&saved.collapsed), keep(&saved.array_overrides))
+}
+
+fn finish_restore(state: &mut AppState, saved: SavedUi) {
+    let known: HashSet<&Vec<String>> = state.all_paths.iter().map(|(p, _)| p).collect();
+    state.tags = saved
+        .tags
+        .into_iter()
+        .filter(|(p, _)| known.contains(p))
+        .collect();
+    if let Some(p) = saved.cursor_path {
+        keys::move_cursor_to_path(state, &p);
+    }
+    state.status_message = saved.message;
+}
+
 fn restore_terminal_best_effort() {
     let _ = disable_raw_mode();
     if let Ok(mut tty) = OpenOptions::new().write(true).open("/dev/tty") {
@@ -66,7 +130,8 @@ fn run_loop<W, F>(
     mut rebuild: F,
     out: W,
     mouse: bool,
-) -> io::Result<Option<String>>
+    reload_ok: bool,
+) -> io::Result<TuiExit>
 where
     W: io::Write,
     F: FnMut(&mut AppState),
@@ -93,7 +158,7 @@ where
     // However the loop below ends -- a clean quit, or an `io::Result` `?`
     // propagating out of `draw`/`event::read` -- the terminal must be
     // restored on every path, not just the success one (issue #127).
-    let result = (|| -> io::Result<Option<String>> {
+    let result = (|| -> io::Result<TuiExit> {
         let mut picked = None;
         loop {
             terminal.draw(|f| render_frame(f, &state))?;
@@ -107,6 +172,13 @@ where
             } else if let Event::Key(key) = event
                 && key.kind == KeyEventKind::Press
             {
+                if reload_ok
+                    && key.code == KeyCode::Char('r')
+                    && key.modifiers.is_empty()
+                    && !modal_active(&state)
+                {
+                    return Ok(TuiExit::Reload(save_ui(&state)));
+                }
                 let quit = handle_key_event(&mut state, key);
                 rebuild(&mut state);
                 if state.pick_result.is_some() {
@@ -117,7 +189,7 @@ where
                 }
             }
         }
-        Ok(picked)
+        Ok(TuiExit::Done(picked))
     })();
 
     let _ = disable_raw_mode();
@@ -152,14 +224,19 @@ fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
 /// Wheel moves the cursor three rows; a left click selects the row, and
 /// clicking the row that is already selected toggles it. Ignored while a
 /// modal (help, popup, inspect, text entry) owns the keyboard.
-fn handle_mouse(state: &mut AppState, m: MouseEvent) {
-    if state.help_visible
+fn modal_active(state: &AppState) -> bool {
+    state.help_visible
         || state.popup_visible
         || state.inspect_visible
         || state.searching
         || state.filter_typing
         || state.goto_input.is_some()
-    {
+        || state.awaiting_depth
+        || state.visual_anchor.is_some()
+}
+
+fn handle_mouse(state: &mut AppState, m: MouseEvent) {
+    if modal_active(state) {
         return;
     }
     match m.kind {
@@ -245,66 +322,69 @@ fn initial_state<'a>(
     }
 }
 
-pub fn run_json_tui(
-    node: &JsonNode,
-    use_color: bool,
-    pick: bool,
-    mouse: bool,
-) -> io::Result<Option<String>> {
-    let collapsed = HashSet::new();
-    let array_overrides = HashSet::new();
-    let mut lines = Vec::new();
-    flatten_json(node, &[], 0, &collapsed, &array_overrides, &mut lines);
+pub fn run_json_tui(node: &JsonNode, opts: TuiOpts) -> io::Result<TuiExit> {
     let mut all_container_paths = HashSet::new();
     collect_container_paths_json(node, &[], &mut all_container_paths);
+    let (collapsed, array_overrides) = match &opts.saved {
+        Some(saved) => restored(saved, &all_container_paths),
+        None => Default::default(),
+    };
+    let mut lines = Vec::new();
+    flatten_json(node, &[], 0, &collapsed, &array_overrides, &mut lines);
     let mut all_paths = Vec::new();
     collect_all_paths_json(node, &[], &mut all_paths);
-    let state = initial_state(
+    let mut state = initial_state(
         lines,
         collapsed,
         all_container_paths,
         array_overrides,
         all_paths,
         true,
-        use_color,
-        pick,
+        opts.use_color,
+        opts.pick,
         state::Source::Json(node),
     );
-    if pick {
-        run_loop(state, |s| rebuild_json_lines(s, node), open_tty()?, mouse)
+    if let Some(saved) = opts.saved {
+        finish_restore(&mut state, saved);
+    }
+    let rebuild = |s: &mut AppState| rebuild_json_lines(s, node);
+    if opts.pick {
+        run_loop(state, rebuild, open_tty()?, opts.mouse, opts.reload_ok)
     } else {
-        run_loop(state, |s| rebuild_json_lines(s, node), io::stdout(), mouse)
+        run_loop(state, rebuild, io::stdout(), opts.mouse, opts.reload_ok)
     }
 }
 
-pub fn run_xml_tui(
-    node: &XmlNode,
-    use_color: bool,
-    pick: bool,
-    mouse: bool,
-) -> io::Result<Option<String>> {
-    let collapsed = HashSet::new();
-    let mut lines = Vec::new();
-    flatten_xml(node, &[], 0, &collapsed, &mut lines);
+pub fn run_xml_tui(node: &XmlNode, opts: TuiOpts) -> io::Result<TuiExit> {
     let mut all_container_paths = HashSet::new();
     collect_container_paths_xml(node, &[], &mut all_container_paths);
+    let (collapsed, _) = match &opts.saved {
+        Some(saved) => restored(saved, &all_container_paths),
+        None => Default::default(),
+    };
+    let mut lines = Vec::new();
+    flatten_xml(node, &[], 0, &collapsed, &mut lines);
     let mut all_paths = Vec::new();
     collect_all_paths_xml(node, &[], &mut all_paths);
-    let state = initial_state(
+    let mut state = initial_state(
         lines,
         collapsed,
         all_container_paths,
         HashSet::new(),
         all_paths,
         false,
-        use_color,
-        pick,
+        opts.use_color,
+        opts.pick,
         state::Source::Xml(node),
     );
-    if pick {
-        run_loop(state, |s| rebuild_xml_lines(s, node), open_tty()?, mouse)
+    if let Some(saved) = opts.saved {
+        finish_restore(&mut state, saved);
+    }
+    let rebuild = |s: &mut AppState| rebuild_xml_lines(s, node);
+    if opts.pick {
+        run_loop(state, rebuild, open_tty()?, opts.mouse, opts.reload_ok)
     } else {
-        run_loop(state, |s| rebuild_xml_lines(s, node), io::stdout(), mouse)
+        run_loop(state, rebuild, io::stdout(), opts.mouse, opts.reload_ok)
     }
 }
 
@@ -445,5 +525,29 @@ mod tests {
         // clicks past the content or on the border do nothing
         handle_mouse(&mut state, ev(MouseEventKind::Down(MouseButton::Left), 0));
         assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn reload_state_keeps_what_still_exists_and_drops_the_rest() {
+        let mut state = state_for(r#"{"a": {"x": 1}, "b": {"y": 2}}"#);
+        state.collapsed.insert(vec!["a".to_string()]);
+        state.collapsed.insert(vec!["gone".to_string()]);
+        state.tags.insert(vec!["b".to_string(), "y".to_string()], 3);
+        state.tags.insert(vec!["gone".to_string()], 1);
+        state.all_paths = vec![(vec!["b".to_string(), "y".to_string()], String::new())];
+        state.cursor = 2;
+        let saved = save_ui(&state);
+        assert_eq!(saved.cursor_path.as_deref(), Some(&["b".to_string()][..]));
+
+        let new_containers: HashSet<Vec<String>> =
+            [vec!["a".to_string()], vec!["b".to_string()]].into();
+        let (collapsed, _) = restored(&saved, &new_containers);
+        assert_eq!(collapsed, [vec!["a".to_string()]].into());
+
+        let mut fresh = state_for(r#"{"a": {"x": 1}, "b": {"y": 2}}"#);
+        fresh.all_paths = state.all_paths.clone();
+        finish_restore(&mut fresh, saved);
+        assert_eq!(fresh.tags.len(), 1);
+        assert_eq!(fresh.cursor, 2);
     }
 }
