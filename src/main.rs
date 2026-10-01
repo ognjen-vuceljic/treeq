@@ -1,3 +1,8 @@
+// Tree nodes and keys are millions of small allocations; mimalloc cuts parse/
+// render time ~25% and peak memory ~1/3 on a 21 MB file (issue #147).
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod clipboard;
 mod color;
 mod detect;
