@@ -533,10 +533,49 @@ fn reports_invalid_yaml() {
 }
 
 #[test]
-fn reports_multi_document_yaml_as_unsupported() {
-    let (_stdout, stderr, code) = run_treeq(&["--static", "--format", "yaml"], "a: 1\n---\nb: 2\n");
+fn multi_document_yaml_becomes_an_array_of_documents() {
+    let (out, err, code) = run_treeq(
+        &["--paths", "--format", "yaml"],
+        "---\nkind: A\n---\nkind: B\nspec:\n  n: 1\n",
+    );
+    assert_eq!(code, 0, "{err}");
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(
+        lines.contains(&"0.kind") && lines.contains(&"1.spec.n"),
+        "{out}"
+    );
+}
+
+#[test]
+fn malformed_multi_document_yaml_errors_instead_of_hanging() {
+    let (_, err, code) = run_treeq(&["--static", "--format", "yaml"], "a: [\n---\nb: 1\n");
     assert_eq!(code, 1);
-    assert!(stderr.contains("multi-document YAML is not supported yet"));
+    assert!(err.contains("invalid YAML"), "{err}");
+}
+
+#[test]
+fn closed_stdout_pipe_does_not_panic_for_static_output() {
+    let mut json = String::from("{");
+    for i in 0..20000 {
+        json.push_str(&format!("\"k{i}\": [1, 2, 3],"));
+    }
+    json.push_str("\"end\": 0}");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_treeq"))
+        .args(["--static"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(json.as_bytes());
+    });
+    drop(child.stdout.take()); // reader goes away immediately, like `| head -0`
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!err.contains("panicked"), "{err}");
 }
 
 #[test]
