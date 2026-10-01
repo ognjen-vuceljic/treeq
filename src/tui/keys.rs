@@ -1,5 +1,5 @@
 use super::flatten::display_path;
-use super::state::AppState;
+use super::state::{AppState, Source};
 use crate::clipboard::copy_to_clipboard;
 use crossterm::event::KeyCode;
 
@@ -175,7 +175,7 @@ pub(super) fn popup_matches(state: &AppState) -> Vec<Vec<String>> {
 }
 
 /// Same matches as `popup_matches`, paired with their search text.
-pub(super) fn popup_match_entries(state: &AppState) -> Vec<&(Vec<String>, String)> {
+pub(super) fn popup_match_entries<'s>(state: &'s AppState) -> Vec<&'s (Vec<String>, String)> {
     if state.popup_query.is_empty() {
         return Vec::new();
     }
@@ -465,6 +465,98 @@ fn collapse_all_ancestors(state: &mut AppState) {
 /// The real path a line represents, resolving the array-summary line's
 /// synthetic marker segment to its actual (array) path -- the same
 /// resolution every other path-consuming key (tag, yank, ...) applies.
+/// Max bytes `v` will copy: OSC 52 payloads are limited in many terminals.
+const MAX_YANK_BYTES: usize = 100 * 1024;
+
+fn yank_value(state: &mut AppState) {
+    let Some(line) = state.lines.get(state.cursor) else {
+        return;
+    };
+    let path = real_path(line);
+    let text = match state.source {
+        Source::Json(root) => json_at(root, path).map(crate::json_tree::to_compact_json),
+        Source::Xml(root) => xml_text_at(root, path),
+        Source::None => None,
+    };
+    state.status_message = Some(match text {
+        None => "nothing to copy".to_string(),
+        Some(t) if t.len() > MAX_YANK_BYTES => format!(
+            "value too large to copy ({} KB, max {} KB)",
+            t.len() / 1024,
+            MAX_YANK_BYTES / 1024
+        ),
+        Some(t) => match copy_to_clipboard(&t) {
+            Ok(()) => format!("copied value ({} bytes)", t.len()),
+            Err(e) => format!("copy failed: {e}"),
+        },
+    });
+}
+
+fn json_at<'a>(
+    root: &'a crate::json_tree::JsonNode,
+    path: &[String],
+) -> Option<&'a crate::json_tree::JsonNode> {
+    use crate::json_tree::JsonNode;
+    let mut cur = root;
+    for seg in path {
+        cur = match cur {
+            JsonNode::Object(fields) => fields.iter().find(|(k, _)| k == seg).map(|(_, v)| v)?,
+            JsonNode::Array(items) if is_array_index_segment(seg) => {
+                items.get(seg[1..seg.len() - 1].parse::<usize>().ok()?)?
+            }
+            _ => return None,
+        };
+    }
+    Some(cur)
+}
+
+fn xml_text_at(root: &crate::xml_tree::XmlNode, path: &[String]) -> Option<String> {
+    let mut cur = root;
+    for (i, seg) in path.iter().enumerate() {
+        if let Some(attr) = seg.strip_prefix('@') {
+            let is_last = i + 1 == path.len();
+            return is_last
+                .then(|| cur.attributes.iter().find(|(k, _)| k == attr))
+                .flatten()
+                .map(|(_, v)| v.clone());
+        }
+        let segs = crate::xml_tree::child_segments(cur);
+        let idx = segs.iter().position(|s| s == seg)?;
+        cur = &cur.children[idx];
+    }
+    Some(crate::xml_tree::to_xml_string(cur))
+}
+
+/// Turns a typed CLI-style path (`user.tags.0`, `book.@id`) into the TUI path
+/// of the first matching node and moves the cursor there.
+fn goto_typed_path(state: &mut AppState, typed: &str) {
+    let typed_segs = crate::json_tree::split_path_segments(typed);
+    if typed_segs.is_empty() {
+        return;
+    }
+    let matches = |tui_seg: &str, typed: &str| {
+        tui_seg == typed
+            || tui_seg == format!("[{typed}]")
+            || tui_seg.strip_suffix("[0]") == Some(typed)
+    };
+    let found = state
+        .all_paths
+        .iter()
+        .map(|(p, _)| p)
+        .find(|p| {
+            p.len() == typed_segs.len() && p.iter().zip(&typed_segs).all(|(a, b)| matches(a, b))
+        })
+        .cloned();
+    match found {
+        Some(path) => {
+            expand_path_into_view(state, &path);
+            state.pending_cursor_path = Some(path);
+            state.status_message = None;
+        }
+        None => state.status_message = Some(format!("path not found: {typed}")),
+    }
+}
+
 fn real_path(line: &super::state::Line) -> &[String] {
     if line.is_array_summary {
         array_path_for_summary_line(&line.path)
@@ -742,6 +834,21 @@ fn page_down(state: &mut AppState) {
 }
 
 pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
+    if let Some(input) = &mut state.goto_input {
+        match key {
+            KeyCode::Esc => state.goto_input = None,
+            KeyCode::Enter => {
+                let typed = state.goto_input.take().unwrap_or_default();
+                goto_typed_path(state, &typed);
+            }
+            KeyCode::Backspace => {
+                input.pop();
+            }
+            KeyCode::Char(c) => input.push(c),
+            _ => {}
+        }
+        return false;
+    }
     if state.searching {
         match key {
             KeyCode::Enter | KeyCode::Esc => state.searching = false,
@@ -874,6 +981,8 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
                 });
             }
         }
+        KeyCode::Char(':') => state.goto_input = Some(String::new()),
+        KeyCode::Char('v') => yank_value(state),
         KeyCode::Char('Y') => {
             if !state.is_json {
                 state.status_message =
@@ -916,7 +1025,7 @@ mod tests {
 
     /// An `AppState` over a parsed XML document, the way `run_xml_tui`
     /// builds one.
-    fn xml_state(xml: &str) -> (AppState, crate::xml_tree::XmlNode) {
+    fn xml_state(xml: &str) -> (AppState<'static>, crate::xml_tree::XmlNode) {
         use super::super::flatten::{
             collect_all_paths_xml, collect_container_paths_xml, flatten_xml,
         };
@@ -940,7 +1049,7 @@ mod tests {
 
     /// An `AppState` over a parsed JSON document, the way `run_json_tui`
     /// builds one.
-    fn json_state(json: &str) -> (AppState, crate::json_tree::JsonNode) {
+    fn json_state(json: &str) -> (AppState<'static>, crate::json_tree::JsonNode) {
         use super::super::flatten::{
             collect_all_paths_json, collect_container_paths_json, flatten_json,
         };
@@ -960,7 +1069,7 @@ mod tests {
         (state, node)
     }
 
-    fn visible_keys(state: &AppState) -> Vec<&str> {
+    fn visible_keys<'s>(state: &'s AppState) -> Vec<&'s str> {
         state.lines.iter().map(|l| l.key.as_str()).collect()
     }
 
@@ -1120,7 +1229,7 @@ mod tests {
         }
     }
 
-    fn fixture() -> AppState {
+    fn fixture() -> AppState<'static> {
         AppState {
             lines: vec![
                 line("user", true, &["user"]),
@@ -1164,6 +1273,8 @@ mod tests {
             pick_mode: false,
             pick_result: None,
             visual_anchor: None,
+            goto_input: None,
+            source: Default::default(),
         }
     }
 
@@ -1576,7 +1687,7 @@ mod tests {
         );
     }
 
-    fn nested_fixture() -> AppState {
+    fn nested_fixture() -> AppState<'static> {
         AppState {
             lines: vec![
                 line("root", true, &["root"]),
@@ -1642,10 +1753,12 @@ mod tests {
             pick_mode: false,
             pick_result: None,
             visual_anchor: None,
+            goto_input: None,
+            source: Default::default(),
         }
     }
 
-    fn tall_fixture(n: usize, cursor: usize) -> AppState {
+    fn tall_fixture(n: usize, cursor: usize) -> AppState<'static> {
         AppState {
             lines: (0..n)
                 .map(|i| line(&format!("item{i}"), false, &["item"]))
@@ -1677,6 +1790,8 @@ mod tests {
             pick_mode: false,
             pick_result: None,
             visual_anchor: None,
+            goto_input: None,
+            source: Default::default(),
         }
     }
 
@@ -2330,7 +2445,7 @@ mod tests {
     /// <item>2</item><item>3</item>` in XML, where sibling elements with
     /// the same tag name have no `[N]`-style disambiguation the way a JSON
     /// array does.
-    fn duplicate_path_state() -> AppState {
+    fn duplicate_path_state() -> AppState<'static> {
         let mut state = fixture();
         state.lines = (1..=3)
             .map(|i| Line {
@@ -2431,7 +2546,7 @@ mod tests {
         assert_eq!(state.status_message.as_deref(), Some("expanded all"));
     }
 
-    fn three_siblings_state() -> (AppState, crate::json_tree::JsonNode) {
+    fn three_siblings_state() -> (AppState<'static>, crate::json_tree::JsonNode) {
         use super::super::flatten::{collect_all_paths_json, flatten_json};
         use crate::json_tree::JsonNode;
 
@@ -2474,6 +2589,8 @@ mod tests {
             pick_mode: false,
             pick_result: None,
             visual_anchor: None,
+            goto_input: None,
+            source: Default::default(),
         };
         (state, node)
     }
@@ -2562,6 +2679,8 @@ mod tests {
             pick_mode: false,
             pick_result: None,
             visual_anchor: None,
+            goto_input: None,
+            source: Default::default(),
         };
         move_cursor_to_path(&mut state, &["items".to_string(), "…more".to_string()]);
         assert!(state.lines[state.cursor].is_array_summary);
@@ -2850,6 +2969,8 @@ mod tests {
             pick_mode: false,
             pick_result: None,
             visual_anchor: None,
+            goto_input: None,
+            source: Default::default(),
         };
 
         jump_to_next_match(&mut state);
@@ -3359,5 +3480,70 @@ mod tests {
             "user".to_string(),
             "address".to_string()
         ]));
+    }
+
+    #[test]
+    fn json_at_resolves_tui_paths_and_serializes_compactly() {
+        let (_, node) = json_state(r#"{"a": {"b": [1, "x", null]}, "k.e": 2.50}"#);
+        let sub = json_at(&node, &["a".into(), "b".into()]).unwrap();
+        assert_eq!(crate::json_tree::to_compact_json(sub), r#"[1,"x",null]"#);
+        let item = json_at(&node, &["a".into(), "b".into(), "[1]".into()]).unwrap();
+        assert_eq!(crate::json_tree::to_compact_json(item), r#""x""#);
+        assert_eq!(
+            crate::json_tree::to_compact_json(&node),
+            r#"{"a":{"b":[1,"x",null]},"k.e":2.50}"#
+        );
+        assert!(json_at(&node, &["nope".into()]).is_none());
+    }
+
+    #[test]
+    fn xml_text_at_serializes_elements_and_attributes() {
+        let (_, node) = xml_state(r#"<r><b id="1">t&amp;</b><b id="2"/></r>"#);
+        assert_eq!(
+            xml_text_at(&node, &["b[0]".into()]).unwrap(),
+            r#"<b id="1">t&amp;</b>"#
+        );
+        assert_eq!(
+            xml_text_at(&node, &["b[1]".into(), "@id".into()]).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            xml_text_at(&node, &["b[1]".into()]).unwrap(),
+            r#"<b id="2"/>"#
+        );
+    }
+
+    #[test]
+    fn colon_jumps_to_a_typed_path_expanding_ancestors() {
+        let (mut state, _) = json_state(r#"{"user": {"tags": ["a", "b"]}}"#);
+        state.collapsed.insert(vec!["user".to_string()]);
+        for c in ":user.tags.1".chars() {
+            handle_key(&mut state, KeyCode::Char(c));
+        }
+        assert_eq!(state.goto_input.as_deref(), Some("user.tags.1"));
+        handle_key(&mut state, KeyCode::Enter);
+        assert!(state.goto_input.is_none());
+        assert_eq!(
+            state.pending_cursor_path,
+            Some(vec![
+                "user".to_string(),
+                "tags".to_string(),
+                "[1]".to_string()
+            ])
+        );
+        assert!(!state.collapsed.contains(&vec!["user".to_string()]));
+    }
+
+    #[test]
+    fn colon_with_unknown_path_reports_and_esc_cancels() {
+        let (mut state, _) = json_state(r#"{"a": 1}"#);
+        for c in ":zzz".chars() {
+            handle_key(&mut state, KeyCode::Char(c));
+        }
+        handle_key(&mut state, KeyCode::Enter);
+        assert_eq!(state.status_message.as_deref(), Some("path not found: zzz"));
+        handle_key(&mut state, KeyCode::Char(':'));
+        handle_key(&mut state, KeyCode::Esc);
+        assert!(state.goto_input.is_none());
     }
 }

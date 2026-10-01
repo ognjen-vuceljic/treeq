@@ -166,6 +166,8 @@ lines, precise search-match highlighting, and a truecolor palette:
 | `1-8` | Tag/untag current node with a highlight color |
 | `x` | Clear every active tag at once |
 | `y` | Yank current node's dotted path to clipboard (OSC 52) |
+| `v` | Yank the node's value (compact JSON, or the element's XML; max 100 KB) |
+| `:` | Jump to a typed path (`user.tags.0`, `book.@id`); `Enter` jumps, `Esc` cancels |
 | `Y` | Yank current node as a jq filter, e.g. `.user.tags[0]` (JSON/YAML only) |
 | `?` | Toggle the in-app keybinding help overlay |
 | `q` / `Esc` | Quit |

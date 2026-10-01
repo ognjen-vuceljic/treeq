@@ -217,6 +217,46 @@ impl JsonNode {
     }
 }
 
+/// Compact JSON for a subtree. Numbers keep their original digits.
+pub fn to_compact_json(node: &JsonNode) -> String {
+    let mut out = String::new();
+    write_compact_json(node, &mut out);
+    out
+}
+
+fn write_compact_json(node: &JsonNode, out: &mut String) {
+    match node {
+        JsonNode::Scalar(JsonScalar::Str(s)) => {
+            out.push_str(&serde_json::to_string(s).unwrap_or_default())
+        }
+        JsonNode::Scalar(JsonScalar::Number(n)) => out.push_str(n),
+        JsonNode::Scalar(JsonScalar::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
+        JsonNode::Scalar(JsonScalar::Null) => out.push_str("null"),
+        JsonNode::Object(fields) => {
+            out.push('{');
+            for (i, (k, v)) in fields.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push_str(&serde_json::to_string(k).unwrap_or_default());
+                out.push(':');
+                write_compact_json(v, out);
+            }
+            out.push('}');
+        }
+        JsonNode::Array(items) => {
+            out.push('[');
+            for (i, v) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_compact_json(v, out);
+            }
+            out.push(']');
+        }
+    }
+}
+
 /// A `--path` lookup failure: the first segment that didn't resolve, plus
 /// what was available there so the CLI can say what to type instead.
 #[derive(Debug)]

@@ -137,7 +137,7 @@ fn open_tty() -> io::Result<std::fs::File> {
 /// Every field's starting value, in one place: adding an `AppState` field
 /// is one edit here instead of one per entry point.
 #[allow(clippy::too_many_arguments)]
-fn initial_state(
+fn initial_state<'a>(
     lines: Vec<state::Line>,
     collapsed: HashSet<Vec<String>>,
     all_container_paths: HashSet<Vec<String>>,
@@ -146,7 +146,8 @@ fn initial_state(
     is_json: bool,
     use_color: bool,
     pick: bool,
-) -> AppState {
+    source: state::Source<'a>,
+) -> AppState<'a> {
     AppState {
         lines,
         collapsed,
@@ -176,6 +177,8 @@ fn initial_state(
         pick_mode: pick,
         pick_result: None,
         visual_anchor: None,
+        goto_input: None,
+        source,
     }
 }
 
@@ -197,6 +200,7 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<
         true,
         use_color,
         pick,
+        state::Source::Json(node),
     );
     if pick {
         run_loop(state, |s| rebuild_json_lines(s, node), open_tty()?)
@@ -222,6 +226,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Op
         false,
         use_color,
         pick,
+        state::Source::Xml(node),
     );
     if pick {
         run_loop(state, |s| rebuild_xml_lines(s, node), open_tty()?)
@@ -234,7 +239,7 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Op
 mod tests {
     use super::*;
 
-    fn state_for(json: &str) -> AppState {
+    fn state_for(json: &str) -> AppState<'static> {
         let node = JsonNode::from_value(&serde_json::from_str(json).unwrap());
         let mut lines = Vec::new();
         flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
@@ -249,6 +254,7 @@ mod tests {
             true,
             false,
             false,
+            state::Source::None,
         )
     }
 

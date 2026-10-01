@@ -60,7 +60,20 @@ pub(super) struct Line {
     pub(super) type_label: String,
 }
 
-pub(super) struct AppState {
+/// The parsed document, for the few actions (yank value) that need more than
+/// the flattened lines.
+#[derive(Clone, Copy, Default)]
+pub(super) enum Source<'a> {
+    #[default]
+    None,
+    Json(&'a JsonNode),
+    Xml(&'a XmlNode),
+}
+
+pub(super) struct AppState<'a> {
+    /// `Some` while typing a `:` jump-to-path.
+    pub(super) goto_input: Option<String>,
+    pub(super) source: Source<'a>,
     pub(super) lines: Vec<Line>,
     pub(super) collapsed: HashSet<Vec<String>>,
     pub(super) all_container_paths: HashSet<Vec<String>>,
@@ -140,12 +153,12 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("Backspace", "collapse parent"),
     ("Shift+C", "collapse ancestors"),
     ("/", "fuzzy search (Tab: cycle; n/N: repeat)"),
-    ("F", "search-results popup (whole document)"),
+    ("F / :", "search popup / jump to typed path"),
     ("i", "inspect node (type, path, tag, full value)"),
     ("z1-9", "expand to depth N"),
     ("1-8", "tag / untag node"),
     ("x", "clear all tags"),
-    ("y / Y", "yank path / as jq path (JSON only)"),
+    ("y / Y / v", "yank path / jq path (JSON) / value"),
     ("c / e", "collapse all / expand all"),
     ("V", "visual select (j/k extend; l/h/c/e apply)"),
     ("H / M / L", "jump to top/middle/bottom of viewport"),
@@ -291,7 +304,7 @@ mod tests {
         assert_eq!(depth_tint_color(0), Color::DarkGray);
     }
 
-    fn state_with_cursor(cursor: usize) -> AppState {
+    fn state_with_cursor(cursor: usize) -> AppState<'static> {
         AppState {
             lines: Vec::new(),
             collapsed: HashSet::new(),
@@ -321,6 +334,8 @@ mod tests {
             pick_mode: false,
             pick_result: None,
             visual_anchor: None,
+            goto_input: None,
+            source: Default::default(),
         }
     }
 
