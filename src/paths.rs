@@ -46,6 +46,11 @@ pub fn xml_paths(node: &XmlNode) -> Vec<String> {
 }
 
 fn walk_xml(node: &XmlNode, path: &[String], out: &mut Vec<String>) {
+    for (name, _) in &node.attributes {
+        let mut attr_path = path.to_vec();
+        attr_path.push(format!("@{name}"));
+        out.push(display_path(&attr_path));
+    }
     for (child, segment) in node.children.iter().zip(child_segments(node)) {
         let mut child_path = path.to_vec();
         child_path.push(segment);

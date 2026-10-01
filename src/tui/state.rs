@@ -202,6 +202,7 @@ pub(super) fn ratatui_color(color: TqColor) -> Color {
         // Underlined on top of this color; see `render::value_style`.
         TqColor::Url => Color::Rgb(97, 175, 239),
         TqColor::Date => Color::Rgb(198, 120, 221),
+        TqColor::Attr => Color::Rgb(209, 154, 102),
         TqColor::Structural => Color::DarkGray,
     }
 }

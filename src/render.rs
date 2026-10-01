@@ -145,13 +145,20 @@ fn xml_label(node: &XmlNode, mode: ColorMode) -> String {
             .iter()
             .map(|(k, v)| {
                 format!(
-                    "{}=\"{}\"",
-                    paint(&escape_display_str(k), Color::Key, mode),
-                    paint(&escape_display_str(v), Color::Str, mode)
+                    "{}{}{}{}",
+                    paint(&escape_display_str(k), Color::Attr, mode),
+                    paint("=\"", Color::Structural, mode),
+                    paint(&escape_display_str(v), Color::Str, mode),
+                    paint("\"", Color::Structural, mode)
                 )
             })
             .collect();
-        label.push_str(&format!(" [{}]", attrs.join(" ")));
+        label.push_str(&format!(
+            " {}{}{}",
+            paint("[", Color::Structural, mode),
+            attrs.join(" "),
+            paint("]", Color::Structural, mode)
+        ));
     }
     if let Some(text) = &node.text {
         label.push_str(&format!(

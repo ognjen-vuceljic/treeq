@@ -142,6 +142,22 @@ pub(super) fn flatten_xml(
     collapsed: &HashSet<Vec<String>>,
     out: &mut Vec<Line>,
 ) {
+    for (name, value) in &node.attributes {
+        let segment = format!("@{name}");
+        let mut attr_path = path.to_vec();
+        attr_path.push(segment.clone());
+        let len = value.chars().count();
+        out.push(Line {
+            depth,
+            key: escape_display_str(&segment),
+            value: Some((escape_display_str(value), TqColor::Str)),
+            path: attr_path,
+            has_children: false,
+            is_array_summary: false,
+            count_label: None,
+            type_label: format!("attribute ({len} char{})", plural_suffix(len)),
+        });
+    }
     for (child, segment) in node.children.iter().zip(child_segments(node)) {
         let mut child_path = path.to_vec();
         child_path.push(segment.clone());
@@ -163,7 +179,7 @@ pub(super) fn flatten_xml(
             count_label: has_children.then(|| format!("({})", child.children.len())),
             type_label: xml_type_label(child),
         });
-        if has_children && !collapsed.contains(&child_path) {
+        if (has_children || !child.attributes.is_empty()) && !collapsed.contains(&child_path) {
             flatten_xml(child, &child_path, depth + 1, collapsed, out);
         }
     }
@@ -267,6 +283,12 @@ pub(super) fn collect_all_paths_xml(
     path: &[String],
     out: &mut Vec<(Vec<String>, String)>,
 ) {
+    for (name, value) in &node.attributes {
+        let mut attr_path = path.to_vec();
+        attr_path.push(format!("@{name}"));
+        let text = escape_display_str(value);
+        out.push((attr_path.clone(), search_text(&attr_path, Some(&text))));
+    }
     for (child, segment) in node.children.iter().zip(child_segments(node)) {
         let mut child_path = path.to_vec();
         child_path.push(segment);
@@ -439,18 +461,44 @@ mod tests {
     }
 
     #[test]
-    fn xml_attributes_are_not_yet_surfaced_as_a_line_value() {
-        // Line has no field for attributes today, so an element with only
-        // attributes (no text) renders with no value segment at all.
-        let xml = r#"<root><user id="1"></user></root>"#;
+    fn xml_attributes_become_leaf_lines_before_children() {
+        let xml = r#"<root><user id="1" role="admin"><name>A</name></user></root>"#;
         let doc = roxmltree::Document::parse(xml).unwrap();
         let node = XmlNode::from_document(&doc).unwrap();
         let mut out = Vec::new();
         flatten_xml(&node, &[], 0, &HashSet::new(), &mut out);
 
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].key, "user");
-        assert!(out[0].value.is_none());
+        let keys: Vec<&str> = out.iter().map(|l| l.key.as_str()).collect();
+        assert_eq!(keys, ["user", "@id", "@role", "name"]);
+        assert_eq!(out[1].path, path(&["user", "@id"]));
+        assert_eq!(out[1].depth, 1);
+        assert_eq!(out[1].value.as_ref().unwrap().0, "1");
+        assert!(!out[1].has_children);
+        assert!(out[1].type_label.starts_with("attribute"));
+    }
+
+    #[test]
+    fn attribute_only_element_shows_its_attributes() {
+        let xml = r#"<root><user id="1"/></root>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = XmlNode::from_document(&doc).unwrap();
+        let mut out = Vec::new();
+        flatten_xml(&node, &[], 0, &HashSet::new(), &mut out);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[1].key, "@id");
+    }
+
+    #[test]
+    fn search_paths_include_xml_attributes() {
+        let xml = r#"<root><user id="42"/></root>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node = XmlNode::from_document(&doc).unwrap();
+        let mut out = Vec::new();
+        collect_all_paths_xml(&node, &[], &mut out);
+        assert!(
+            out.iter()
+                .any(|(p, text)| p == &path(&["user", "@id"]) && text.contains("42"))
+        );
     }
 
     #[test]

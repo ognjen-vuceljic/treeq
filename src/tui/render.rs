@@ -135,8 +135,13 @@ fn line_spans(line: &Line, use_color: bool, search: &str) -> Vec<Span<'static>> 
         dim_style(use_color)
     } else {
         // Bold distinguishes a key from its value by weight, not just hue.
+        let hue = if line.type_label.starts_with("attribute") {
+            TqColor::Attr
+        } else {
+            TqColor::Key
+        };
         Style::default()
-            .fg(ratatui_color(TqColor::Key))
+            .fg(ratatui_color(hue))
             .add_modifier(Modifier::BOLD)
     };
     let (key_highlight, value_highlight) = search_highlight_ranges(line, search);
