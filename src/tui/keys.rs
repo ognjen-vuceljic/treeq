@@ -834,6 +834,32 @@ fn page_down(state: &mut AppState) {
 }
 
 pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
+    if state.filter_typing {
+        match key {
+            KeyCode::Esc => {
+                state.filter = None;
+                state.filter_typing = false;
+            }
+            KeyCode::Enter => state.filter_typing = false,
+            KeyCode::Backspace => {
+                if let Some(f) = &mut state.filter {
+                    f.pop();
+                }
+            }
+            KeyCode::Char(c) => {
+                state.filter.get_or_insert_with(String::new).push(c);
+            }
+            _ => {}
+        }
+        super::state::expand_filter_matches(state);
+        state.cursor = 0;
+        return false;
+    }
+    if state.filter.is_some() && key == KeyCode::Esc {
+        state.filter = None;
+        state.cursor = 0;
+        return false;
+    }
     if let Some(input) = &mut state.goto_input {
         match key {
             KeyCode::Esc => state.goto_input = None,
@@ -982,6 +1008,10 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
             }
         }
         KeyCode::Char(':') => state.goto_input = Some(String::new()),
+        KeyCode::Char('&') => {
+            state.filter = Some(String::new());
+            state.filter_typing = true;
+        }
         KeyCode::Char('v') => yank_value(state),
         KeyCode::Char('Y') => {
             if !state.is_json {
@@ -1274,6 +1304,8 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
             goto_input: None,
+            filter: None,
+            filter_typing: false,
             source: Default::default(),
         }
     }
@@ -1754,6 +1786,8 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
             goto_input: None,
+            filter: None,
+            filter_typing: false,
             source: Default::default(),
         }
     }
@@ -1791,6 +1825,8 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
             goto_input: None,
+            filter: None,
+            filter_typing: false,
             source: Default::default(),
         }
     }
@@ -2590,6 +2626,8 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
             goto_input: None,
+            filter: None,
+            filter_typing: false,
             source: Default::default(),
         };
         (state, node)
@@ -2680,6 +2718,8 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
             goto_input: None,
+            filter: None,
+            filter_typing: false,
             source: Default::default(),
         };
         move_cursor_to_path(&mut state, &["items".to_string(), "…more".to_string()]);
@@ -2970,6 +3010,8 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
             goto_input: None,
+            filter: None,
+            filter_typing: false,
             source: Default::default(),
         };
 
@@ -3545,5 +3587,24 @@ mod tests {
         handle_key(&mut state, KeyCode::Char(':'));
         handle_key(&mut state, KeyCode::Esc);
         assert!(state.goto_input.is_none());
+    }
+
+    #[test]
+    fn filter_keeps_only_matches_and_their_ancestors_and_esc_clears_it() {
+        let (mut state, node) =
+            json_state(r#"{"shop": {"item": {"price": 3, "name": "x"}, "owner": "bob"}, "id": 1}"#);
+        state.collapsed.insert(vec!["shop".to_string()]);
+        for c in "&price".chars() {
+            handle_key(&mut state, KeyCode::Char(c));
+        }
+        handle_key(&mut state, KeyCode::Enter);
+        super::super::state::rebuild_json_lines(&mut state, &node);
+        assert_eq!(visible_keys(&state), ["shop", "item", "price"]);
+        assert!(
+            !handle_key(&mut state, KeyCode::Esc),
+            "Esc clears, not quits"
+        );
+        super::super::state::rebuild_json_lines(&mut state, &node);
+        assert!(visible_keys(&state).contains(&"id"));
     }
 }

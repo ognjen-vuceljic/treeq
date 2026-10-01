@@ -6,7 +6,10 @@ mod state;
 use crate::json_tree::JsonNode;
 use crate::xml_tree::XmlNode;
 use crossterm::ExecutableCommand;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -32,6 +35,7 @@ use std::io;
 fn restore_terminal_best_effort() {
     let _ = disable_raw_mode();
     if let Ok(mut tty) = OpenOptions::new().write(true).open("/dev/tty") {
+        let _ = tty.execute(DisableMouseCapture);
         let _ = tty.execute(LeaveAlternateScreen);
     }
 }
@@ -57,7 +61,12 @@ fn install_panic_restore_hook() {
 /// Renders over `/dev/tty` in pick mode rather than stdout, since pick
 /// mode's whole point is capturing stdout (`$(treeq --pick file.json)` or
 /// a pipe into `tmux load-buffer`) -- the UI must stay off that stream.
-fn run_loop<W, F>(mut state: AppState, mut rebuild: F, out: W) -> io::Result<Option<String>>
+fn run_loop<W, F>(
+    mut state: AppState,
+    mut rebuild: F,
+    out: W,
+    mouse: bool,
+) -> io::Result<Option<String>>
 where
     W: io::Write,
     F: FnMut(&mut AppState),
@@ -68,6 +77,9 @@ where
     if let Err(e) = out.execute(EnterAlternateScreen) {
         let _ = disable_raw_mode();
         return Err(e);
+    }
+    if mouse {
+        let _ = out.execute(EnableMouseCapture);
     }
     let backend = CrosstermBackend::new(out);
     let mut terminal = match Terminal::new(backend) {
@@ -88,7 +100,11 @@ where
             // Non-key events (notably `Resize`) just fall through to the redraw
             // at the top of the loop; key releases are dropped so Windows
             // doesn't see every key twice (issue #125).
-            if let Event::Key(key) = event::read()?
+            let event = event::read()?;
+            if let Event::Mouse(m) = event {
+                handle_mouse(&mut state, m);
+                rebuild(&mut state);
+            } else if let Event::Key(key) = event
                 && key.kind == KeyEventKind::Press
             {
                 let quit = handle_key_event(&mut state, key);
@@ -105,6 +121,9 @@ where
     })();
 
     let _ = disable_raw_mode();
+    if mouse {
+        let _ = terminal.backend_mut().execute(DisableMouseCapture);
+    }
     let _ = terminal.backend_mut().execute(LeaveAlternateScreen);
     result
 }
@@ -128,6 +147,48 @@ fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
         _ => {}
     }
     false
+}
+
+/// Wheel moves the cursor three rows; a left click selects the row, and
+/// clicking the row that is already selected toggles it. Ignored while a
+/// modal (help, popup, inspect, text entry) owns the keyboard.
+fn handle_mouse(state: &mut AppState, m: MouseEvent) {
+    if state.help_visible
+        || state.popup_visible
+        || state.inspect_visible
+        || state.searching
+        || state.filter_typing
+        || state.goto_input.is_some()
+    {
+        return;
+    }
+    match m.kind {
+        MouseEventKind::ScrollDown => (0..3).for_each(|_| {
+            handle_key(state, KeyCode::Down);
+        }),
+        MouseEventKind::ScrollUp => (0..3).for_each(|_| {
+            handle_key(state, KeyCode::Up);
+        }),
+        MouseEventKind::Down(MouseButton::Left) => {
+            // Row 0 is the tree's top border.
+            let Some(row) = (m.row as usize).checked_sub(1) else {
+                return;
+            };
+            if row >= state.viewport_height.get() {
+                return;
+            }
+            let idx = state.scroll_offset.get() + row;
+            if idx >= state.lines.len() {
+                return;
+            }
+            if idx == state.cursor {
+                handle_key(state, KeyCode::Tab);
+            } else {
+                state.cursor = idx;
+            }
+        }
+        _ => {}
+    }
 }
 
 fn open_tty() -> io::Result<std::fs::File> {
@@ -178,11 +239,18 @@ fn initial_state<'a>(
         pick_result: None,
         visual_anchor: None,
         goto_input: None,
+        filter: None,
+        filter_typing: false,
         source,
     }
 }
 
-pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<Option<String>> {
+pub fn run_json_tui(
+    node: &JsonNode,
+    use_color: bool,
+    pick: bool,
+    mouse: bool,
+) -> io::Result<Option<String>> {
     let collapsed = HashSet::new();
     let array_overrides = HashSet::new();
     let mut lines = Vec::new();
@@ -203,13 +271,18 @@ pub fn run_json_tui(node: &JsonNode, use_color: bool, pick: bool) -> io::Result<
         state::Source::Json(node),
     );
     if pick {
-        run_loop(state, |s| rebuild_json_lines(s, node), open_tty()?)
+        run_loop(state, |s| rebuild_json_lines(s, node), open_tty()?, mouse)
     } else {
-        run_loop(state, |s| rebuild_json_lines(s, node), io::stdout())
+        run_loop(state, |s| rebuild_json_lines(s, node), io::stdout(), mouse)
     }
 }
 
-pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Option<String>> {
+pub fn run_xml_tui(
+    node: &XmlNode,
+    use_color: bool,
+    pick: bool,
+    mouse: bool,
+) -> io::Result<Option<String>> {
     let collapsed = HashSet::new();
     let mut lines = Vec::new();
     flatten_xml(node, &[], 0, &collapsed, &mut lines);
@@ -229,9 +302,9 @@ pub fn run_xml_tui(node: &XmlNode, use_color: bool, pick: bool) -> io::Result<Op
         state::Source::Xml(node),
     );
     if pick {
-        run_loop(state, |s| rebuild_xml_lines(s, node), open_tty()?)
+        run_loop(state, |s| rebuild_xml_lines(s, node), open_tty()?, mouse)
     } else {
-        run_loop(state, |s| rebuild_xml_lines(s, node), io::stdout())
+        run_loop(state, |s| rebuild_xml_lines(s, node), io::stdout(), mouse)
     }
 }
 
@@ -348,5 +421,29 @@ mod tests {
     fn panic_restore_hook_installs_idempotently() {
         install_panic_restore_hook();
         install_panic_restore_hook();
+    }
+
+    #[test]
+    fn mouse_wheel_moves_the_cursor_and_clicks_select_then_toggle() {
+        use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let mut state = state_for(r#"{"a": {"x": 1}, "b": 2, "c": 3}"#);
+        state.viewport_height.set(10);
+        let ev = |kind, row| MouseEvent {
+            kind,
+            column: 2,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        handle_mouse(&mut state, ev(MouseEventKind::ScrollDown, 3));
+        assert_eq!(state.cursor, 3.min(state.lines.len() - 1));
+        // click row 1 (first tree row) selects line 0, a second click collapses it
+        handle_mouse(&mut state, ev(MouseEventKind::Down(MouseButton::Left), 1));
+        assert_eq!(state.cursor, 0);
+        let before = state.collapsed.len();
+        handle_mouse(&mut state, ev(MouseEventKind::Down(MouseButton::Left), 1));
+        assert_ne!(state.collapsed.len(), before);
+        // clicks past the content or on the border do nothing
+        handle_mouse(&mut state, ev(MouseEventKind::Down(MouseButton::Left), 0));
+        assert_eq!(state.cursor, 0);
     }
 }

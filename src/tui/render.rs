@@ -636,10 +636,18 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     state
         .viewport_height
         .set(chunks[0].height.saturating_sub(2) as usize);
-    let status_line = if let Some(input) = &state.goto_input {
+    let status_line = if state.filter_typing {
+        RtLine::from(format!("&{}", state.filter.as_deref().unwrap_or("")))
+    } else if let Some(input) = &state.goto_input {
         RtLine::from(format!(":{input}"))
     } else if state.searching {
         RtLine::from(format!("/{}", state.search))
+    } else if let Some(f) = state
+        .filter
+        .as_deref()
+        .filter(|_| state.status_message.is_none())
+    {
+        RtLine::from(format!("filter: {f}  (Esc: clear)"))
     } else if let Some(buf) = &state.count_buffer {
         RtLine::from(format!("g{buf}"))
     } else if state.awaiting_depth {
@@ -666,7 +674,7 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     };
     let (pill, pill_bg) = if state.pick_mode {
         ("PICK", Color::Rgb(198, 120, 221))
-    } else if state.searching || state.goto_input.is_some() {
+    } else if state.searching || state.goto_input.is_some() || state.filter_typing {
         ("SEARCH", Color::Rgb(229, 192, 123))
     } else if state.visual_anchor.is_some() {
         ("VISUAL", Color::Rgb(97, 175, 239))
@@ -826,6 +834,8 @@ mod tests {
             pick_result: None,
             visual_anchor: None,
             goto_input: None,
+            filter: None,
+            filter_typing: false,
             source: Default::default(),
         }
     }
