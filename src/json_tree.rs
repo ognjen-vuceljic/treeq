@@ -164,6 +164,92 @@ pub enum JsonNode {
     Scalar(JsonScalar),
 }
 
+/// Parses straight into the tree, skipping the intermediate `serde_json::Value`
+/// (one fewer full copy of the document in memory, issue #133).
+impl<'de> serde::Deserialize<'de> for JsonNode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        d.deserialize_any(NodeVisitor)
+    }
+}
+
+/// With `arbitrary_precision`, serde_json hands a number to a visitor as a
+/// one-entry map under this key, with the literal digits as a string.
+const NUMBER_KEY: &str = "$serde_json::private::Number";
+
+struct NodeVisitor;
+
+impl<'de> serde::de::Visitor<'de> for NodeVisitor {
+    type Value = JsonNode;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("any valid JSON value")
+    }
+
+    fn visit_bool<E>(self, v: bool) -> Result<JsonNode, E> {
+        Ok(JsonNode::Scalar(JsonScalar::Bool(v)))
+    }
+
+    fn visit_i64<E>(self, v: i64) -> Result<JsonNode, E> {
+        Ok(JsonNode::Scalar(JsonScalar::Number(v.to_string())))
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<JsonNode, E> {
+        Ok(JsonNode::Scalar(JsonScalar::Number(v.to_string())))
+    }
+
+    fn visit_f64<E>(self, v: f64) -> Result<JsonNode, E> {
+        Ok(JsonNode::Scalar(JsonScalar::Number(
+            serde_json::Number::from_f64(v).map_or_else(|| v.to_string(), |n| n.to_string()),
+        )))
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<JsonNode, E> {
+        Ok(JsonNode::Scalar(JsonScalar::Str(v.to_string())))
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<JsonNode, E> {
+        Ok(JsonNode::Scalar(JsonScalar::Str(v)))
+    }
+
+    fn visit_unit<E>(self) -> Result<JsonNode, E> {
+        Ok(JsonNode::Scalar(JsonScalar::Null))
+    }
+
+    fn visit_none<E>(self) -> Result<JsonNode, E> {
+        Ok(JsonNode::Scalar(JsonScalar::Null))
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<JsonNode, A::Error> {
+        let mut items = Vec::with_capacity(seq.size_hint().unwrap_or(0).min(4096));
+        while let Some(item) = seq.next_element()? {
+            items.push(item);
+        }
+        Ok(JsonNode::Array(items))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<JsonNode, A::Error> {
+        let mut fields: Vec<(String, JsonNode)> = Vec::new();
+        // Same as `serde_json::Map`: a repeated key keeps its first position
+        // and takes the last value.
+        let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if key == NUMBER_KEY && fields.is_empty() {
+                let digits: String = map.next_value()?;
+                return Ok(JsonNode::Scalar(JsonScalar::Number(digits)));
+            }
+            let value: JsonNode = map.next_value()?;
+            match index.get(&key) {
+                Some(&i) => fields[i].1 = value,
+                None => {
+                    index.insert(key.clone(), fields.len());
+                    fields.push((key, value));
+                }
+            }
+        }
+        Ok(JsonNode::Object(fields))
+    }
+}
+
 impl JsonNode {
     pub fn from_value(value: &serde_json::Value) -> JsonNode {
         match value {
@@ -586,5 +672,21 @@ mod tests {
         let value: serde_yaml::Value = serde_yaml::from_str("!Tag value").unwrap();
         let err = JsonNode::from_yaml_value(&value).unwrap_err();
         assert_eq!(err, "YAML tags are not supported");
+    }
+
+    #[test]
+    fn streaming_deserialize_matches_the_value_route() {
+        let doc = r#"{"n": 12345678901234567890123, "f": 1.50, "e": 1e3, "neg": -0, "s": "x\u00e9",
+            "t": true, "z": null, "dup": 1, "arr": [[], {}, [1, {"k": "v"}]], "dup": 2, "o": {"b": 1, "a": 2}}"#;
+        let direct: JsonNode = serde_json::from_str(doc).unwrap();
+        let via_value = JsonNode::from_value(&serde_json::from_str(doc).unwrap());
+        assert_eq!(direct, via_value);
+        // repeated key: first position, last value
+        let JsonNode::Object(fields) = &direct else {
+            panic!()
+        };
+        let dup = fields.iter().find(|(k, _)| k == "dup").unwrap();
+        assert_eq!(dup.1, JsonNode::Scalar(JsonScalar::Number("2".to_string())));
+        assert_eq!(fields.iter().filter(|(k, _)| k == "dup").count(), 1);
     }
 }

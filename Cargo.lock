@@ -687,6 +687,7 @@ dependencies = [
  "crossterm",
  "ratatui",
  "roxmltree",
+ "serde",
  "serde_json",
  "serde_yaml",
 ]
