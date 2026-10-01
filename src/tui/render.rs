@@ -613,7 +613,9 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     state
         .viewport_height
         .set(chunks[0].height.saturating_sub(2) as usize);
-    let status_line = if state.searching {
+    let status_line = if let Some(input) = &state.goto_input {
+        RtLine::from(format!(":{input}"))
+    } else if state.searching {
         RtLine::from(format!("/{}", state.search))
     } else if let Some(buf) = &state.count_buffer {
         RtLine::from(format!("g{buf}"))
@@ -738,7 +740,7 @@ mod tests {
         out
     }
 
-    fn state_with(lines: Vec<Line>, cursor: usize) -> AppState {
+    fn state_with(lines: Vec<Line>, cursor: usize) -> AppState<'static> {
         AppState {
             lines,
             collapsed: HashSet::new(),
@@ -768,6 +770,8 @@ mod tests {
             pick_mode: false,
             pick_result: None,
             visual_anchor: None,
+            goto_input: None,
+            source: Default::default(),
         }
     }
 

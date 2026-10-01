@@ -226,6 +226,33 @@ fn split_sibling_index(segment: &str) -> (&str, Option<usize>) {
 
 /// A bare `name` still resolves to the first same-named child (unchanged
 /// behavior for every existing script); `name[k]` picks the k-th.
+/// Serializes an element back to XML text (names, attributes, text, children).
+pub fn to_xml_string(node: &XmlNode) -> String {
+    fn esc(s: &str) -> String {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    }
+    let mut out = format!("<{}", node.name);
+    for (k, v) in &node.attributes {
+        out.push_str(&format!(" {k}=\"{}\"", esc(v)));
+    }
+    if node.text.is_none() && node.children.is_empty() {
+        out.push_str("/>");
+        return out;
+    }
+    out.push('>');
+    if let Some(t) = &node.text {
+        out.push_str(&esc(t));
+    }
+    for c in &node.children {
+        out.push_str(&to_xml_string(c));
+    }
+    out.push_str(&format!("</{}>", node.name));
+    out
+}
+
 /// Like `find_xml_path`, but a final `@name` segment resolves to a synthetic
 /// leaf holding that attribute's value (what the TUI shows for it).
 pub fn find_xml_path_or_attr<'a>(
