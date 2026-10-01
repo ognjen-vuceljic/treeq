@@ -244,23 +244,30 @@ fn print_paths(lines: Vec<String>, json: bool) {
     }
 }
 
-fn run_json(input: &str, args: &Args, ndjson: bool) {
+fn parse_json_tree(input: &str, ndjson: bool) -> Result<JsonNode, String> {
     let value: serde_json::Value = if ndjson {
-        parse_ndjson(input).unwrap_or_else(|e| {
-            eprintln!("error: invalid NDJSON: {e}");
-            process::exit(1);
-        })
+        parse_ndjson(input).map_err(|e| format!("error: invalid NDJSON: {e}"))?
     } else {
-        match serde_json::from_str(input) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{}", json_error_context(input, &e));
-                process::exit(1);
-            }
-        }
+        serde_json::from_str(input).map_err(|e| json_error_context(input, &e))?
     };
-    let tree = JsonNode::from_value(&value);
-    run_json_tree(&tree, input, args);
+    Ok(JsonNode::from_value(&value))
+}
+
+type Reload<'a, T> = Option<&'a dyn Fn() -> Result<T, String>>;
+
+fn read_for_reload(args: &Args) -> Result<String, String> {
+    read_input(&args.file).map_err(|e| e.to_string())
+}
+
+fn die(msg: String) -> ! {
+    eprintln!("{msg}");
+    process::exit(1);
+}
+
+fn run_json(input: &str, args: &Args, ndjson: bool) {
+    let tree = parse_json_tree(input, ndjson).unwrap_or_else(|e| die(e));
+    let reload = || parse_json_tree(&read_for_reload(args)?, ndjson);
+    run_json_tree(&tree, input, args, args.file.is_some().then_some(&reload));
 }
 
 /// Multi-document YAML (`---` separated) becomes an array of documents, like
@@ -297,19 +304,18 @@ fn parse_yaml_documents(input: &str) -> Result<serde_yaml::Value, String> {
     Ok(serde_yaml::Value::Sequence(docs))
 }
 
-fn run_yaml(input: &str, args: &Args) {
-    let value = parse_yaml_documents(input).unwrap_or_else(|e| {
-        eprintln!("error: invalid YAML: {e}");
-        process::exit(1);
-    });
-    let tree = JsonNode::from_yaml_value(&value).unwrap_or_else(|e| {
-        eprintln!("error: invalid YAML: {e}");
-        process::exit(1);
-    });
-    run_json_tree(&tree, input, args);
+fn parse_yaml_tree(input: &str) -> Result<JsonNode, String> {
+    let value = parse_yaml_documents(input).map_err(|e| format!("error: invalid YAML: {e}"))?;
+    JsonNode::from_yaml_value(&value).map_err(|e| format!("error: invalid YAML: {e}"))
 }
 
-fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
+fn run_yaml(input: &str, args: &Args) {
+    let tree = parse_yaml_tree(input).unwrap_or_else(|e| die(e));
+    let reload = || parse_yaml_tree(&read_for_reload(args)?);
+    run_json_tree(&tree, input, args, args.file.is_some().then_some(&reload));
+}
+
+fn run_json_tree(tree: &JsonNode, input: &str, args: &Args, reload: Reload<'_, JsonNode>) {
     let target = match &args.path {
         Some(p) => match find_json_path(tree, p) {
             Ok(t) => t,
@@ -349,13 +355,45 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
             use_color()
         };
         clear_progress(input.len());
-        match tui::run_json_tui(target, use_color, args.pick, !args.no_mouse) {
-            Ok(Some(picked)) => println!("{picked}"),
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("error: {e}");
-                process::exit(1);
+        let mut owned: Option<JsonNode> = None;
+        let mut saved = None;
+        loop {
+            let cur = owned.as_ref().unwrap_or(tree);
+            let target = match &args.path {
+                Some(p) => find_json_path(cur, p).unwrap_or(cur),
+                None => cur,
+            };
+            let opts = tui::TuiOpts {
+                use_color,
+                pick: args.pick,
+                mouse: !args.no_mouse,
+                reload_ok: reload.is_some() && !args.pick,
+                saved: saved.take(),
+            };
+            match tui::run_json_tui(target, opts) {
+                Ok(tui::TuiExit::Done(Some(picked))) => println!("{picked}"),
+                Ok(tui::TuiExit::Done(None)) => {}
+                Ok(tui::TuiExit::Reload(mut ui)) => {
+                    let result = reload.map_or(Err("no file to reload".to_string()), |r| r());
+                    ui.message = Some(match result {
+                        Ok(t)
+                            if args
+                                .path
+                                .as_ref()
+                                .is_none_or(|p| find_json_path(&t, p).is_ok()) =>
+                        {
+                            owned = Some(t);
+                            "reloaded".to_string()
+                        }
+                        Ok(_) => "reload kept the old view: --path no longer exists".to_string(),
+                        Err(e) => format!("reload failed: {}", e.lines().next().unwrap_or("")),
+                    });
+                    saved = Some(ui);
+                    continue;
+                }
+                Err(e) => die(format!("error: {e}")),
             }
+            break;
         }
     } else {
         print_text(&render_json(
@@ -368,28 +406,25 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
     }
 }
 
-fn run_xml(input: &str, args: &Args) {
+fn parse_xml_tree(input: &str) -> Result<XmlNode, String> {
     if xml_nesting_exceeds(input, MAX_XML_DEPTH) {
-        eprintln!("error: XML nesting exceeds max depth ({MAX_XML_DEPTH})");
-        process::exit(1);
+        return Err(format!(
+            "error: XML nesting exceeds max depth ({MAX_XML_DEPTH})"
+        ));
     }
     if xml_attribute_count_exceeds(input, MAX_XML_ATTRIBUTES_PER_ELEMENT) {
-        eprintln!(
+        return Err(format!(
             "error: an XML element exceeds the max attribute count ({MAX_XML_ATTRIBUTES_PER_ELEMENT})"
-        );
-        process::exit(1);
+        ));
     }
-    let doc = match roxmltree::Document::parse(input) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("{}", xml_error_context(input, &e));
-            process::exit(1);
-        }
-    };
-    let tree = XmlNode::from_document(&doc).unwrap_or_else(|e| {
-        eprintln!("error: {e}");
-        process::exit(1);
-    });
+    let doc = roxmltree::Document::parse(input).map_err(|e| xml_error_context(input, &e))?;
+    XmlNode::from_document(&doc).map_err(|e| format!("error: {e}"))
+}
+
+fn run_xml(input: &str, args: &Args) {
+    let tree = parse_xml_tree(input).unwrap_or_else(|e| die(e));
+    let reload = || parse_xml_tree(&read_for_reload(args)?);
+    let reload: Reload<'_, XmlNode> = args.file.is_some().then_some(&reload);
     let target = match &args.path {
         Some(p) => match find_xml_path_or_attr(&tree, p) {
             Ok(t) => t,
@@ -428,13 +463,45 @@ fn run_xml(input: &str, args: &Args) {
             use_color()
         };
         clear_progress(input.len());
-        match tui::run_xml_tui(target, use_color, args.pick, !args.no_mouse) {
-            Ok(Some(picked)) => println!("{picked}"),
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("error: {e}");
-                process::exit(1);
+        let mut owned: Option<XmlNode> = None;
+        let mut saved = None;
+        loop {
+            let cur = owned.as_ref().unwrap_or(&tree);
+            let target = match &args.path {
+                Some(p) => find_xml_path_or_attr(cur, p).unwrap_or(std::borrow::Cow::Borrowed(cur)),
+                None => std::borrow::Cow::Borrowed(cur),
+            };
+            let opts = tui::TuiOpts {
+                use_color,
+                pick: args.pick,
+                mouse: !args.no_mouse,
+                reload_ok: reload.is_some() && !args.pick,
+                saved: saved.take(),
+            };
+            match tui::run_xml_tui(&target, opts) {
+                Ok(tui::TuiExit::Done(Some(picked))) => println!("{picked}"),
+                Ok(tui::TuiExit::Done(None)) => {}
+                Ok(tui::TuiExit::Reload(mut ui)) => {
+                    let result = reload.map_or(Err("no file to reload".to_string()), |r| r());
+                    ui.message = Some(match result {
+                        Ok(t)
+                            if args
+                                .path
+                                .as_ref()
+                                .is_none_or(|p| find_xml_path_or_attr(&t, p).is_ok()) =>
+                        {
+                            owned = Some(t);
+                            "reloaded".to_string()
+                        }
+                        Ok(_) => "reload kept the old view: --path no longer exists".to_string(),
+                        Err(e) => format!("reload failed: {}", e.lines().next().unwrap_or("")),
+                    });
+                    saved = Some(ui);
+                    continue;
+                }
+                Err(e) => die(format!("error: {e}")),
             }
+            break;
         }
     } else {
         print_text(&render_xml(
