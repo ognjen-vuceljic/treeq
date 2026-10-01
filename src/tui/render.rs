@@ -18,10 +18,23 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListSt
 /// block (issue #140). `REVERSED` stays the no-color fallback, where a
 /// background tint would be the only thing a NO_COLOR user can't rely on.
 const CURSOR_BG: Color = Color::Rgb(55, 62, 80);
+const CURSOR_BG_LIGHT: Color = Color::Rgb(222, 228, 240);
+
+fn is_light() -> bool {
+    crate::color::theme() == crate::color::Theme::Light
+}
+
+fn cursor_bg() -> Color {
+    if is_light() {
+        CURSOR_BG_LIGHT
+    } else {
+        CURSOR_BG
+    }
+}
 
 fn cursor_style(use_color: bool) -> Style {
     if use_color {
-        Style::default().bg(CURSOR_BG)
+        Style::default().bg(cursor_bg())
     } else {
         Style::default().add_modifier(Modifier::REVERSED)
     }
@@ -77,6 +90,7 @@ fn highlighted_spans(
 /// with bright bold text (white keeps enough contrast against the amber
 /// whatever syntax color the character had).
 const MATCH_BG: Color = Color::Rgb(150, 110, 0);
+const MATCH_BG_LIGHT: Color = Color::Rgb(255, 224, 110);
 
 fn styled_run(
     text: String,
@@ -87,8 +101,12 @@ fn styled_run(
     let style = match (highlighted, use_color) {
         (false, _) => base_style,
         (true, true) => base_style
-            .bg(MATCH_BG)
-            .fg(Color::White)
+            .bg(if is_light() { MATCH_BG_LIGHT } else { MATCH_BG })
+            .fg(if is_light() {
+                Color::Black
+            } else {
+                Color::White
+            })
             .add_modifier(Modifier::BOLD),
         // No color to lean on (`NO_COLOR`): underline stays the cue.
         (true, false) => base_style.add_modifier(Modifier::UNDERLINED),
@@ -521,6 +539,7 @@ fn render_search_popup(frame: &mut Frame, area: Rect, state: &AppState) {
 /// Background for a visual-line-selected row, distinct from tag colors and
 /// depth tints so a selection is never mistaken for either.
 const VISUAL_SELECTION_BG: Color = Color::Rgb(45, 50, 80);
+const VISUAL_SELECTION_BG_LIGHT: Color = Color::Rgb(208, 218, 240);
 
 fn selected_range(state: &AppState) -> Option<(usize, usize)> {
     let anchor = state.visual_anchor?;
@@ -582,7 +601,11 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
                 // over both a selection and a tag background.
                 style = cursor_style(state.use_color);
             } else if is_selected {
-                style = style.bg(VISUAL_SELECTION_BG);
+                style = style.bg(if is_light() {
+                    VISUAL_SELECTION_BG_LIGHT
+                } else {
+                    VISUAL_SELECTION_BG
+                });
             } else if state.use_color
                 && !line.is_array_summary
                 && let Some(&tag) = state.tags.get(&line.path)
@@ -641,7 +664,39 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::raw("  (?: help)"),
         ])
     };
-    frame.render_widget(Paragraph::new(status_line), chunks[1]);
+    let (pill, pill_bg) = if state.pick_mode {
+        ("PICK", Color::Rgb(198, 120, 221))
+    } else if state.searching || state.goto_input.is_some() {
+        ("SEARCH", Color::Rgb(229, 192, 123))
+    } else if state.visual_anchor.is_some() {
+        ("VISUAL", Color::Rgb(97, 175, 239))
+    } else {
+        ("NORMAL", Color::Rgb(152, 195, 121))
+    };
+    let pill_style = if state.use_color {
+        Style::default()
+            .bg(pill_bg)
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    };
+    let position = format!("{}/{} ", state.cursor + 1, state.lines.len());
+    let cols = Layout::horizontal([
+        Constraint::Length(pill.len() as u16 + 2),
+        Constraint::Min(0),
+        Constraint::Length(position.len() as u16),
+    ])
+    .split(chunks[1]);
+    frame.render_widget(
+        Paragraph::new(Span::styled(format!(" {pill} "), pill_style)),
+        cols[0],
+    );
+    frame.render_widget(Paragraph::new(status_line), cols[1]);
+    frame.render_widget(
+        Paragraph::new(position).alignment(ratatui::layout::Alignment::Right),
+        cols[2],
+    );
 }
 
 fn help_entry_spans(key: &str, desc: &str, use_color: bool) -> Vec<Span<'static>> {
@@ -1462,6 +1517,30 @@ mod tests {
         terminal.draw(|f| render(f, &state)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("/ali"));
+    }
+
+    #[test]
+    fn status_bar_shows_the_mode_pill_and_cursor_position() {
+        let lines = vec![
+            line("a", false, Some(("1", TqColor::Number)), 0, &["a"]),
+            line("b", false, Some(("2", TqColor::Number)), 0, &["b"]),
+        ];
+        let draw = |state: &AppState| {
+            let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
+            terminal.draw(|f| render(f, state)).unwrap();
+            buffer_text(terminal.backend().buffer())
+        };
+        let mut state = state_with(lines, 1);
+        let text = draw(&state);
+        assert!(text.contains("NORMAL") && text.contains("2/2"), "{text}");
+        state.visual_anchor = Some(0);
+        assert!(draw(&state).contains("VISUAL"));
+        state.visual_anchor = None;
+        state.searching = true;
+        assert!(draw(&state).contains("SEARCH"));
+        state.searching = false;
+        state.pick_mode = true;
+        assert!(draw(&state).contains("PICK"));
     }
 
     #[test]

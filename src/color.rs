@@ -36,26 +36,78 @@ fn code_ansi16(color: Color) -> &'static str {
     }
 }
 
+/// Which palette the truecolor tier and the TUI use: tuned for a dark or a
+/// light terminal background.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Theme {
+    Dark,
+    Light,
+}
+
+static LIGHT_THEME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_theme(theme: Theme) {
+    LIGHT_THEME.store(theme == Theme::Light, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn theme() -> Theme {
+    if LIGHT_THEME.load(std::sync::atomic::Ordering::Relaxed) {
+        Theme::Light
+    } else {
+        Theme::Dark
+    }
+}
+
+/// `--theme` wins; else `COLORFGBG` ("fg;bg", set by rxvt/konsole/others) with
+/// a background of 7 or 15 means light; else dark.
+pub fn resolve_theme(arg: Option<Theme>, colorfgbg: Option<&str>) -> Theme {
+    arg.unwrap_or_else(|| match colorfgbg.and_then(|v| v.rsplit(';').next()) {
+        Some("7" | "15") => Theme::Light,
+        _ => Theme::Dark,
+    })
+}
+
+/// The one palette: truecolor escape codes and the TUI's ratatui colors both
+/// derive from this. `None` for `Structural`, which is a dim modifier here.
+pub fn rgb_for(color: Color, theme: Theme) -> Option<(u8, u8, u8)> {
+    Some(match (theme, color) {
+        (_, Color::Structural) => return None,
+        (Theme::Dark, Color::Key) => (86, 182, 194),
+        (Theme::Dark, Color::Str) => (152, 195, 121),
+        (Theme::Dark, Color::Number) => (229, 192, 123),
+        // A more saturated green than `Str`'s sage, so `true` doesn't read
+        // as a string.
+        (Theme::Dark, Color::True) => (76, 217, 100),
+        (Theme::Dark, Color::False) => (224, 108, 117),
+        (Theme::Dark, Color::Null) => (128, 128, 128),
+        (Theme::Dark, Color::Url) => (97, 175, 239),
+        (Theme::Dark, Color::Date) => (198, 120, 221),
+        (Theme::Dark, Color::Attr) => (209, 154, 102),
+        // One Light-inspired.
+        (Theme::Light, Color::Key) => (1, 132, 188),
+        (Theme::Light, Color::Str) => (80, 161, 79),
+        (Theme::Light, Color::Number) => (152, 104, 1),
+        (Theme::Light, Color::True) => (0, 140, 60),
+        (Theme::Light, Color::False) => (202, 18, 67),
+        (Theme::Light, Color::Null) => (160, 161, 167),
+        (Theme::Light, Color::Url) => (64, 120, 242),
+        (Theme::Light, Color::Date) => (166, 38, 164),
+        (Theme::Light, Color::Attr) => (193, 132, 1),
+    })
+}
+
 /// Distinct 24-bit tones per semantic bucket, used when the terminal
 /// advertises truecolor support. `Structural` stays a plain dim modifier in
 /// both tiers -- it's de-emphasized chrome (ellipses, "N more"), not a
 /// value that benefits from its own hue (depth-tinted guide lines already
 /// get their own palette, see `paint_depth`).
-fn code_truecolor(color: Color) -> &'static str {
-    match color {
-        Color::Key => "\x1b[38;2;86;182;194m",
-        Color::Str => "\x1b[38;2;152;195;121m",
-        Color::Number => "\x1b[38;2;229;192;123m",
-        // A more saturated green than `Str`'s sage, so `true` doesn't read
-        // as a string.
-        Color::True => "\x1b[38;2;76;217;100m",
-        Color::False => "\x1b[38;2;224;108;117m",
-        Color::Null => "\x1b[38;2;128;128;128m",
-        Color::Url => "\x1b[4;38;2;97;175;239m",
-        // The purple booleans used to have, now free.
-        Color::Date => "\x1b[38;2;198;120;221m",
-        Color::Attr => "\x1b[38;2;209;154;102m",
-        Color::Structural => "\x1b[2m",
+fn code_truecolor(color: Color) -> std::borrow::Cow<'static, str> {
+    match rgb_for(color, theme()) {
+        None => "\x1b[2m".into(),
+        Some((r, g, b)) => {
+            let underline = if color == Color::Url { "4;" } else { "" };
+            format!("\x1b[{underline}38;2;{r};{g};{b}m").into()
+        }
     }
 }
 
@@ -102,10 +154,10 @@ impl ColorMode {
     }
 }
 
-fn code_for(color: Color, mode: ColorMode) -> &'static str {
+fn code_for(color: Color, mode: ColorMode) -> std::borrow::Cow<'static, str> {
     match mode {
-        ColorMode::Off => "",
-        ColorMode::Ansi16 => code_ansi16(color),
+        ColorMode::Off => "".into(),
+        ColorMode::Ansi16 => code_ansi16(color).into(),
         ColorMode::Truecolor => code_truecolor(color),
     }
 }
@@ -180,7 +232,7 @@ mod tests {
 
     #[test]
     fn truecolor_tier_gives_every_semantic_bucket_a_distinct_24_bit_code() {
-        let codes: std::collections::HashSet<&str> = [
+        let codes: std::collections::HashSet<String> = [
             Color::Key,
             Color::Str,
             Color::Number,
@@ -190,7 +242,7 @@ mod tests {
             Color::Url,
             Color::Date,
         ]
-        .map(|c| code_for(c, ColorMode::Truecolor))
+        .map(|c| code_for(c, ColorMode::Truecolor).into_owned())
         .into_iter()
         .collect();
         assert_eq!(
@@ -259,5 +311,34 @@ mod tests {
     #[test]
     fn depth_tint_returns_plain_text_when_disabled() {
         assert_eq!(paint_depth("x", 3, false), "x");
+    }
+
+    #[test]
+    fn theme_comes_from_the_flag_then_colorfgbg_then_dark() {
+        assert_eq!(resolve_theme(None, None), Theme::Dark);
+        assert_eq!(resolve_theme(None, Some("0;15")), Theme::Light);
+        assert_eq!(resolve_theme(None, Some("15;0")), Theme::Dark);
+        assert_eq!(resolve_theme(Some(Theme::Dark), Some("0;15")), Theme::Dark);
+        assert_eq!(resolve_theme(Some(Theme::Light), None), Theme::Light);
+    }
+
+    #[test]
+    fn light_palette_is_distinct_and_differs_from_dark() {
+        let colors = [
+            Color::Key,
+            Color::Str,
+            Color::Number,
+            Color::True,
+            Color::False,
+            Color::Null,
+            Color::Url,
+            Color::Date,
+        ];
+        let light: std::collections::HashSet<_> =
+            colors.iter().map(|c| rgb_for(*c, Theme::Light)).collect();
+        assert_eq!(light.len(), 8);
+        for c in colors {
+            assert_ne!(rgb_for(c, Theme::Light), rgb_for(c, Theme::Dark));
+        }
     }
 }
