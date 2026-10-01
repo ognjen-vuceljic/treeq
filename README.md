@@ -66,6 +66,7 @@ treeq file.json --depth 2             # truncate deep nesting
 treeq file.json --stats               # size/shape summary, no full dump
 treeq file.json --stats --json        # machine-readable (also --paths/--schema/--agent)
 treeq config.yaml                     # YAML and NDJSON are auto-detected
+treeq file.json --theme light         # palette for light terminals (auto via COLORFGBG)
 treeq file.json --agent               # stats + shallow tree, in one call
 treeq file.xml                        # XML works the same way
 treeq --pick file.json                # Enter prints the selected path, then exits

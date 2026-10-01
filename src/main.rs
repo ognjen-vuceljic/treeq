@@ -35,6 +35,12 @@ enum FormatArg {
     Yaml,
 }
 
+#[derive(clap::ValueEnum, Clone, Copy)]
+enum ThemeArg {
+    Dark,
+    Light,
+}
+
 #[derive(Parser)]
 #[command(name = "treeq", version)]
 struct Args {
@@ -72,6 +78,9 @@ struct Args {
     /// clean for piping/command substitution.
     #[arg(long)]
     pick: bool,
+    /// Colour palette: `dark` or `light` (default: guessed from COLORFGBG, else dark).
+    #[arg(long, value_enum)]
+    theme: Option<ThemeArg>,
     /// Print a completion script for the given shell to stdout and exit.
     #[arg(long, value_enum)]
     generate: Option<clap_complete::Shell>,
@@ -441,6 +450,13 @@ fn main() {
         clap_complete::generate(shell, &mut cmd, name, &mut io::stdout());
         return;
     }
+    color::set_theme(color::resolve_theme(
+        args.theme.map(|t| match t {
+            ThemeArg::Dark => color::Theme::Dark,
+            ThemeArg::Light => color::Theme::Light,
+        }),
+        std::env::var("COLORFGBG").ok().as_deref(),
+    ));
     if args.ndjson && matches!(args.format, Some(FormatArg::Xml)) {
         eprintln!("error: --ndjson is not supported with --format xml");
         process::exit(1);

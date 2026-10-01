@@ -20,10 +20,26 @@ const TAG_PALETTE: [Color; 8] = [
     Color::Rgb(60, 60, 60), // gray
 ];
 
+/// Pale pastels for light terminals, where the dark tints would be muddy.
+const TAG_PALETTE_LIGHT: [Color; 8] = [
+    Color::Rgb(255, 214, 214),
+    Color::Rgb(214, 226, 255),
+    Color::Rgb(242, 214, 255),
+    Color::Rgb(214, 245, 222),
+    Color::Rgb(255, 245, 200),
+    Color::Rgb(207, 242, 245),
+    Color::Rgb(225, 225, 225),
+    Color::Rgb(205, 205, 205),
+];
+
 /// `tag` is 1-based; out-of-range values wrap rather than panic.
 pub(super) fn tag_color(tag: u8) -> Color {
     let idx = (tag.saturating_sub(1) as usize) % TAG_PALETTE.len();
-    TAG_PALETTE[idx]
+    if crate::color::theme() == crate::color::Theme::Light {
+        TAG_PALETTE_LIGHT[idx]
+    } else {
+        TAG_PALETTE[idx]
+    }
 }
 
 /// Cycled by nesting depth for a line's indent+marker span, so the eye can
@@ -40,8 +56,22 @@ const DEPTH_TINT_PALETTE: [Color; 6] = [
     Color::Rgb(115, 100, 60), // dim yellow
 ];
 
+const DEPTH_TINT_PALETTE_LIGHT: [Color; 6] = [
+    Color::Rgb(160, 161, 167),
+    Color::Rgb(120, 150, 205),
+    Color::Rgb(100, 170, 170),
+    Color::Rgb(120, 170, 120),
+    Color::Rgb(180, 120, 180),
+    Color::Rgb(185, 160, 90),
+];
+
 pub(super) fn depth_tint_color(depth: usize) -> Color {
-    DEPTH_TINT_PALETTE[depth % DEPTH_TINT_PALETTE.len()]
+    let palette = if crate::color::theme() == crate::color::Theme::Light {
+        &DEPTH_TINT_PALETTE_LIGHT
+    } else {
+        &DEPTH_TINT_PALETTE
+    };
+    palette[depth % palette.len()]
 }
 
 pub(super) struct Line {
@@ -197,26 +227,16 @@ pub(super) fn rebuild_xml_lines(state: &mut AppState, node: &XmlNode) {
     state.cursor = state.cursor.min(state.lines.len().saturating_sub(1));
 }
 
-/// Same 24-bit tones as `color::code_truecolor` (kept in sync manually --
-/// crossterm/ratatui negotiate the terminal's actual color depth and
-/// degrade `Rgb` automatically, the same way `tag_color`/`depth_tint_color`
-/// already rely on, so there's no separate ANSI16/truecolor tier to plumb
-/// through the TUI the way the static renderer needs one). `Structural`
-/// stays the original flat `DarkGray`, matching the static renderer's
-/// choice to leave it a plain de-emphasized tone in every tier.
+/// The same palette the static renderer's truecolor tier uses
+/// (`color::rgb_for`), so the two can't drift. `Structural` is the flat
+/// `DarkGray` on a dark theme (a gray that still reads on light backgrounds
+/// on the light one).
 pub(super) fn ratatui_color(color: TqColor) -> Color {
-    match color {
-        TqColor::Key => Color::Rgb(86, 182, 194),
-        TqColor::Str => Color::Rgb(152, 195, 121),
-        TqColor::Number => Color::Rgb(229, 192, 123),
-        TqColor::True => Color::Rgb(76, 217, 100),
-        TqColor::False => Color::Rgb(224, 108, 117),
-        TqColor::Null => Color::Rgb(128, 128, 128),
-        // Underlined on top of this color; see `render::value_style`.
-        TqColor::Url => Color::Rgb(97, 175, 239),
-        TqColor::Date => Color::Rgb(198, 120, 221),
-        TqColor::Attr => Color::Rgb(209, 154, 102),
-        TqColor::Structural => Color::DarkGray,
+    let theme = crate::color::theme();
+    match crate::color::rgb_for(color, theme) {
+        Some((r, g, b)) => Color::Rgb(r, g, b),
+        None if theme == crate::color::Theme::Light => Color::Rgb(160, 161, 167),
+        None => Color::DarkGray,
     }
 }
 
