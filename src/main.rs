@@ -113,6 +113,46 @@ fn print_lines(lines: Vec<String>) {
     }
 }
 
+/// `print!` panics on a closed pipe (`treeq --static f | head`); this exits
+/// quietly like `print_lines`.
+fn print_text(text: &str) {
+    use std::io::Write;
+    let mut out = io::stdout().lock();
+    if let Err(e) = out.write_all(text.as_bytes()).and_then(|()| out.flush())
+        && e.kind() != io::ErrorKind::BrokenPipe
+    {
+        eprintln!("error: {e}");
+        process::exit(1);
+    }
+}
+
+const PROGRESS_MIN_BYTES: usize = 5 * 1024 * 1024;
+
+/// "parsing 44 MB…" for big inputs, so the blank wait before the TUI opens
+/// doesn't look like a hang (issue #149).
+fn progress_message(len: usize) -> Option<String> {
+    (len >= PROGRESS_MIN_BYTES).then(|| format!("parsing {} MB…", len / (1024 * 1024)))
+}
+
+fn show_progress(input_len: usize, args: &Args) {
+    let tui_mode = !args.r#static
+        && !(args.stats || args.paths || args.schema || args.agent)
+        && (args.pick || io::stdout().is_terminal());
+    if tui_mode
+        && io::stderr().is_terminal()
+        && let Some(msg) = progress_message(input_len)
+    {
+        eprint!("{msg}");
+    }
+}
+
+/// Wipes the message `show_progress` wrote, before the alternate screen opens.
+fn clear_progress(input_len: usize) {
+    if progress_message(input_len).is_some() && io::stderr().is_terminal() {
+        eprint!("\r\x1b[K");
+    }
+}
+
 fn use_color() -> bool {
     io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
@@ -159,7 +199,7 @@ fn print_schema(text: String, json: bool) {
     if json {
         println!("{}", serde_json::json!({ "schema": text }));
     } else {
-        print!("{text}");
+        print_text(&text);
     }
 }
 
@@ -172,7 +212,7 @@ fn print_agent(pairs: &[(&'static str, usize)], tree: String, json: bool) {
     } else {
         print_stats(pairs, false);
         println!();
-        print!("{tree}");
+        print_text(&tree);
     }
 }
 
@@ -211,24 +251,42 @@ fn run_json(input: &str, args: &Args, ndjson: bool) {
     run_json_tree(&tree, input, args);
 }
 
-/// Detects multi-document YAML by matching serde_yaml's error text: the
-/// structural check (`Deserializer::from_str(..).count()`) hangs on some
-/// malformed single-document input in serde_yaml 0.9. Not a stable API —
-/// `reports_multi_document_yaml_as_unsupported` guards against a wording
-/// change silently breaking this.
-fn parse_single_yaml_document(input: &str) -> Result<serde_yaml::Value, String> {
-    serde_yaml::from_str::<serde_yaml::Value>(input).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("more than one document") {
-            "multi-document YAML is not supported yet".to_string()
+/// Multi-document YAML (`---` separated) becomes an array of documents, like
+/// NDJSON. Detected by matching serde_yaml's error text (its structural
+/// `Deserializer::count()` hangs on some malformed input in 0.9), then split
+/// on `---` lines. `multi_document_yaml_becomes_an_array_of_documents` guards
+/// against a wording change breaking the detection.
+fn parse_yaml_documents(input: &str) -> Result<serde_yaml::Value, String> {
+    let single = serde_yaml::from_str::<serde_yaml::Value>(input);
+    let err = match single {
+        Ok(v) => return Ok(v),
+        Err(e) => e.to_string(),
+    };
+    if !err.contains("more than one document") {
+        return Err(err);
+    }
+    let mut docs = Vec::new();
+    let mut chunk = String::new();
+    for line in input.lines().chain(std::iter::once("---")) {
+        if line == "---" || line.starts_with("--- ") {
+            if !chunk.trim().is_empty() {
+                docs.push(serde_yaml::from_str(&chunk).map_err(|e| e.to_string())?);
+            }
+            chunk.clear();
+            if let Some(rest) = line.strip_prefix("--- ") {
+                chunk.push_str(rest);
+                chunk.push('\n');
+            }
         } else {
-            msg
+            chunk.push_str(line);
+            chunk.push('\n');
         }
-    })
+    }
+    Ok(serde_yaml::Value::Sequence(docs))
 }
 
 fn run_yaml(input: &str, args: &Args) {
-    let value = parse_single_yaml_document(input).unwrap_or_else(|e| {
+    let value = parse_yaml_documents(input).unwrap_or_else(|e| {
         eprintln!("error: invalid YAML: {e}");
         process::exit(1);
     });
@@ -278,6 +336,7 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
         } else {
             use_color()
         };
+        clear_progress(input.len());
         match tui::run_json_tui(target, use_color, args.pick) {
             Ok(Some(picked)) => println!("{picked}"),
             Ok(None) => {}
@@ -287,16 +346,13 @@ fn run_json_tree(tree: &JsonNode, input: &str, args: &Args) {
             }
         }
     } else {
-        print!(
-            "{}",
-            render_json(
-                target,
-                "root",
-                args.depth,
-                args.array_limit,
-                color::ColorMode::detect(use_color())
-            )
-        );
+        print_text(&render_json(
+            target,
+            "root",
+            args.depth,
+            args.array_limit,
+            color::ColorMode::detect(use_color()),
+        ));
     }
 }
 
@@ -358,6 +414,7 @@ fn run_xml(input: &str, args: &Args) {
         } else {
             use_color()
         };
+        clear_progress(input.len());
         match tui::run_xml_tui(target, use_color, args.pick) {
             Ok(Some(picked)) => println!("{picked}"),
             Ok(None) => {}
@@ -367,10 +424,11 @@ fn run_xml(input: &str, args: &Args) {
             }
         }
     } else {
-        print!(
-            "{}",
-            render_xml(target, args.depth, color::ColorMode::detect(use_color()))
-        );
+        print_text(&render_xml(
+            target,
+            args.depth,
+            color::ColorMode::detect(use_color()),
+        ));
     }
 }
 
@@ -398,6 +456,7 @@ fn main() {
         eprintln!("error: {e}");
         process::exit(1);
     });
+    show_progress(input.len(), &args);
     if args.ndjson {
         run_json(&input, &args, true);
         return;
@@ -423,5 +482,19 @@ fn main() {
         Format::Xml => run_xml(&input, &args),
         Format::Yaml => run_yaml(&input, &args),
         Format::Ndjson => run_json(&input, &args, true),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_message_only_for_large_inputs() {
+        assert_eq!(progress_message(1024), None);
+        assert_eq!(
+            progress_message(44 * 1024 * 1024 + 5).as_deref(),
+            Some("parsing 44 MB…")
+        );
     }
 }
