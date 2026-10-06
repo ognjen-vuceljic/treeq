@@ -103,6 +103,13 @@ pub(super) enum Source<'a> {
 pub(super) struct AppState<'a> {
     /// Active `&` filter: only matching lines (and their ancestors) show.
     pub(super) filter: Option<String>,
+    /// `all_paths` is built on first use (search, filter, goto, popup), not at
+    /// startup: it holds a path and a string per node, which is most of the
+    /// TUI's memory (issue #133).
+    pub(super) all_paths_built: bool,
+    /// Popup matches (indices into `all_paths`) for the query they were
+    /// computed for, so a redraw doesn't re-run the fuzzy match over every node.
+    pub(super) popup_cache: std::cell::RefCell<Option<(String, Vec<usize>)>>,
     /// True while the filter's text is being typed.
     pub(super) filter_typing: bool,
     /// `Some` while typing a `:` jump-to-path.
@@ -205,6 +212,21 @@ fn apply_pending_cursor_path(state: &mut AppState) {
     if let Some(path) = state.pending_cursor_path.take() {
         let occurrence = std::mem::take(&mut state.pending_cursor_occurrence);
         super::keys::move_cursor_to_nth_path(state, &path, occurrence);
+    }
+}
+
+/// Builds the search index the first time something needs it.
+pub(super) fn ensure_all_paths(state: &mut AppState) {
+    if state.all_paths_built {
+        return;
+    }
+    state.all_paths_built = true;
+    match state.source {
+        Source::Json(node) => {
+            super::flatten::collect_all_paths_json(node, &[], &mut state.all_paths)
+        }
+        Source::Xml(node) => super::flatten::collect_all_paths_xml(node, &[], &mut state.all_paths),
+        Source::None => {}
     }
 }
 
@@ -402,6 +424,8 @@ mod tests {
             goto_input: None,
             filter: None,
             filter_typing: false,
+            all_paths_built: false,
+            popup_cache: Default::default(),
             source: Default::default(),
         }
     }

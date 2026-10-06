@@ -14,8 +14,7 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use flatten::{
-    collect_all_paths_json, collect_all_paths_xml, collect_container_paths_json,
-    collect_container_paths_xml, flatten_json, flatten_xml,
+    collect_container_paths_json, collect_container_paths_xml, flatten_json, flatten_xml,
 };
 use keys::handle_key;
 use ratatui::prelude::*;
@@ -56,6 +55,9 @@ pub struct TuiOpts {
     /// `r` reloads (only offered when the input is a file).
     pub reload_ok: bool,
     pub saved: Option<SavedUi>,
+    /// `--path` in the TUI: the cursor starts there (the whole document stays
+    /// visible) instead of the path becoming the root.
+    pub start_path: Option<String>,
 }
 
 fn save_ui(state: &AppState) -> SavedUi {
@@ -84,6 +86,9 @@ fn restored(
 }
 
 fn finish_restore(state: &mut AppState, saved: SavedUi) {
+    if !saved.tags.is_empty() {
+        state::ensure_all_paths(state);
+    }
     let known: HashSet<&Vec<String>> = state.all_paths.iter().map(|(p, _)| p).collect();
     state.tags = saved
         .tags
@@ -345,6 +350,8 @@ fn initial_state<'a>(
         goto_input: None,
         filter: None,
         filter_typing: false,
+        all_paths_built: false,
+        popup_cache: Default::default(),
         source,
     }
 }
@@ -358,14 +365,12 @@ pub fn run_json_tui(node: &JsonNode, opts: TuiOpts) -> io::Result<TuiExit> {
     };
     let mut lines = Vec::new();
     flatten_json(node, &[], 0, &collapsed, &array_overrides, &mut lines);
-    let mut all_paths = Vec::new();
-    collect_all_paths_json(node, &[], &mut all_paths);
     let mut state = initial_state(
         lines,
         collapsed,
         all_container_paths,
         array_overrides,
-        all_paths,
+        Vec::new(),
         true,
         opts.use_color,
         opts.pick,
@@ -375,6 +380,11 @@ pub fn run_json_tui(node: &JsonNode, opts: TuiOpts) -> io::Result<TuiExit> {
         finish_restore(&mut state, saved);
     }
     let rebuild = |s: &mut AppState| rebuild_json_lines(s, node);
+    if let Some(p) = &opts.start_path {
+        state::ensure_all_paths(&mut state);
+        keys::goto_typed_path(&mut state, p);
+        rebuild(&mut state);
+    }
     if opts.pick {
         run_loop(state, rebuild, open_tty()?, opts.mouse, opts.reload_ok)
     } else {
@@ -391,14 +401,12 @@ pub fn run_xml_tui(node: &XmlNode, opts: TuiOpts) -> io::Result<TuiExit> {
     };
     let mut lines = Vec::new();
     flatten_xml(node, &[], 0, &collapsed, &mut lines);
-    let mut all_paths = Vec::new();
-    collect_all_paths_xml(node, &[], &mut all_paths);
     let mut state = initial_state(
         lines,
         collapsed,
         all_container_paths,
         HashSet::new(),
-        all_paths,
+        Vec::new(),
         false,
         opts.use_color,
         opts.pick,
@@ -408,6 +416,11 @@ pub fn run_xml_tui(node: &XmlNode, opts: TuiOpts) -> io::Result<TuiExit> {
         finish_restore(&mut state, saved);
     }
     let rebuild = |s: &mut AppState| rebuild_xml_lines(s, node);
+    if let Some(p) = &opts.start_path {
+        state::ensure_all_paths(&mut state);
+        keys::goto_typed_path(&mut state, p);
+        rebuild(&mut state);
+    }
     if opts.pick {
         run_loop(state, rebuild, open_tty()?, opts.mouse, opts.reload_ok)
     } else {
