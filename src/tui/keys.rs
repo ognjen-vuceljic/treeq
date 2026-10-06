@@ -179,11 +179,20 @@ pub(super) fn popup_match_entries<'s>(state: &'s AppState) -> Vec<&'s (Vec<Strin
     if state.popup_query.is_empty() {
         return Vec::new();
     }
-    state
-        .all_paths
-        .iter()
-        .filter(|(_, text)| fuzzy_matches(text, &state.popup_query))
-        .collect()
+    let mut cache = state.popup_cache.borrow_mut();
+    let fresh = matches!(&*cache, Some((q, _)) if *q == state.popup_query);
+    if !fresh {
+        let indices = state
+            .all_paths
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, text))| fuzzy_matches(text, &state.popup_query))
+            .map(|(i, _)| i)
+            .collect();
+        *cache = Some((state.popup_query.clone(), indices));
+    }
+    let indices = &cache.as_ref().expect("just filled").1;
+    indices.iter().map(|&i| &state.all_paths[i]).collect()
 }
 
 const MAX_COUNT_DIGITS: usize = 6;
@@ -529,7 +538,7 @@ fn xml_text_at(root: &crate::xml_tree::XmlNode, path: &[String]) -> Option<Strin
 
 /// Turns a typed CLI-style path (`user.tags.0`, `book.@id`) into the TUI path
 /// of the first matching node and moves the cursor there.
-fn goto_typed_path(state: &mut AppState, typed: &str) {
+pub(super) fn goto_typed_path(state: &mut AppState, typed: &str) {
     let typed_segs = crate::json_tree::split_path_segments(typed);
     if typed_segs.is_empty() {
         return;
@@ -834,6 +843,15 @@ fn page_down(state: &mut AppState) {
 }
 
 pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
+    let wants_index = state.searching
+        || state.popup_visible
+        || state.filter_typing
+        || state.filter.is_some()
+        || state.goto_input.is_some()
+        || matches!(key, KeyCode::Char('/' | 'F' | ':' | '&' | 'n' | 'N'));
+    if wants_index {
+        super::state::ensure_all_paths(state);
+    }
     if state.filter_typing {
         match key {
             KeyCode::Esc => {
@@ -1306,6 +1324,8 @@ mod tests {
             goto_input: None,
             filter: None,
             filter_typing: false,
+            all_paths_built: false,
+            popup_cache: Default::default(),
             source: Default::default(),
         }
     }
@@ -1788,6 +1808,8 @@ mod tests {
             goto_input: None,
             filter: None,
             filter_typing: false,
+            all_paths_built: false,
+            popup_cache: Default::default(),
             source: Default::default(),
         }
     }
@@ -1827,6 +1849,8 @@ mod tests {
             goto_input: None,
             filter: None,
             filter_typing: false,
+            all_paths_built: false,
+            popup_cache: Default::default(),
             source: Default::default(),
         }
     }
@@ -2628,6 +2652,8 @@ mod tests {
             goto_input: None,
             filter: None,
             filter_typing: false,
+            all_paths_built: false,
+            popup_cache: Default::default(),
             source: Default::default(),
         };
         (state, node)
@@ -2720,6 +2746,8 @@ mod tests {
             goto_input: None,
             filter: None,
             filter_typing: false,
+            all_paths_built: false,
+            popup_cache: Default::default(),
             source: Default::default(),
         };
         move_cursor_to_path(&mut state, &["items".to_string(), "…more".to_string()]);
@@ -3012,6 +3040,8 @@ mod tests {
             goto_input: None,
             filter: None,
             filter_typing: false,
+            all_paths_built: false,
+            popup_cache: Default::default(),
             source: Default::default(),
         };
 

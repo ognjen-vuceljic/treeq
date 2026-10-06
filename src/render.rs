@@ -2,6 +2,46 @@ use crate::color::{Color, ColorMode, paint, paint_depth};
 use crate::json_tree::{JsonNode, JsonScalar, escape_display_str};
 use crate::xml_tree::XmlNode;
 
+/// Output buffer for the renderers. With a sink it hands the text on in chunks
+/// (so `--static` on a big file starts printing at once and never holds the
+/// whole rendering in memory, issue #148); without one it just accumulates.
+struct Out<'a> {
+    buf: String,
+    sink: Option<&'a mut dyn FnMut(&str)>,
+}
+
+const FLUSH_BYTES: usize = 64 * 1024;
+
+impl Out<'_> {
+    fn push_str(&mut self, s: &str) {
+        self.buf.push_str(s);
+    }
+
+    fn push(&mut self, c: char) {
+        self.buf.push(c);
+    }
+
+    /// Called once per rendered node; a no-op without a sink.
+    fn tick(&mut self) {
+        if let Some(sink) = &mut self.sink
+            && self.buf.len() >= FLUSH_BYTES
+        {
+            sink(&self.buf);
+            self.buf.clear();
+        }
+    }
+
+    fn finish(mut self) -> String {
+        match &mut self.sink {
+            Some(sink) => {
+                sink(&self.buf);
+                String::new()
+            }
+            None => self.buf,
+        }
+    }
+}
+
 pub fn render_json(
     node: &JsonNode,
     root_label: &str,
@@ -9,7 +49,49 @@ pub fn render_json(
     array_limit: Option<usize>,
     mode: ColorMode,
 ) -> String {
-    let mut out = String::new();
+    render_json_into(
+        Out {
+            buf: String::new(),
+            sink: None,
+        },
+        node,
+        root_label,
+        max_depth,
+        array_limit,
+        mode,
+    )
+}
+
+/// Same output as `render_json`, delivered to `sink` in chunks.
+pub fn render_json_to(
+    node: &JsonNode,
+    root_label: &str,
+    max_depth: Option<usize>,
+    array_limit: Option<usize>,
+    mode: ColorMode,
+    sink: &mut dyn FnMut(&str),
+) {
+    render_json_into(
+        Out {
+            buf: String::new(),
+            sink: Some(sink),
+        },
+        node,
+        root_label,
+        max_depth,
+        array_limit,
+        mode,
+    );
+}
+
+fn render_json_into(
+    mut out: Out,
+    node: &JsonNode,
+    root_label: &str,
+    max_depth: Option<usize>,
+    array_limit: Option<usize>,
+    mode: ColorMode,
+) -> String {
     match node {
         JsonNode::Scalar(s) => out.push_str(&scalar_line(root_label, s, mode)),
         _ => {
@@ -18,7 +100,7 @@ pub fn render_json(
             render_json_children(node, "", 0, max_depth, array_limit, mode, &mut out);
         }
     }
-    out
+    out.finish()
 }
 
 /// The `: ` between a label and its value, dimmed (issue #143) so keys and
@@ -40,7 +122,7 @@ fn render_json_children(
     max_depth: Option<usize>,
     array_limit: Option<usize>,
     mode: ColorMode,
-    out: &mut String,
+    out: &mut Out,
 ) {
     let is_array = matches!(node, JsonNode::Array(_));
     let entries: Vec<(String, &JsonNode)> = match node {
@@ -60,6 +142,7 @@ fn render_json_children(
     };
     let truncated = total - visible;
     for (i, (label, child)) in entries.into_iter().take(visible).enumerate() {
+        out.tick();
         let is_last = i + 1 == visible && truncated == 0;
         let branch = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
@@ -130,11 +213,45 @@ fn render_json_children(
 }
 
 pub fn render_xml(node: &XmlNode, max_depth: Option<usize>, mode: ColorMode) -> String {
-    let mut out = String::new();
+    render_xml_into(
+        Out {
+            buf: String::new(),
+            sink: None,
+        },
+        node,
+        max_depth,
+        mode,
+    )
+}
+
+/// Same output as `render_xml`, delivered to `sink` in chunks.
+pub fn render_xml_to(
+    node: &XmlNode,
+    max_depth: Option<usize>,
+    mode: ColorMode,
+    sink: &mut dyn FnMut(&str),
+) {
+    render_xml_into(
+        Out {
+            buf: String::new(),
+            sink: Some(sink),
+        },
+        node,
+        max_depth,
+        mode,
+    );
+}
+
+fn render_xml_into(
+    mut out: Out,
+    node: &XmlNode,
+    max_depth: Option<usize>,
+    mode: ColorMode,
+) -> String {
     out.push_str(&xml_label(node, mode));
     out.push('\n');
     render_xml_children(node, "", 0, max_depth, mode, &mut out);
-    out
+    out.finish()
 }
 
 fn xml_label(node: &XmlNode, mode: ColorMode) -> String {
@@ -176,10 +293,11 @@ fn render_xml_children(
     depth: usize,
     max_depth: Option<usize>,
     mode: ColorMode,
-    out: &mut String,
+    out: &mut Out,
 ) {
     let len = node.children.len();
     for (i, child) in node.children.iter().enumerate() {
+        out.tick();
         let is_last = i + 1 == len;
         let branch = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
@@ -454,5 +572,33 @@ mod tests {
         let output = render_xml(&node, None, ColorMode::Ansi16);
         assert!(output.contains("\x1b[36mperson\x1b[0m"));
         assert!(output.contains("\x1b[32mAlice\x1b[0m"));
+    }
+
+    #[test]
+    fn streamed_output_equals_the_string_output_and_arrives_in_chunks() {
+        let items: Vec<serde_json::Value> = (0..5000)
+            .map(|i| serde_json::json!({"id": i, "name": format!("user{i}"), "tags": ["a", "b"]}))
+            .collect();
+        let node = JsonNode::from_value(&serde_json::json!({ "items": items }));
+        let whole = render_json(&node, "root", None, None, ColorMode::Off);
+        let mut chunks: Vec<String> = Vec::new();
+        render_json_to(&node, "root", None, None, ColorMode::Off, &mut |c| {
+            chunks.push(c.to_string())
+        });
+        assert!(whole.len() > FLUSH_BYTES * 2);
+        assert!(
+            chunks.len() > 2,
+            "expected several chunks, got {}",
+            chunks.len()
+        );
+        assert_eq!(chunks.concat(), whole);
+
+        let xml = "<r>".to_string() + &"<a id=\"1\"><b>x</b></a>".repeat(8000) + "</r>";
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        let xnode = XmlNode::from_document(&doc).unwrap();
+        let whole = render_xml(&xnode, None, ColorMode::Off);
+        let mut got = String::new();
+        render_xml_to(&xnode, None, ColorMode::Off, &mut |c| got.push_str(c));
+        assert_eq!(got, whole);
     }
 }

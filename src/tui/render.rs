@@ -842,6 +842,8 @@ mod tests {
             goto_input: None,
             filter: None,
             filter_typing: false,
+            all_paths_built: false,
+            popup_cache: Default::default(),
             source: Default::default(),
         }
     }

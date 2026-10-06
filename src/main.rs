@@ -22,7 +22,7 @@ use error_context::{json_error_context, xml_error_context};
 use json_tree::{JsonNode, find_json_path};
 use ndjson::parse_ndjson;
 use paths::{json_paths, xml_paths};
-use render::{render_json, render_xml};
+use render::{render_json, render_json_to, render_xml, render_xml_to};
 use schema::{json_schema, xml_schema};
 use stats::{JsonStats, XmlStats, json_stats, xml_stats};
 use std::io::{IsTerminal, Read};
@@ -167,6 +167,32 @@ fn show_progress(input_len: usize, args: &Args) {
 fn clear_progress(input_len: usize) {
     if progress_message(input_len).is_some() && io::stderr().is_terminal() {
         eprint!("\r\x1b[K");
+    }
+}
+
+/// Runs a renderer straight into buffered stdout. The first write error
+/// (a closed pipe, normally) stops further output and exits quietly, like
+/// `print_text`.
+fn stream_text(render: impl FnOnce(&mut dyn FnMut(&str))) {
+    use std::io::Write;
+    let mut out = io::BufWriter::new(io::stdout().lock());
+    let mut failed: Option<io::Error> = None;
+    render(&mut |chunk: &str| {
+        if failed.is_none()
+            && let Err(e) = out.write_all(chunk.as_bytes())
+        {
+            failed = Some(e);
+        }
+    });
+    let res = match failed {
+        Some(e) => Err(e),
+        None => out.flush(),
+    };
+    if let Err(e) = res
+        && e.kind() != io::ErrorKind::BrokenPipe
+    {
+        eprintln!("error: {e}");
+        process::exit(1);
     }
 }
 
@@ -376,20 +402,19 @@ fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<
         clear_progress(input_len);
         let mut owned: Option<JsonNode> = None;
         let mut saved = None;
+        let mut first = true;
         loop {
             let cur = owned.as_ref().unwrap_or(tree);
-            let target = match &args.path {
-                Some(p) => find_json_path(cur, p).unwrap_or(cur),
-                None => cur,
-            };
             let opts = tui::TuiOpts {
                 use_color,
                 pick: args.pick,
                 mouse: !args.no_mouse,
                 reload_ok: reload.is_some() && !args.pick,
+                start_path: args.path.clone().filter(|_| first),
                 saved: saved.take(),
             };
-            match tui::run_json_tui(target, opts) {
+            first = false;
+            match tui::run_json_tui(cur, opts) {
                 Ok(tui::TuiExit::Done(Some(picked))) => println!("{picked}"),
                 Ok(tui::TuiExit::Done(None)) => {}
                 Ok(tui::TuiExit::Reload(mut ui)) => {
@@ -415,13 +440,16 @@ fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<
             break;
         }
     } else {
-        print_text(&render_json(
-            target,
-            "root",
-            args.depth,
-            args.array_limit,
-            color::ColorMode::detect(use_color()),
-        ));
+        stream_text(|sink| {
+            render_json_to(
+                target,
+                "root",
+                args.depth,
+                args.array_limit,
+                color::ColorMode::detect(use_color()),
+                sink,
+            )
+        });
     }
 }
 
@@ -486,20 +514,19 @@ fn run_xml(input: String, args: &Args) {
         clear_progress(input_len);
         let mut owned: Option<XmlNode> = None;
         let mut saved = None;
+        let mut first = true;
         loop {
             let cur = owned.as_ref().unwrap_or(&tree);
-            let target = match &args.path {
-                Some(p) => find_xml_path_or_attr(cur, p).unwrap_or(std::borrow::Cow::Borrowed(cur)),
-                None => std::borrow::Cow::Borrowed(cur),
-            };
             let opts = tui::TuiOpts {
                 use_color,
                 pick: args.pick,
                 mouse: !args.no_mouse,
                 reload_ok: reload.is_some() && !args.pick,
+                start_path: args.path.clone().filter(|_| first),
                 saved: saved.take(),
             };
-            match tui::run_xml_tui(&target, opts) {
+            first = false;
+            match tui::run_xml_tui(cur, opts) {
                 Ok(tui::TuiExit::Done(Some(picked))) => println!("{picked}"),
                 Ok(tui::TuiExit::Done(None)) => {}
                 Ok(tui::TuiExit::Reload(mut ui)) => {
@@ -525,11 +552,14 @@ fn run_xml(input: String, args: &Args) {
             break;
         }
     } else {
-        print_text(&render_xml(
-            target,
-            args.depth,
-            color::ColorMode::detect(use_color()),
-        ));
+        stream_text(|sink| {
+            render_xml_to(
+                target,
+                args.depth,
+                color::ColorMode::detect(use_color()),
+                sink,
+            )
+        });
     }
 }
 
