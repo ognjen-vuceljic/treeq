@@ -18,6 +18,25 @@ pub enum JsonScalar {
 /// 52 clipboard writes, title-bar spoofing, ...) into whoever views it with
 /// treeq. Used both for `JsonScalar::display()` and directly by callers
 /// (`render.rs`, `tui/flatten.rs`) rendering any other untrusted text.
+/// Characters shown as `\uXXXX`: C0 controls and DEL, C1 controls (U+0080-9F,
+/// where 0x9B/0x9D are single-byte CSI/OSC introducers on some terminals),
+/// and invisible bidi/line-separator controls that can reorder or hide text
+/// (the "Trojan Source" class).
+pub(crate) fn is_unsafe_display_char(c: char) -> bool {
+    matches!(
+        c as u32,
+        0..=0x1f
+            | 0x7f..=0x9f
+            | 0x61c
+            | 0x200e
+            | 0x200f
+            | 0x2028
+            | 0x2029
+            | 0x202a..=0x202e
+            | 0x2066..=0x2069
+    )
+}
+
 pub(crate) fn escape_display_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -27,7 +46,7 @@ pub(crate) fn escape_display_str(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+            c if is_unsafe_display_char(c) => {
                 let _ = write!(out, "\\u{:04x}", c as u32);
             }
             c => out.push(c),
@@ -688,5 +707,16 @@ mod tests {
         let dup = fields.iter().find(|(k, _)| k == "dup").unwrap();
         assert_eq!(dup.1, JsonNode::Scalar(JsonScalar::Number("2".to_string())));
         assert_eq!(fields.iter().filter(|(k, _)| k == "dup").count(), 1);
+    }
+
+    #[test]
+    fn escapes_c1_controls_and_bidi_overrides() {
+        assert_eq!(escape_display_str("a\u{9b}31m"), "a\\u009b31m");
+        assert_eq!(escape_display_str("\u{9d}0;t\u{9c}"), "\\u009d0;t\\u009c");
+        assert_eq!(escape_display_str("x\u{202e}gpj"), "x\\u202egpj");
+        assert_eq!(escape_display_str("\u{2066}a\u{2069}"), "\\u2066a\\u2069");
+        assert_eq!(escape_display_str("a\u{2028}b"), "a\\u2028b");
+        // ordinary non-ASCII text is untouched
+        assert_eq!(escape_display_str("héllo 日本 😀"), "héllo 日本 😀");
     }
 }
