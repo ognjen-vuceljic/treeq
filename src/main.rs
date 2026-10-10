@@ -230,17 +230,17 @@ fn stats_json(pairs: &[(&'static str, usize)]) -> serde_json::Value {
 
 fn print_stats(pairs: &[(&'static str, usize)], json: bool) {
     if json {
-        println!("{}", stats_json(pairs));
+        print_text(&format!("{}\n", stats_json(pairs)));
     } else {
         for (k, v) in pairs {
-            println!("{k}: {v}");
+            print_text(&format!("{k}: {v}\n"));
         }
     }
 }
 
 fn print_schema(text: String, json: bool) {
     if json {
-        println!("{}", serde_json::json!({ "schema": text }));
+        print_text(&format!("{}\n", serde_json::json!({ "schema": text })));
     } else {
         print_text(&text);
     }
@@ -248,13 +248,14 @@ fn print_schema(text: String, json: bool) {
 
 fn print_agent(pairs: &[(&'static str, usize)], tree: String, json: bool) {
     if json {
-        println!(
-            "{}",
+        print_text(&format!(
+            "{}
+",
             serde_json::json!({ "stats": stats_json(pairs), "tree": tree })
-        );
+        ));
     } else {
         print_stats(pairs, false);
-        println!();
+        print_text("\n");
         print_text(&tree);
     }
 }
@@ -269,7 +270,7 @@ fn agent_color(args: &Args) -> color::ColorMode {
 
 fn print_paths(lines: Vec<String>, json: bool) {
     if json {
-        println!("{}", serde_json::json!(lines));
+        print_text(&format!("{}\n", serde_json::json!(lines)));
     } else {
         print_lines(lines);
     }

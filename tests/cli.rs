@@ -829,3 +829,35 @@ fn xml_attributes_are_listed_and_addressable_by_path() {
     assert_eq!(code, 0, "{err}");
     assert!(out.contains("en"), "{out}");
 }
+
+#[test]
+fn closed_stdout_pipe_does_not_panic_for_stats_and_paths() {
+    for flag in ["--stats", "--paths", "--schema"] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_treeq"))
+            .args([flag])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        drop(child.stdout.take()); // reader gone before any output
+        let _ = stdin.write_all(br#"{"a": [1, 2], "b": {"c": null}}"#);
+        drop(stdin);
+        let out = child.wait_with_output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!err.contains("panicked"), "{flag}: {err}");
+    }
+}
+
+#[test]
+fn c1_and_bidi_controls_in_values_and_keys_are_escaped() {
+    let (out, _, code) =
+        run_treeq_with_file(&["--static"], "{\"k\\u009b\": \"a\\u009d0;x\\u202ec\"}");
+    assert_eq!(code, 0);
+    assert!(!out.contains('\u{9b}') && !out.contains('\u{9d}') && !out.contains('\u{202e}'));
+    assert!(
+        out.contains("\\u009b") && out.contains("\\u202e"),
+        "{out:?}"
+    );
+}

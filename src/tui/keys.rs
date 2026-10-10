@@ -394,7 +394,9 @@ fn escape_jq_string(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if crate::json_tree::is_unsafe_display_char(c) => {
+                out.push_str(&format!("\\u{:04x}", c as u32))
+            }
             c => out.push(c),
         }
     }
@@ -3636,5 +3638,10 @@ mod tests {
         );
         super::super::state::rebuild_json_lines(&mut state, &node);
         assert!(visible_keys(&state).contains(&"id"));
+    }
+
+    #[test]
+    fn jq_string_escapes_c1_and_bidi_too() {
+        assert_eq!(escape_jq_string("a\u{9b}b\u{202e}c"), "a\\u009bb\\u202ec");
     }
 }

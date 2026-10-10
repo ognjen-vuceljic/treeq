@@ -131,7 +131,7 @@ fn expand_tabs(text: &str) -> String {
 fn sanitize_control_chars(text: &str) -> String {
     text.chars()
         .map(|c| {
-            if c != '\t' && (c.is_control() || c == '\u{7f}') {
+            if c != '\t' && (c.is_control() || crate::json_tree::is_unsafe_display_char(c)) {
                 '\u{fffd}'
             } else {
                 c
