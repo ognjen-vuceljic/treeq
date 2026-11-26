@@ -861,3 +861,43 @@ fn c1_and_bidi_controls_in_values_and_keys_are_escaped() {
         "{out:?}"
     );
 }
+
+#[test]
+fn missing_file_error_names_the_path() {
+    let (out, err, code) = run_treeq(&["--static", "/nonexistent/treeq-missing.json"], "");
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(
+        err.contains("/nonexistent/treeq-missing.json: No such file or directory"),
+        "stderr was: {err}"
+    );
+}
+
+#[test]
+fn directory_as_input_error_names_the_path() {
+    let dir = std::env::temp_dir();
+    let dir = dir.to_string_lossy();
+    let (_, err, code) = run_treeq(&["--static", &dir], "");
+    assert_eq!(code, 1);
+    assert!(err.contains(&*dir), "stderr was: {err}");
+}
+
+#[test]
+fn invalid_utf8_file_error_names_the_path() {
+    let n = TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file = std::env::temp_dir().join(format!("treeq-bad-utf8-{}-{n}.json", std::process::id()));
+    fs::write(&file, [0xff, 0xfe, b'{']).unwrap();
+    let path = file.to_string_lossy().to_string();
+    let (_, err, code) = run_treeq(&["--static", &path], "");
+    fs::remove_file(&file).ok();
+    assert_eq!(code, 1);
+    assert!(err.contains(&path), "stderr was: {err}");
+    assert!(err.contains("valid UTF-8"), "stderr was: {err}");
+}
+
+#[test]
+fn stdin_read_error_is_not_path_prefixed() {
+    let (_, err, code) = run_treeq(&["--static"], "");
+    assert_eq!(code, 1);
+    assert!(err.starts_with("error:"), "stderr was: {err}");
+}
