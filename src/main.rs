@@ -202,13 +202,24 @@ fn use_color() -> bool {
 }
 
 fn json_stat_pairs(s: &JsonStats, input_len: usize) -> Vec<(&'static str, usize)> {
-    vec![
+    let mut pairs = vec![
         ("file_bytes", input_len),
         ("max_depth", s.max_depth),
         ("objects", s.objects),
         ("arrays", s.arrays),
         ("scalars", s.scalars),
-    ]
+    ];
+    // Only when present, so existing output is unchanged for clean documents.
+    let dups = json_tree::duplicate_keys();
+    if dups > 0 {
+        pairs.push(("duplicate_keys", dups));
+    }
+    pairs
+}
+
+fn duplicate_keys_notice() -> Option<String> {
+    let n = json_tree::duplicate_keys();
+    (n > 0).then(|| format!("{n} duplicate key(s): last value wins"))
 }
 
 fn xml_stat_pairs(s: &XmlStats, input_len: usize) -> Vec<(&'static str, usize)> {
@@ -278,6 +289,7 @@ fn print_paths(lines: Vec<String>, json: bool) {
 }
 
 fn parse_json_tree(input: &str, ndjson: bool) -> Result<JsonNode, String> {
+    json_tree::reset_duplicate_keys();
     if ndjson {
         let value = parse_ndjson(input).map_err(|e| format!("error: invalid NDJSON: {e}"))?;
         Ok(JsonNode::from_value(&value))
@@ -414,6 +426,7 @@ fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<
                 reload_ok: reload.is_some() && !args.pick,
                 start_path: args.path.clone().filter(|_| first),
                 saved: saved.take(),
+                notice: duplicate_keys_notice(),
             };
             first = false;
             match tui::run_json_tui(cur, opts) {
@@ -526,6 +539,7 @@ fn run_xml(input: String, args: &Args) {
                 reload_ok: reload.is_some() && !args.pick,
                 start_path: args.path.clone().filter(|_| first),
                 saved: saved.take(),
+                notice: None,
             };
             first = false;
             match tui::run_xml_tui(cur, opts) {

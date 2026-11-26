@@ -183,6 +183,23 @@ pub enum JsonNode {
     Scalar(JsonScalar),
 }
 
+thread_local! {
+    // ponytail: thread-local tally filled by the parser, read after parsing on
+    // the same thread. Whole-document, not per-subtree; thread the count
+    // through a parse result if a per-`--path` figure is ever wanted.
+    static DUPLICATE_KEYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Starts a fresh duplicate-key tally; call right before parsing.
+pub fn reset_duplicate_keys() {
+    DUPLICATE_KEYS.with(|c| c.set(0));
+}
+
+/// Repeated object keys seen since the last `reset_duplicate_keys`.
+pub fn duplicate_keys() -> usize {
+    DUPLICATE_KEYS.with(std::cell::Cell::get)
+}
+
 /// Parses straight into the tree, skipping the intermediate `serde_json::Value`
 /// (one fewer full copy of the document in memory, issue #133).
 impl<'de> serde::Deserialize<'de> for JsonNode {
@@ -258,7 +275,10 @@ impl<'de> serde::de::Visitor<'de> for NodeVisitor {
             }
             let value: JsonNode = map.next_value()?;
             match index.get(&key) {
-                Some(&i) => fields[i].1 = value,
+                Some(&i) => {
+                    DUPLICATE_KEYS.with(|c| c.set(c.get() + 1));
+                    fields[i].1 = value;
+                }
                 None => {
                     index.insert(key.clone(), fields.len());
                     fields.push((key, value));
@@ -759,6 +779,40 @@ mod tests {
         let n = yaml(&src);
         assert_eq!(keys(&n).len(), 10_000);
         assert_eq!(keys(&n)[9_999], "9999");
+    }
+
+    fn parse_counting(doc: &str) -> usize {
+        reset_duplicate_keys();
+        serde_json::from_str::<JsonNode>(doc).unwrap();
+        duplicate_keys()
+    }
+
+    #[test]
+    fn counts_duplicate_keys_at_every_depth() {
+        assert_eq!(parse_counting(r#"{"a":1,"b":2}"#), 0);
+        assert_eq!(parse_counting(r#"{"a":1,"a":2}"#), 1);
+        assert_eq!(parse_counting(r#"{"a":1,"a":2,"a":3}"#), 2);
+        assert_eq!(parse_counting(r#"{"o":{"k":1,"k":2},"o2":{"k":1}}"#), 1);
+        assert_eq!(parse_counting(r#"[{"x":1,"x":1},{"x":1,"x":1}]"#), 2);
+    }
+
+    #[test]
+    fn same_key_in_different_objects_is_not_a_duplicate() {
+        assert_eq!(parse_counting(r#"{"a":{"id":1},"b":{"id":2}}"#), 0);
+    }
+
+    #[test]
+    fn reset_clears_the_tally_between_parses() {
+        assert_eq!(parse_counting(r#"{"a":1,"a":2}"#), 1);
+        assert_eq!(parse_counting(r#"{"a":1}"#), 0);
+    }
+
+    #[test]
+    fn counts_duplicates_in_a_large_document() {
+        let body: String = (0..5_000)
+            .map(|i| format!(r#""k{i}":1,"k{i}":2,"#))
+            .collect();
+        assert_eq!(parse_counting(&format!("{{{body}\"z\":0}}")), 5_000);
     }
 
     #[test]
