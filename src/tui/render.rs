@@ -827,6 +827,7 @@ mod tests {
             viewport_height: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            sort_keys: false,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -857,6 +858,7 @@ mod tests {
             0,
             &HashSet::new(),
             &HashSet::new(),
+            false,
             &mut lines,
         );
         lines

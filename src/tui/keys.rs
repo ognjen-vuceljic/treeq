@@ -576,6 +576,22 @@ fn real_path(line: &super::state::Line) -> &[String] {
     }
 }
 
+/// View-only: the tree is untouched, `rebuild_json_lines` just orders object
+/// keys differently. The cursor follows its node via `pending_cursor_path`.
+fn toggle_sort_keys(state: &mut AppState) {
+    if !state.is_json {
+        state.status_message = Some("sort keys: not available for XML".to_string());
+        return;
+    }
+    state.sort_keys = !state.sort_keys;
+    state.pending_cursor_path = state.lines.get(state.cursor).map(|l| l.path.clone());
+    state.status_message = Some(if state.sort_keys {
+        "keys sorted".to_string()
+    } else {
+        "original key order".to_string()
+    });
+}
+
 fn collapse_all(state: &mut AppState) {
     // Collapsing everything means every array's expand-past-limit preview
     // becomes irrelevant too -- without this, re-expanding an array Tab
@@ -1055,6 +1071,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char(c @ '1'..='8') => toggle_tag(state, c as u8 - b'0'),
         KeyCode::Char('c') => collapse_all(state),
         KeyCode::Char('e') => expand_all(state),
+        KeyCode::Char('s') => toggle_sort_keys(state),
         KeyCode::Char('x') => {
             let n = state.tags.len();
             state.tags.clear();
@@ -1105,7 +1122,15 @@ mod tests {
         };
         let node = crate::json_tree::JsonNode::from_value(&serde_json::from_str(json).unwrap());
         let mut lines = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut lines,
+        );
         let mut all_container_paths = HashSet::new();
         collect_container_paths_json(&node, &[], &mut all_container_paths);
         let mut all_paths = Vec::new();
@@ -1311,6 +1336,7 @@ mod tests {
                 ),
             ],
             pending_cursor_path: None,
+            sort_keys: false,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -1795,6 +1821,7 @@ mod tests {
                 ),
             ],
             pending_cursor_path: None,
+            sort_keys: false,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -1836,6 +1863,7 @@ mod tests {
             viewport_height: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            sort_keys: false,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -2617,7 +2645,15 @@ mod tests {
         let mut all_paths = Vec::new();
         collect_all_paths_json(&node, &[], &mut all_paths);
         let mut lines = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut lines,
+        );
         let state = AppState {
             lines,
             collapsed: HashSet::new(),
@@ -2639,6 +2675,7 @@ mod tests {
             viewport_height: std::cell::Cell::new(0),
             all_paths,
             pending_cursor_path: None,
+            sort_keys: false,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -2715,7 +2752,15 @@ mod tests {
         let value = serde_json::json!({ "items": items });
         let node = JsonNode::from_value(&value);
         let mut lines = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut lines,
+        );
         let mut state = AppState {
             lines,
             collapsed: HashSet::new(),
@@ -2733,6 +2778,7 @@ mod tests {
             viewport_height: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            sort_keys: false,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -3007,7 +3053,15 @@ mod tests {
         let mut all_paths = Vec::new();
         collect_all_paths_json(&node, &[], &mut all_paths);
         let mut lines = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut lines,
+        );
 
         let mut state = AppState {
             lines,
@@ -3027,6 +3081,7 @@ mod tests {
             viewport_height: std::cell::Cell::new(0),
             all_paths,
             pending_cursor_path: None,
+            sort_keys: false,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),

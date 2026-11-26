@@ -55,10 +55,11 @@ pub(super) fn flatten_json(
     depth: usize,
     collapsed: &HashSet<Vec<String>>,
     array_overrides: &HashSet<Vec<String>>,
+    sorted: bool,
     out: &mut Vec<Line>,
 ) {
     let is_array = matches!(node, JsonNode::Array(_));
-    let entries: Vec<(String, &JsonNode)> = match node {
+    let mut entries: Vec<(String, &JsonNode)> = match node {
         JsonNode::Object(fields) => fields.iter().map(|(k, v)| (k.clone(), v)).collect(),
         JsonNode::Array(items) => items
             .iter()
@@ -67,6 +68,9 @@ pub(super) fn flatten_json(
             .collect(),
         JsonNode::Scalar(_) => return,
     };
+    if sorted && !is_array {
+        entries.sort_by(|a, b| a.0.cmp(&b.0)); // stable; arrays keep their order
+    }
     let total = entries.len();
     let visible = if is_array && !array_overrides.contains(path) {
         ARRAY_PREVIEW_LIMIT.min(total)
@@ -112,6 +116,7 @@ pub(super) fn flatten_json(
                 depth + 1,
                 collapsed,
                 array_overrides,
+                sorted,
                 out,
             );
         }
@@ -326,7 +331,15 @@ mod tests {
         let value = json!({"before\u{1b}after": 1});
         let node = JsonNode::from_value(&value);
         let mut out = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut out);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut out,
+        );
         assert_eq!(out[0].key, "before\\u001bafter");
         // The path used for tag/collapse lookups must stay the real key.
         assert_eq!(out[0].path, path(&["before\u{1b}after"]));
@@ -337,7 +350,15 @@ mod tests {
         let value = json!({"user": {"name": "Alice", "tags": ["admin", "user"]}});
         let node = JsonNode::from_value(&value);
         let mut out = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut out);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut out,
+        );
 
         // "user" + "name" + "tags" + the array's own two elements, since
         // flattening recurses into an expanded array just like an object.
@@ -371,7 +392,7 @@ mod tests {
         let mut collapsed = HashSet::new();
         collapsed.insert(path(&["user"]));
         let mut out = Vec::new();
-        flatten_json(&node, &[], 0, &collapsed, &HashSet::new(), &mut out);
+        flatten_json(&node, &[], 0, &collapsed, &HashSet::new(), false, &mut out);
 
         // The collapsed container's own line is still shown, just not its children.
         assert_eq!(out.len(), 1);
@@ -387,7 +408,15 @@ mod tests {
         let value = json!({ "tags": items });
         let node = JsonNode::from_value(&value);
         let mut out = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut out);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut out,
+        );
 
         // "tags" + ARRAY_PREVIEW_LIMIT visible elements + 1 summary line.
         assert_eq!(out.len(), 1 + ARRAY_PREVIEW_LIMIT + 1);
@@ -412,7 +441,15 @@ mod tests {
         let mut array_overrides = HashSet::new();
         array_overrides.insert(path(&["tags"]));
         let mut out = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &array_overrides, &mut out);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &array_overrides,
+            false,
+            &mut out,
+        );
 
         // "tags" + every element, no summary line.
         assert_eq!(out.len(), 1 + ARRAY_PREVIEW_LIMIT + 5);
@@ -424,7 +461,15 @@ mod tests {
         let value = json!({"tags": ["a", "b"]});
         let node = JsonNode::from_value(&value);
         let mut out = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut out);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut out,
+        );
 
         assert_eq!(out.len(), 3); // "tags" + 2 elements, no summary line
         assert!(out.iter().all(|l| !l.is_array_summary));

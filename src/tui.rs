@@ -337,6 +337,7 @@ fn initial_state<'a>(
         viewport_height: std::cell::Cell::new(0),
         all_paths,
         pending_cursor_path: None,
+        sort_keys: false,
         pending_cursor_occurrence: 0,
         awaiting_depth: false,
         inspect_scroll: std::cell::Cell::new(0),
@@ -366,7 +367,15 @@ pub fn run_json_tui(node: &JsonNode, opts: TuiOpts) -> io::Result<TuiExit> {
         None => Default::default(),
     };
     let mut lines = Vec::new();
-    flatten_json(node, &[], 0, &collapsed, &array_overrides, &mut lines);
+    flatten_json(
+        node,
+        &[],
+        0,
+        &collapsed,
+        &array_overrides,
+        false,
+        &mut lines,
+    );
     let mut state = initial_state(
         lines,
         collapsed,
@@ -438,7 +447,15 @@ mod tests {
     fn state_for(json: &str) -> AppState<'static> {
         let node = JsonNode::from_value(&serde_json::from_str(json).unwrap());
         let mut lines = Vec::new();
-        flatten_json(&node, &[], 0, &HashSet::new(), &HashSet::new(), &mut lines);
+        flatten_json(
+            &node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut lines,
+        );
         let mut containers = HashSet::new();
         collect_container_paths_json(&node, &[], &mut containers);
         initial_state(
@@ -607,5 +624,113 @@ mod tests {
         state.filter_typing = false;
         state.pending_cursor_path = Some(vec!["a".to_string()]);
         assert!(key_may_change_lines(&state, &key(KeyCode::Char('j'))));
+    }
+
+    const SORT_DOC: &str = r#"{"b": {"z": 1, "a": 2}, "a": [3, 1, 2], "c": 0}"#;
+
+    fn sort_fixture() -> (AppState<'static>, JsonNode) {
+        let node = JsonNode::from_value(&serde_json::from_str(SORT_DOC).unwrap());
+        (state_for(SORT_DOC), node)
+    }
+
+    fn press_s(state: &mut AppState, node: &JsonNode) {
+        press(state, KeyCode::Char('s'), KeyModifiers::NONE);
+        rebuild_json_lines(state, node);
+    }
+
+    fn keys_in_order(state: &AppState) -> Vec<String> {
+        state.lines.iter().map(|l| l.key.clone()).collect()
+    }
+
+    #[test]
+    fn s_sorts_object_keys_at_every_depth_and_leaves_arrays_alone() {
+        let (mut state, node) = sort_fixture();
+        press_s(&mut state, &node);
+        assert_eq!(
+            keys_in_order(&state),
+            ["a", "[0]", "[1]", "[2]", "b", "a", "z", "c"]
+        );
+        assert_eq!(state.status_message.as_deref(), Some("keys sorted"));
+    }
+
+    #[test]
+    fn s_twice_restores_the_original_order() {
+        let (mut state, node) = sort_fixture();
+        let before = keys_in_order(&state);
+        press_s(&mut state, &node);
+        press_s(&mut state, &node);
+        assert_eq!(keys_in_order(&state), before);
+        assert_eq!(state.status_message.as_deref(), Some("original key order"));
+    }
+
+    #[test]
+    fn the_cursor_stays_on_the_same_node_when_sorting() {
+        let (mut state, node) = sort_fixture();
+        state.cursor = state
+            .lines
+            .iter()
+            .position(|l| l.path == ["b", "z"])
+            .unwrap();
+        press_s(&mut state, &node);
+        assert_eq!(state.lines[state.cursor].path, ["b", "z"]);
+        press_s(&mut state, &node);
+        assert_eq!(state.lines[state.cursor].path, ["b", "z"]);
+    }
+
+    #[test]
+    fn folds_and_tags_survive_sorting() {
+        let (mut state, node) = sort_fixture();
+        state.collapsed.insert(vec!["b".to_string()]);
+        state.tags.insert(vec!["c".to_string()], 3);
+        rebuild_json_lines(&mut state, &node);
+        press_s(&mut state, &node);
+        assert!(state.collapsed.contains(&vec!["b".to_string()]));
+        assert_eq!(state.tags.get(&vec!["c".to_string()]), Some(&3));
+        assert_eq!(keys_in_order(&state), ["a", "[0]", "[1]", "[2]", "b", "c"]);
+    }
+
+    #[test]
+    fn s_does_nothing_for_xml_but_says_so() {
+        let (mut state, _node) = sort_fixture();
+        state.is_json = false;
+        let before = keys_in_order(&state);
+        press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
+        assert!(!state.sort_keys);
+        assert_eq!(keys_in_order(&state), before);
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("sort keys: not available for XML")
+        );
+    }
+
+    #[test]
+    fn s_is_a_structural_key_so_the_event_loop_rebuilds_after_it() {
+        let state = state_for(SORT_DOC);
+        let key = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
+        assert!(key_may_change_lines(&state, &key));
+    }
+
+    #[test]
+    fn typing_s_in_search_does_not_toggle_sorting() {
+        let (mut state, _node) = sort_fixture();
+        press(&mut state, KeyCode::Char('/'), KeyModifiers::NONE);
+        press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
+        assert!(!state.sort_keys);
+        assert_eq!(state.search, "s");
+    }
+
+    #[test]
+    fn sorting_a_large_object_orders_every_key() {
+        let body: String = (0..5_000)
+            .rev()
+            .map(|i| format!("\"k{i:05}\": {i},"))
+            .collect();
+        let doc = format!("{{{body}\"a\": 0}}");
+        let node = JsonNode::from_value(&serde_json::from_str(&doc).unwrap());
+        let mut state = state_for(&doc);
+        press_s(&mut state, &node);
+        let keys = keys_in_order(&state);
+        assert_eq!(keys[0], "a");
+        assert!(keys[1..].windows(2).all(|w| w[0] <= w[1]));
     }
 }
