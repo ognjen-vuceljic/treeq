@@ -6,6 +6,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod clipboard;
 mod color;
 mod detect;
+mod diff;
 mod error_context;
 mod json_tree;
 mod jsonc;
@@ -83,6 +84,11 @@ struct Args {
     /// With --paths: keep only paths matching this regex (exit 1 when none do).
     #[arg(long, value_name = "REGEX", requires = "paths", value_parser = parse_grep)]
     grep: Option<regex::Regex>,
+
+    /// Structural diff against FILE: `+` added, `-` removed, `~` changed.
+    /// Exit 0 identical, 1 different, 2 error. JSON, YAML and NDJSON only.
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["stats", "paths", "schema", "agent", "pick"])]
+    diff: Option<PathBuf>,
     #[arg(long)]
     ndjson: bool,
     /// Machine-readable output for --stats, --paths, --schema and --agent.
@@ -168,6 +174,8 @@ fn progress_message(len: usize) -> Option<String> {
 fn show_progress(input_len: usize, args: &Args) {
     let tui_mode = !args.r#static
         && !(args.stats || args.paths || args.schema || args.agent || args.top.is_some())
+
+        && !(args.stats || args.paths || args.schema || args.agent || args.diff.is_some())
         && (args.pick || io::stdout().is_terminal());
     if tui_mode
         && io::stderr().is_terminal()
@@ -448,6 +456,59 @@ fn run_toml(input: String, args: &Args) {
     );
 }
 
+
+fn format_of(arg: FormatArg) -> Format {
+    match arg {
+        FormatArg::Json => Format::Json,
+        FormatArg::Xml => Format::Xml,
+        FormatArg::Yaml => Format::Yaml,
+    }
+}
+
+fn diff_tree(input: &str, file: Option<&std::path::Path>, args: &Args) -> Result<JsonNode, String> {
+    let format = if args.ndjson {
+        Some(Format::Ndjson)
+    } else {
+        args.format
+            .map(format_of)
+            .or_else(|| detect_format(input, file))
+    };
+    let tree = match format.ok_or("error: empty input")? {
+        Format::Json => parse_json_tree(input, false)?,
+        Format::Ndjson => parse_json_tree(input, true)?,
+        Format::Yaml => parse_yaml_tree(input)?,
+        Format::Xml => return Err("error: --diff does not support XML".to_string()),
+    };
+    match &args.path {
+        Some(p) => find_json_path(&tree, p)
+            .cloned()
+            .map_err(|e| format!("error: {}", e.message())),
+        None => Ok(tree),
+    }
+}
+
+/// Exit codes follow diff(1): 0 identical, 1 different; 2 means it could not
+/// compare (unreadable or invalid input).
+fn run_diff(input: &str, other: &std::path::Path, args: &Args) -> ! {
+    let load = || -> Result<(JsonNode, JsonNode), String> {
+        let a = diff_tree(input, args.file.as_deref(), args)?;
+        let text = read_input(&Some(other.to_path_buf())).map_err(|e| format!("error: {e}"))?;
+        Ok((a, diff_tree(&text, Some(other), args)?))
+    };
+    let (a, b) = load().unwrap_or_else(|e| {
+        eprintln!("{e}");
+        process::exit(2);
+    });
+    let changes = diff::diff(&a, &b);
+    if args.json {
+        let rows: Vec<_> = changes.iter().map(diff::to_json).collect();
+        print_text(&format!("{}\n", serde_json::Value::from(rows)));
+    } else {
+        print_lines(changes.iter().map(diff::text_line).collect());
+    }
+    process::exit(i32::from(!changes.is_empty()));
+}
+
 fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<'_, JsonNode>) {
     let target = match &args.path {
         Some(p) => match find_json_path(tree, p) {
@@ -682,6 +743,10 @@ fn main() {
     }
     if args.json && !(args.stats || args.paths || args.schema || args.agent || args.top.is_some()) {
         eprintln!("error: --json needs one of --stats, --paths, --schema, --agent or --top");
+
+    if args.json && !(args.stats || args.paths || args.schema || args.agent || args.diff.is_some())
+    {
+        eprintln!("error: --json needs one of --stats, --paths, --schema, --agent or --diff");
         process::exit(1);
     }
     if args.pick && args.r#static {
@@ -693,6 +758,9 @@ fn main() {
         process::exit(1);
     });
     show_progress(input.len(), &args);
+    if let Some(other) = &args.diff {
+        run_diff(&input, other, &args);
+    }
     if args.ndjson {
         run_json(input, &args, Dialect::Ndjson);
         return;
