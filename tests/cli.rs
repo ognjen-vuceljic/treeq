@@ -921,7 +921,6 @@ fn stdin_read_error_is_not_path_prefixed() {
     assert!(err.starts_with("error:"), "stderr was: {err}");
 }
 
-
 const MIXED: &str = "<r>lead<b/>mid<c x=\"1\">t</c>tail</r>";
 
 #[test]
