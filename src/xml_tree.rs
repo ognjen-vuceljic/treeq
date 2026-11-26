@@ -164,11 +164,36 @@ impl XmlNode {
                 )
             })
             .collect();
-        let children = el
-            .children()
-            .filter(|n| n.is_element())
-            .map(|n| Self::from_element(n, depth + 1))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mixed = Self::is_mixed(el);
+        let children = Self::children_of(el, depth, mixed)?;
+        let text = if mixed { None } else { Self::own_text(el) };
+        Ok(XmlNode {
+            name: Self::qualified(el, el.tag_name().namespace(), el.tag_name().name()),
+            attributes,
+            text,
+            children,
+        })
+    }
+
+    /// The text runs of a mixed-content element, joined: what a truncated
+    /// view shows in place of the hidden `#text` rows.
+    pub fn mixed_text(&self) -> Option<String> {
+        let runs: Vec<&str> = self
+            .children
+            .iter()
+            .filter(|c| c.name == TEXT_NODE_NAME)
+            .filter_map(|c| c.text.as_deref())
+            .collect();
+        (!runs.is_empty()).then(|| runs.join(" "))
+    }
+
+    /// Element children plus non-blank text. Only then does text order
+    /// matter; text-only and element-only parents keep the compact form.
+    fn is_mixed(el: roxmltree::Node) -> bool {
+        el.children().any(|n| n.is_element()) && Self::own_text(el).is_some()
+    }
+
+    fn own_text(el: roxmltree::Node) -> Option<String> {
         let text = el
             .children()
             .filter(|n| n.is_text())
@@ -177,14 +202,34 @@ impl XmlNode {
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join(" ");
-        Ok(XmlNode {
-            name: Self::qualified(el, el.tag_name().namespace(), el.tag_name().name()),
-            attributes,
-            text: if text.is_empty() { None } else { Some(text) },
-            children,
+        (!text.is_empty()).then_some(text)
+    }
+
+    /// In mixed content each non-blank text run becomes a `#text` child in
+    /// document order (`#` can't start an XML name, so no collision).
+    fn children_of(el: roxmltree::Node, depth: usize, mixed: bool) -> Result<Vec<XmlNode>, String> {
+        el.children()
+            .filter_map(|n| match (n.is_element(), mixed) {
+                (true, _) => Some(Self::from_element(n, depth + 1)),
+                (false, true) => Self::text_run(n).map(Ok),
+                (false, false) => None,
+            })
+            .collect()
+    }
+
+    fn text_run(n: roxmltree::Node) -> Option<XmlNode> {
+        let text = n.text().filter(|_| n.is_text())?.trim();
+        (!text.is_empty()).then(|| XmlNode {
+            name: TEXT_NODE_NAME.to_string(),
+            attributes: Vec::new(),
+            text: Some(text.to_string()),
+            children: Vec::new(),
         })
     }
 }
+
+/// Name given to the synthetic child that carries a text run in mixed content.
+pub const TEXT_NODE_NAME: &str = "#text";
 
 /// Path segments for `node`'s children, in order: the plain element name
 /// when it's unique among its siblings, `name[k]` (`k` = 0-based rank among
@@ -340,6 +385,101 @@ mod tests {
                 }],
             }
         );
+    }
+
+    fn parse(xml: &str) -> XmlNode {
+        XmlNode::from_document(&roxmltree::Document::parse(xml).unwrap()).unwrap()
+    }
+
+    fn shape(n: &XmlNode) -> Vec<(&str, Option<&str>)> {
+        n.children
+            .iter()
+            .map(|c| (c.name.as_str(), c.text.as_deref()))
+            .collect()
+    }
+
+    #[test]
+    fn mixed_content_keeps_text_runs_in_document_order() {
+        let n = parse("<r>lead<b/>mid<c>x</c>tail</r>");
+        assert_eq!(n.text, None);
+        assert_eq!(
+            shape(&n),
+            [
+                ("#text", Some("lead")),
+                ("b", None),
+                ("#text", Some("mid")),
+                ("c", Some("x")),
+                ("#text", Some("tail")),
+            ]
+        );
+    }
+
+    #[test]
+    fn mixed_content_handles_leading_only_and_trailing_only_text() {
+        assert_eq!(
+            shape(&parse("<r>a<b/></r>")),
+            [("#text", Some("a")), ("b", None)]
+        );
+        assert_eq!(
+            shape(&parse("<r><b/>z</r>")),
+            [("b", None), ("#text", Some("z"))]
+        );
+    }
+
+    #[test]
+    fn whitespace_between_elements_is_not_mixed_content() {
+        let n = parse("<r>\n  <a/>\n  <b/>\n</r>");
+        assert_eq!(n.text, None);
+        assert_eq!(shape(&n), [("a", None), ("b", None)]);
+    }
+
+    #[test]
+    fn text_only_and_element_only_parents_keep_the_compact_form() {
+        let leaf = parse("<r>a b</r>");
+        assert_eq!(leaf.text.as_deref(), Some("a b"));
+        assert!(leaf.children.is_empty());
+        let split = parse("<r>a<!--c-->b</r>");
+        assert_eq!(split.text.as_deref(), Some("a b"));
+        assert!(split.children.is_empty());
+    }
+
+    #[test]
+    fn cdata_counts_as_text_in_mixed_content_and_text_is_trimmed() {
+        let n = parse("<r>  <![CDATA[raw <x>]]>  <b/></r>");
+        assert_eq!(shape(&n), [("#text", Some("raw <x>")), ("b", None)]);
+    }
+
+    #[test]
+    fn nested_mixed_content_and_attributes_survive() {
+        let n = parse(r#"<r a="1">t<s k="v">u<i/></s></r>"#);
+        assert_eq!(n.attributes, [("a".to_string(), "1".to_string())]);
+        let s = &n.children[1];
+        assert_eq!(s.attributes, [("k".to_string(), "v".to_string())]);
+        assert_eq!(shape(s), [("#text", Some("u")), ("i", None)]);
+    }
+
+    #[test]
+    fn mixed_text_joins_the_text_runs() {
+        assert_eq!(parse("<r>a<b/>c</r>").mixed_text().as_deref(), Some("a c"));
+        assert_eq!(parse("<r><b/></r>").mixed_text(), None);
+        assert_eq!(parse("<r>a</r>").mixed_text(), None);
+    }
+
+    #[test]
+    fn repeated_text_runs_get_indexed_path_segments() {
+        let n = parse("<r>a<b/>c<b/>d</r>");
+        assert_eq!(
+            child_segments(&n),
+            ["#text[0]", "b[0]", "#text[1]", "b[1]", "#text[2]"]
+        );
+    }
+
+    #[test]
+    fn wide_mixed_content_converts_every_run() {
+        let body: String = (0..10_000).map(|i| format!("t{i}<e/>")).collect();
+        let n = parse(&format!("<r>{body}</r>"));
+        assert_eq!(n.children.len(), 20_000);
+        assert_eq!(n.children[19_998].text.as_deref(), Some("t9999"));
     }
 
     #[test]

@@ -248,13 +248,13 @@ fn render_xml_into(
     max_depth: Option<usize>,
     mode: ColorMode,
 ) -> String {
-    out.push_str(&xml_label(node, mode));
+    out.push_str(&xml_label(node, mode, false));
     out.push('\n');
     render_xml_children(node, "", 0, max_depth, mode, &mut out);
     out.finish()
 }
 
-fn xml_label(node: &XmlNode, mode: ColorMode) -> String {
+fn xml_label(node: &XmlNode, mode: ColorMode, preview_mixed: bool) -> String {
     let mut label = paint(&escape_display_str(&node.name), Color::Key, mode);
     if !node.attributes.is_empty() {
         let attrs: Vec<String> = node
@@ -277,11 +277,15 @@ fn xml_label(node: &XmlNode, mode: ColorMode) -> String {
             paint("]", Color::Structural, mode)
         ));
     }
-    if let Some(text) = &node.text {
+    let text = node
+        .text
+        .clone()
+        .or_else(|| preview_mixed.then(|| node.mixed_text()).flatten());
+    if let Some(text) = text {
         label.push_str(&format!(
             "{}{}",
             separator(mode),
-            paint(&escape_display_str(text), Color::Str, mode)
+            paint(&escape_display_str(&text), Color::Str, mode)
         ));
     }
     label
@@ -306,12 +310,12 @@ fn render_xml_children(
             // `xml_label` (not just the bare name) so a truncated element's
             // attributes and text stay visible -- only its children are cut
             // off (issue #129).
-            let label = xml_label(child, mode);
+            let label = xml_label(child, mode, true);
             let ellipsis = paint("…", Color::Structural, mode);
             out.push_str(&format!("{branch_str}{label} {ellipsis}\n"));
             continue;
         }
-        out.push_str(&format!("{branch_str}{}\n", xml_label(child, mode)));
+        out.push_str(&format!("{branch_str}{}\n", xml_label(child, mode, false)));
         let next_prefix = format!("{prefix}{child_prefix}");
         render_xml_children(child, &next_prefix, depth + 1, max_depth, mode, out);
     }

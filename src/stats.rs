@@ -1,5 +1,5 @@
 use crate::json_tree::JsonNode;
-use crate::xml_tree::XmlNode;
+use crate::xml_tree::{TEXT_NODE_NAME, XmlNode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsonStats {
@@ -60,6 +60,10 @@ pub fn xml_stats(node: &XmlNode) -> XmlStats {
 
 fn walk_xml(node: &XmlNode, depth: usize, stats: &mut XmlStats) {
     stats.max_depth = stats.max_depth.max(depth);
+    if node.name == TEXT_NODE_NAME {
+        stats.text_nodes += 1;
+        return;
+    }
     stats.elements += 1;
     stats.attributes += node.attributes.len();
     if node.text.is_some() {
@@ -106,5 +110,12 @@ mod tests {
                 text_nodes: 1,
             }
         );
+    }
+
+    #[test]
+    fn text_runs_count_as_text_nodes_not_elements() {
+        let doc = roxmltree::Document::parse("<r>a<b/>c</r>").unwrap();
+        let s = xml_stats(&XmlNode::from_document(&doc).unwrap());
+        assert_eq!((s.elements, s.text_nodes), (2, 2));
     }
 }
