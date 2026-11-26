@@ -89,6 +89,9 @@ struct Args {
     /// Exit 0 identical, 1 different, 2 error. Not available for XML.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["stats", "paths", "schema", "agent", "pick"])]
     diff: Option<PathBuf>,
+    /// Reload automatically when FILE changes (interactive TUI only).
+    #[arg(long, conflicts_with_all = ["static", "stats", "paths", "schema", "agent", "top", "diff", "pick"])]
+    watch: bool,
     #[arg(long)]
     ndjson: bool,
     /// Machine-readable output for --stats, --paths, --schema and --agent.
@@ -459,6 +462,11 @@ fn run_toml(input: String, args: &Args) {
     );
 }
 
+/// `--watch` only applies to a real file: stdin has nothing to re-read.
+fn watch_path(args: &Args) -> Option<PathBuf> {
+    args.file.clone().filter(|_| args.watch)
+}
+
 fn format_of(arg: FormatArg) -> Format {
     match arg {
         FormatArg::Json => Format::Json,
@@ -572,6 +580,7 @@ fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<
                 start_path: args.path.clone().filter(|_| first),
                 saved: saved.take(),
                 notice: duplicate_keys_notice(),
+                watch: watch_path(args),
             };
             first = false;
             match tui::run_json_tui(cur, opts) {
@@ -689,6 +698,7 @@ fn run_xml(input: String, args: &Args) {
                 start_path: args.path.clone().filter(|_| first),
                 saved: saved.take(),
                 notice: None,
+                watch: watch_path(args),
             };
             first = false;
             match tui::run_xml_tui(cur, opts) {
@@ -762,6 +772,14 @@ fn main() {
     }
     if args.pick && args.r#static {
         eprintln!("error: --pick is not supported with --static");
+        process::exit(1);
+    }
+    if args.watch && args.file.is_none() {
+        eprintln!("error: --watch needs a file (stdin cannot be re-read)");
+        process::exit(1);
+    }
+    if args.watch && !io::stdout().is_terminal() {
+        eprintln!("error: --watch needs an interactive terminal");
         process::exit(1);
     }
     let input = read_input(&args.file).unwrap_or_else(|e| {

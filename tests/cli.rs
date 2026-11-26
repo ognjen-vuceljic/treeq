@@ -1374,3 +1374,34 @@ fn diff_understands_toml_and_jsonc() {
     assert_eq!(code, 1);
     assert_eq!(out, "~ a: 1 -> 2\n");
 }
+
+#[test]
+fn watch_needs_a_file_not_stdin() {
+    let (_o, err, code) = run_treeq(&["--watch"], "{}");
+    assert_eq!(code, 1);
+    assert!(err.contains("--watch needs a file"), "got: {err}");
+}
+
+#[test]
+fn watch_needs_an_interactive_terminal() {
+    let (_o, err, code) = run_treeq_with_file(&["--watch"], "{}");
+    assert_eq!(code, 1);
+    assert!(
+        err.contains("--watch needs an interactive terminal"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn watch_conflicts_with_one_shot_output_modes() {
+    for other in [
+        "--static", "--stats", "--paths", "--schema", "--agent", "--pick",
+    ] {
+        let (_o, err, code) = run_treeq_with_file(&["--watch", other], "{}");
+        assert_ne!(code, 0, "{other}");
+        assert!(err.contains("cannot be used"), "{other}: {err}");
+    }
+    let (_o, err, code) = run_treeq_with_file(&["--watch", "--top", "3"], "{}");
+    assert_ne!(code, 0);
+    assert!(err.contains("cannot be used"), "{err}");
+}
