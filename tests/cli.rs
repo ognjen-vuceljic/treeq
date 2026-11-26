@@ -977,7 +977,6 @@ fn xml_depth_truncation_previews_mixed_text() {
     assert!(out.contains(r#"a [id="7"]: t u …"#), "got: {out}");
 }
 
-
 #[test]
 fn xml_with_a_dtd_is_rejected_with_an_explanation() {
     let (out, err, code) = run_treeq(&["--static"], r#"<!DOCTYPE r [<!ENTITY e "x">]><r>&e;</r>"#);
