@@ -167,6 +167,7 @@ lines, precise search-match highlighting, and a truecolor palette:
 | `Shift+C` | Collapse every ancestor up to the root |
 | `c` | Collapse all |
 | `e` | Expand all |
+| `s` | Toggle alphabetical order for object keys (view only; JSON/YAML/TOML; arrays keep their order; the cursor stays on its node) |
 | `V` | Enter visual-line select mode: `j`/`k` extend the selection; `l`/`h`/`c`/`e` apply to every selected line, then return to normal mode; `Esc`/`V` cancels |
 | `H` / `M` / `L` | Jump to the top / middle / bottom of the visible viewport |
 | `PgUp` / `PgDn` | Move the cursor by one viewport height |

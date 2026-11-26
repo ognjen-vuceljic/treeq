@@ -183,6 +183,8 @@ pub(super) struct AppState<'a> {
     /// visual mode is active; the selected range is
     /// `min(anchor, cursor)..=max(anchor, cursor)`.
     pub(super) visual_anchor: Option<usize>,
+    /// `s`: show object keys alphabetically (view only; JSON/YAML/TOML).
+    pub(super) sort_keys: bool,
 }
 
 /// Source of truth for the in-app help overlay; cross-checked by a test
@@ -200,7 +202,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("1-8 / x", "tag / untag node / clear all tags"),
     ("r", "reload file (keeps folds, tags, cursor)"),
     ("y / Y / v", "yank path / jq path (JSON) / value"),
-    ("c / e", "collapse all / expand all"),
+    ("c / e / s", "collapse all / expand all / sort keys"),
     ("V", "visual select (j/k extend; l/h/c/e apply)"),
     ("H / M / L", "jump to top/middle/bottom of viewport"),
     ("PgUp / PgDn", "page up / down (Ctrl+d/u: half)"),
@@ -277,6 +279,7 @@ pub(super) fn rebuild_json_lines(state: &mut AppState, node: &JsonNode) {
         0,
         &state.collapsed,
         &state.array_overrides,
+        state.sort_keys,
         &mut lines,
     );
     state.lines = lines;
@@ -409,6 +412,7 @@ mod tests {
             viewport_height: std::cell::Cell::new(0),
             all_paths: Vec::new(),
             pending_cursor_path: None,
+            sort_keys: false,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
