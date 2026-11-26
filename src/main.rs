@@ -8,6 +8,7 @@ mod color;
 mod detect;
 mod error_context;
 mod json_tree;
+mod jsonc;
 mod ndjson;
 mod paths;
 mod render;
@@ -40,6 +41,7 @@ enum FormatArg {
     Xml,
     Yaml,
     Toml,
+    Jsonc,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]
@@ -290,13 +292,26 @@ fn print_paths(lines: Vec<String>, json: bool) {
     }
 }
 
-fn parse_json_tree(input: &str, ndjson: bool) -> Result<JsonNode, String> {
+#[derive(Clone, Copy, PartialEq)]
+enum Dialect {
+    Json,
+    Ndjson,
+    Jsonc,
+}
+
+fn parse_json_tree(input: &str, dialect: Dialect) -> Result<JsonNode, String> {
     json_tree::reset_duplicate_keys();
-    if ndjson {
-        let value = parse_ndjson(input).map_err(|e| format!("error: invalid NDJSON: {e}"))?;
-        Ok(JsonNode::from_value(&value))
-    } else {
-        serde_json::from_str::<JsonNode>(input).map_err(|e| json_error_context(input, &e))
+    match dialect {
+        Dialect::Ndjson => {
+            let value = parse_ndjson(input).map_err(|e| format!("error: invalid NDJSON: {e}"))?;
+            Ok(JsonNode::from_value(&value))
+        }
+        Dialect::Json => {
+            serde_json::from_str::<JsonNode>(input).map_err(|e| json_error_context(input, &e))
+        }
+        // Blanking keeps byte positions, so errors still point into `input`.
+        Dialect::Jsonc => serde_json::from_str::<JsonNode>(&jsonc::strip(input))
+            .map_err(|e| json_error_context(input, &e)),
     }
 }
 
@@ -311,11 +326,11 @@ fn die(msg: String) -> ! {
     process::exit(1);
 }
 
-fn run_json(input: String, args: &Args, ndjson: bool) {
-    let tree = parse_json_tree(&input, ndjson).unwrap_or_else(|e| die(e));
+fn run_json(input: String, args: &Args, dialect: Dialect) {
+    let tree = parse_json_tree(&input, dialect).unwrap_or_else(|e| die(e));
     let input_len = input.len();
     drop(input); // the tree is all that's needed from here (issue #133)
-    let reload = || parse_json_tree(&read_for_reload(args)?, ndjson);
+    let reload = || parse_json_tree(&read_for_reload(args)?, dialect);
     run_json_tree(
         &tree,
         input_len,
@@ -627,7 +642,7 @@ fn main() {
     });
     show_progress(input.len(), &args);
     if args.ndjson {
-        run_json(input, &args, true);
+        run_json(input, &args, Dialect::Ndjson);
         return;
     }
     let format = args
@@ -637,6 +652,7 @@ fn main() {
             FormatArg::Xml => Format::Xml,
             FormatArg::Yaml => Format::Yaml,
             FormatArg::Toml => Format::Toml,
+            FormatArg::Jsonc => Format::Jsonc,
         })
         .or_else(|| detect_format(&input, args.file.as_deref()))
         .unwrap_or_else(|| {
@@ -648,11 +664,12 @@ fn main() {
         process::exit(1);
     }
     match format {
-        Format::Json => run_json(input, &args, false),
+        Format::Json => run_json(input, &args, Dialect::Json),
+        Format::Jsonc => run_json(input, &args, Dialect::Jsonc),
         Format::Xml => run_xml(input, &args),
         Format::Yaml => run_yaml(input, &args),
         Format::Toml => run_toml(input, &args),
-        Format::Ndjson => run_json(input, &args, true),
+        Format::Ndjson => run_json(input, &args, Dialect::Ndjson),
     }
 }
 

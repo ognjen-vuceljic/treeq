@@ -66,6 +66,9 @@ treeq file.json --depth 2             # truncate deep nesting
 treeq file.json --stats               # size/shape summary, no full dump
 treeq file.json --stats --json        # machine-readable (also --paths/--schema/--agent)
 treeq config.yaml                     # YAML, TOML and NDJSON are auto-detected
+
+treeq tsconfig.jsonc                  # JSON with comments / trailing commas
+treeq config.yaml                     # YAML and NDJSON are auto-detected
 treeq file.json --no-mouse            # leave mouse to the terminal (wheel/click are on by default)
 treeq file.json --theme light         # palette for light terminals (auto via COLORFGBG)
 treeq file.json --agent               # stats + shallow tree, in one call
@@ -111,6 +114,8 @@ lines, precise search-match highlighting, and a truecolor palette:
 ## Features
 
 - **JSON and XML**, auto-detected, plus YAML, TOML (`.toml`, or sniffed) and NDJSON.
+
+- **JSON and XML**, auto-detected, plus YAML, JSONC (comments and trailing commas, `.jsonc` or sniffed) and NDJSON.
 - **Search** — incremental fuzzy search (`/`, e.g. "nme" finds "name") for
   quick jumps, plus an fzf-style popup (`F`) listing *every* match across
   the whole document — including collapsed subtrees and truncated arrays —
