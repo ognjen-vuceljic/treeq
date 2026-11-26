@@ -1008,7 +1008,6 @@ fn xml_entity_bombs_and_external_entities_are_rejected_fast() {
     }
 }
 
-
 const CARGO_LIKE: &str = "[package]\nname = \"treeq\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"a\"\n\n[[bin]]\nname = \"b\"\n";
 
 #[test]
