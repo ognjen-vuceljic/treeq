@@ -13,6 +13,8 @@ use crossterm::event::KeyCode;
 use std::cell::Cell;
 
 const MAX_COL_WIDTH: usize = 24;
+/// How wide the selected column may grow to show more of its value.
+const MAX_SELECTED_WIDTH: usize = 60;
 const SEPARATOR: &str = " │ ";
 
 pub(super) struct TableView {
@@ -122,9 +124,22 @@ pub(super) fn fit(text: &str, width: usize) -> String {
     format!("{kept}…")
 }
 
+/// Most the selected column may take: `MAX_SELECTED_WIDTH`, but never more
+/// than the screen holds next to the index, and never less than a normal
+/// column.
+pub(super) fn selected_cap(index_width: usize, avail: usize) -> usize {
+    let room = avail.saturating_sub(index_width + SEPARATOR.chars().count());
+    MAX_SELECTED_WIDTH.min(room).max(MAX_COL_WIDTH)
+}
+
 /// One column width per column from the header and the visible cells
-/// (capped at `MAX_COL_WIDTH`).
-pub(super) fn widths(columns: &[String], cells: &[Vec<String>]) -> Vec<usize> {
+/// (capped at `MAX_COL_WIDTH`), except the selected column, which grows up to
+/// `selected_cap` to show more of its value.
+pub(super) fn widths(
+    columns: &[String],
+    cells: &[Vec<String>],
+    selected: Option<(usize, usize)>,
+) -> Vec<usize> {
     columns
         .iter()
         .enumerate()
@@ -134,7 +149,11 @@ pub(super) fn widths(columns: &[String], cells: &[Vec<String>]) -> Vec<usize> {
                 .map(|r| r[i].chars().count())
                 .max()
                 .unwrap_or(0);
-            c.chars().count().max(widest).clamp(1, MAX_COL_WIDTH)
+            let cap = match selected {
+                Some((sel, cap)) if sel == i => cap,
+                _ => MAX_COL_WIDTH,
+            };
+            c.chars().count().max(widest).clamp(1, cap)
         })
         .collect()
 }
@@ -203,7 +222,8 @@ pub(super) fn build(view: &TableView, items: &[JsonNode], height: usize, avail: 
         .map(|r| view.columns.iter().map(|c| cell_text(r, c)).collect())
         .collect();
     let index_width = items.len().to_string().len().max(1);
-    let widths = widths(&view.columns, &texts);
+    let cap = selected_cap(index_width, avail);
+    let widths = widths(&view.columns, &texts, Some((view.col, cap)));
     let first_col = scroll_to_col(&widths, view.col_scroll.get(), view.col, index_width, avail);
     view.col_scroll.set(first_col);
     let shown = fit_count(&widths, first_col, index_width, avail);
@@ -446,7 +466,7 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         let cells = vec![vec!["1".into(), "\"Alice\"".into(), "x".repeat(100)]];
-        assert_eq!(widths(&cols, &cells), [2, 7, MAX_COL_WIDTH]);
+        assert_eq!(widths(&cols, &cells, None), [2, 7, MAX_COL_WIDTH]);
     }
 
     #[test]
@@ -574,5 +594,78 @@ mod tests {
         let g = build(&v, &rows, 20, 80);
         assert!(t.elapsed().as_millis() < 500);
         assert_eq!(g.rows.len(), 20);
+    }
+
+    #[test]
+    fn the_selected_column_grows_while_the_others_keep_the_normal_cap() {
+        let cols: Vec<String> = ["a", "b"].iter().map(|s| s.to_string()).collect();
+        let cells = vec![vec!["x".repeat(50), "y".repeat(50)]];
+        assert_eq!(widths(&cols, &cells, Some((0, 60))), [50, MAX_COL_WIDTH]);
+        assert_eq!(widths(&cols, &cells, Some((1, 60))), [MAX_COL_WIDTH, 50]);
+        assert_eq!(
+            widths(&cols, &cells, Some((0, 60))),
+            widths(&cols, &cells, Some((0, 60)))
+        );
+    }
+
+    #[test]
+    fn the_selected_width_is_capped_by_the_maximum_and_by_the_screen() {
+        assert_eq!(selected_cap(1, 500), MAX_SELECTED_WIDTH);
+        assert_eq!(
+            selected_cap(1, 40),
+            36,
+            "index + separator come off the screen width"
+        );
+        assert_eq!(
+            selected_cap(1, 10),
+            MAX_COL_WIDTH,
+            "never below a normal column"
+        );
+        let cols = vec!["a".to_string()];
+        let cells = vec![vec!["x".repeat(200)]];
+        assert_eq!(widths(&cols, &cells, Some((0, 60))), [60]);
+    }
+
+    #[test]
+    fn a_short_selected_value_does_not_grow_the_column() {
+        let cols = vec!["id".to_string()];
+        let cells = vec![vec!["1".to_string()]];
+        assert_eq!(widths(&cols, &cells, Some((0, 60))), [2]);
+    }
+
+    #[test]
+    fn the_grid_expands_the_selected_column_and_shrinks_it_back_when_deselected() {
+        let long = "z".repeat(50);
+        let rows = items(&format!(r#"[{{"a":"{long}","b":"{long}"}}]"#));
+        let mut v = view(&["a", "b"], 1);
+        let g = build(&v, &rows, 5, 120);
+        assert_eq!(
+            g.header[0].chars().count(),
+            52,
+            "selected column shows 50 chars + quotes"
+        );
+        assert_eq!(g.header[1].chars().count(), MAX_COL_WIDTH);
+        v.col = 1;
+        let g = build(&v, &rows, 5, 120);
+        assert_eq!(
+            g.header[0].chars().count(),
+            MAX_COL_WIDTH,
+            "the old one shrinks back"
+        );
+        assert_eq!(g.header[1].chars().count(), 52);
+    }
+
+    #[test]
+    fn an_expanded_column_still_scrolls_into_view_in_a_narrow_terminal() {
+        let long = "q".repeat(100);
+        let rows = items(&format!(r#"[{{"a":1,"b":"{long}","c":2}}]"#));
+        let mut v = view(&["a", "b", "c"], 1);
+        v.col = 1;
+        let g = build(&v, &rows, 5, 50);
+        assert!(!g.header.is_empty());
+        let (_, cells) = &g.rows[0];
+        let selected = g.first_col..g.first_col + g.header.len();
+        assert!(selected.contains(&1), "the selected column must be visible");
+        assert!(cells.iter().any(|c| c.text.chars().count() > MAX_COL_WIDTH));
     }
 }

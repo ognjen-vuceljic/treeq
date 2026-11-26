@@ -1614,4 +1614,35 @@ mod tests {
         let w = Watcher::new(tmp_file("never-created"));
         assert!(!w.changed());
     }
+
+    #[test]
+    fn the_selected_column_expands_in_place_and_the_pane_is_still_there() {
+        let long = "abcdefghij".repeat(5); // 50 chars
+        let doc = format!(r#"{{"rows": [{{"id": 1, "token": "{long}", "other": "{long}"}}]}}"#);
+        let mut state = open_table(&doc, &["rows"]);
+        let before = drawn(&state, 140, 24);
+        assert!(
+            !before.contains(&long[..40]),
+            "unselected columns stay capped: {before}"
+        );
+        handle_key(&mut state, KeyCode::Char('l')); // token
+        let after = drawn(&state, 140, 24);
+        let table_rows: String = after.lines().take(8).collect::<Vec<_>>().join("\n");
+        assert!(
+            table_rows.contains(&long[..40]),
+            "selected column shows more: {after}"
+        );
+        assert!(
+            after.contains("y copy cell"),
+            "the full-value pane stays: {after}"
+        );
+        handle_key(&mut state, KeyCode::Char('l')); // other: token shrinks back
+        let moved = drawn(&state, 140, 24);
+        let rows_only: String = moved.lines().take(8).collect::<Vec<_>>().join("\n");
+        assert_eq!(
+            rows_only.matches(&long[..30]).count(),
+            1,
+            "only one column is expanded: {moved}"
+        );
+    }
 }
