@@ -1192,3 +1192,66 @@ fn top_beyond_node_count_lists_everything_and_empty_docs_print_nothing() {
     assert_eq!(code, 0);
     assert_eq!(out, "");
 }
+
+const GREP_DOC: &str = r#"{"user":{"name":"A","tags":["x","y"]},"a.b":1,"id":2,"é":3}"#;
+
+#[test]
+fn grep_keeps_only_matching_paths_and_supports_anchors() {
+    let (out, _e, code) = run_treeq(&["--paths", "--grep", "^user\\."], GREP_DOC);
+    assert_eq!(code, 0);
+    assert_eq!(out, "user.name\nuser.tags\nuser.tags.0\nuser.tags.1\n");
+    let (out, _e, _c) = run_treeq(&["--paths", "--grep", "name$|^id$"], GREP_DOC);
+    assert_eq!(out, "user.name\nid\n");
+}
+
+#[test]
+fn grep_matches_the_escaped_form_printed_by_paths() {
+    let (out, _e, code) = run_treeq(&["--paths", "--grep", "a\\\\\\.b"], GREP_DOC);
+    assert_eq!(code, 0);
+    assert_eq!(out, "a\\.b\n");
+    let (out, _e, _c) = run_treeq(&["--paths", "--grep", "é"], GREP_DOC);
+    assert_eq!(out, "é\n");
+}
+
+#[test]
+fn grep_with_no_match_exits_1_and_json_prints_an_empty_array() {
+    let (out, _e, code) = run_treeq(&["--paths", "--grep", "zzz"], GREP_DOC);
+    assert_eq!(code, 1);
+    assert_eq!(out, "");
+    let (out, _e, code) = run_treeq(&["--paths", "--grep", "zzz", "--json"], GREP_DOC);
+    assert_eq!(code, 1);
+    assert_eq!(out.trim(), "[]");
+}
+
+#[test]
+fn grep_json_output_is_the_filtered_array() {
+    let (out, _e, code) = run_treeq(&["--paths", "--grep", "tags\\.", "--json"], GREP_DOC);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v, serde_json::json!(["user.tags.0", "user.tags.1"]));
+}
+
+#[test]
+fn grep_rejects_a_bad_regex_and_requires_paths() {
+    let (_o, err, code) = run_treeq(&["--paths", "--grep", "("], GREP_DOC);
+    assert_ne!(code, 0);
+    assert!(
+        err.contains("--grep") && err.contains("unclosed group"),
+        "got: {err}"
+    );
+    let (_o, err, code) = run_treeq(&["--grep", "x"], GREP_DOC);
+    assert_ne!(code, 0);
+    assert!(err.contains("--paths"), "got: {err}");
+}
+
+#[test]
+fn grep_works_for_xml_and_each_result_round_trips_into_path() {
+    let xml = "<r><item id=\"1\"><n>a</n></item><item id=\"2\"><n>b</n></item></r>";
+    let (out, _e, code) = run_treeq(&["--paths", "--grep", "^item\\[1\\]"], xml);
+    assert_eq!(code, 0);
+    assert_eq!(out, "item[1]\nitem[1].@id\nitem[1].n\n");
+    for p in out.lines() {
+        let (_o, _e, code) = run_treeq(&["--static", "--path", p], xml);
+        assert_eq!(code, 0, "path {p}");
+    }
+}

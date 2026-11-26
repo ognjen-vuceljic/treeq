@@ -79,6 +79,10 @@ struct Args {
     /// List the N largest nodes by serialized bytes (`--json` for machine output).
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..), conflicts_with = "schema")]
     top: Option<u64>,
+
+    /// With --paths: keep only paths matching this regex (exit 1 when none do).
+    #[arg(long, value_name = "REGEX", requires = "paths", value_parser = parse_grep)]
+    grep: Option<regex::Regex>,
     #[arg(long)]
     ndjson: bool,
     /// Machine-readable output for --stats, --paths, --schema and --agent.
@@ -306,6 +310,24 @@ fn print_top(entries: &[top::Entry], json: bool) {
     }
 }
 
+fn parse_grep(pattern: &str) -> Result<regex::Regex, String> {
+    regex::Regex::new(pattern).map_err(|e| e.to_string())
+}
+
+/// `--grep` filters the listing; like grep(1), no match exits 1 (after
+/// printing the empty result, `[]` for `--json`).
+fn emit_paths(lines: Vec<String>, args: &Args) {
+    let lines: Vec<String> = match &args.grep {
+        Some(re) => lines.into_iter().filter(|l| re.is_match(l)).collect(),
+        None => lines,
+    };
+    let no_match = args.grep.is_some() && lines.is_empty();
+    print_paths(lines, args.json);
+    if no_match {
+        process::exit(1);
+    }
+}
+
 fn print_paths(lines: Vec<String>, json: bool) {
     if json {
         print_text(&format!("{}\n", serde_json::json!(lines)));
@@ -449,7 +471,7 @@ fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<
         return;
     }
     if args.paths {
-        print_paths(json_paths(target), args.json);
+        emit_paths(json_paths(target), args);
         return;
     }
     if args.stats {
@@ -568,7 +590,7 @@ fn run_xml(input: String, args: &Args) {
         return;
     }
     if args.paths {
-        print_paths(xml_paths(target), args.json);
+        emit_paths(xml_paths(target), args);
         return;
     }
     if args.stats {

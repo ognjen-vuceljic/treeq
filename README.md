@@ -64,6 +64,7 @@ cat file.json | treeq --static        # plain tree, for piping/scripting
 treeq file.json --path user.address   # only that subtree (in the TUI: opens with the cursor there)
 treeq file.json --depth 2             # truncate deep nesting
 treeq file.json --stats               # size/shape summary, no full dump
+treeq file.json --paths --grep '^user\.'  # only paths matching a regex (exit 1 if none)
 treeq file.json --stats --json        # machine-readable (also --paths/--schema/--agent)
 treeq config.yaml                     # YAML, TOML and NDJSON are auto-detected
 
