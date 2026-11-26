@@ -58,6 +58,8 @@ pub struct TuiOpts {
     /// `--path` in the TUI: the cursor starts there (the whole document stays
     /// visible) instead of the path becoming the root.
     pub start_path: Option<String>,
+    /// One-off status-bar message shown on open (e.g. duplicate-key warning).
+    pub notice: Option<String>,
 }
 
 fn save_ui(state: &AppState) -> SavedUi {
@@ -379,6 +381,7 @@ pub fn run_json_tui(node: &JsonNode, opts: TuiOpts) -> io::Result<TuiExit> {
     if let Some(saved) = opts.saved {
         finish_restore(&mut state, saved);
     }
+    state.status_message = state.status_message.or(opts.notice);
     let rebuild = |s: &mut AppState| rebuild_json_lines(s, node);
     if let Some(p) = &opts.start_path {
         state::ensure_all_paths(&mut state);
