@@ -188,6 +188,8 @@ pub(super) struct AppState<'a> {
 
     /// `[` / `]` / `Ctrl+o`: where big cursor jumps came from.
     pub(super) history: super::history::JumpHistory,
+    /// `Some` while the `w` (write subtree to file) prompt is open.
+    pub(super) export: Option<super::export::ExportPrompt>,
 }
 
 /// Source of truth for the in-app help overlay; cross-checked by a test
@@ -204,7 +206,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("z1-9", "expand to depth N"),
     ("1-8 / x", "tag / untag node / clear all tags"),
     ("r", "reload file (keeps folds, tags, cursor)"),
-    ("y / Y / v", "yank path / jq path (JSON) / value"),
+    ("y / Y / v / w", "yank path / jq path / value / write file"),
     ("c / e / s", "collapse all / expand all / sort keys"),
     ("V", "visual select (j/k extend; l/h/c/e apply)"),
     ("H / M / L", "jump to top/middle/bottom of viewport"),
@@ -418,6 +420,8 @@ mod tests {
             sort_keys: false,
 
             history: Default::default(),
+
+            export: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),

@@ -503,7 +503,7 @@ fn yank_value(state: &mut AppState) {
     });
 }
 
-fn json_at<'a>(
+pub(super) fn json_at<'a>(
     root: &'a crate::json_tree::JsonNode,
     path: &[String],
 ) -> Option<&'a crate::json_tree::JsonNode> {
@@ -521,7 +521,7 @@ fn json_at<'a>(
     Some(cur)
 }
 
-fn xml_text_at(root: &crate::xml_tree::XmlNode, path: &[String]) -> Option<String> {
+pub(super) fn xml_text_at(root: &crate::xml_tree::XmlNode, path: &[String]) -> Option<String> {
     let mut cur = root;
     for (i, seg) in path.iter().enumerate() {
         if let Some(attr) = seg.strip_prefix('@') {
@@ -568,7 +568,7 @@ pub(super) fn goto_typed_path(state: &mut AppState, typed: &str) {
     }
 }
 
-fn real_path(line: &super::state::Line) -> &[String] {
+pub(super) fn real_path(line: &super::state::Line) -> &[String] {
     if line.is_array_summary {
         array_path_for_summary_line(&line.path)
     } else {
@@ -896,6 +896,9 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         state.cursor = 0;
         return false;
     }
+    if state.export.is_some() {
+        return super::export::handle(state, key);
+    }
     if let Some(input) = &mut state.goto_input {
         match key {
             KeyCode::Esc => state.goto_input = None,
@@ -1044,6 +1047,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
             }
         }
         KeyCode::Char(':') => state.goto_input = Some(String::new()),
+        KeyCode::Char('w') => super::export::open(state),
         KeyCode::Char('&') => {
             state.filter = Some(String::new());
             state.filter_typing = true;
@@ -1342,6 +1346,8 @@ mod tests {
             sort_keys: false,
 
             history: Default::default(),
+
+            export: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -1829,6 +1835,8 @@ mod tests {
             sort_keys: false,
 
             history: Default::default(),
+
+            export: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -1873,6 +1881,8 @@ mod tests {
             sort_keys: false,
 
             history: Default::default(),
+
+            export: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -2687,6 +2697,8 @@ mod tests {
             sort_keys: false,
 
             history: Default::default(),
+
+            export: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -2792,6 +2804,8 @@ mod tests {
             sort_keys: false,
 
             history: Default::default(),
+
+            export: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -3097,6 +3111,8 @@ mod tests {
             sort_keys: false,
 
             history: Default::default(),
+
+            export: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
