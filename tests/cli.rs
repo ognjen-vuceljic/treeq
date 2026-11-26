@@ -976,3 +976,34 @@ fn xml_depth_truncation_previews_mixed_text() {
     );
     assert!(out.contains(r#"a [id="7"]: t u …"#), "got: {out}");
 }
+
+#[test]
+fn xml_with_a_dtd_is_rejected_with_an_explanation() {
+    let (out, err, code) = run_treeq(&["--static"], r#"<!DOCTYPE r [<!ENTITY e "x">]><r>&e;</r>"#);
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(
+        err.contains("DTD") && err.contains("not supported"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn xml_entity_bombs_and_external_entities_are_rejected_fast() {
+    let mut bomb = String::from(r#"<!DOCTYPE r [<!ENTITY a0 "lol">"#);
+    for i in 1..10 {
+        bomb.push_str(&format!(
+            r#"<!ENTITY a{i} "{}">"#,
+            format!("&a{};", i - 1).repeat(10)
+        ));
+    }
+    bomb.push_str("]><r>&a9;</r>");
+    let ext = r#"<!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><r>&x;</r>"#;
+    for doc in [bomb.as_str(), ext] {
+        let start = std::time::Instant::now();
+        let (out, _e, code) = run_treeq(&["--static"], doc);
+        assert_eq!(code, 1);
+        assert!(!out.contains("root:"), "leaked file content: {out}");
+        assert!(start.elapsed().as_secs() < 5);
+    }
+}
