@@ -1255,3 +1255,122 @@ fn grep_works_for_xml_and_each_result_round_trips_into_path() {
         assert_eq!(code, 0, "path {p}");
     }
 }
+
+fn run_diff_files(args: &[&str], a: &str, b: &str) -> (String, String, i32) {
+    let n = TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("treeq-diff-{}-{n}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let (fa, fb) = (dir.join("a.json"), dir.join("b.json"));
+    fs::write(&fa, a).unwrap();
+    fs::write(&fb, b).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_treeq"))
+        .arg(&fa)
+        .arg("--diff")
+        .arg(&fb)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(&dir).ok();
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        output.status.code().unwrap_or(-1),
+    )
+}
+
+#[test]
+fn diff_identical_files_exit_0_with_no_output() {
+    let (out, _e, code) = run_diff_files(&[], r#"{"a":1,"b":2}"#, r#"{"b":2,"a":1}"#);
+    assert_eq!(code, 0);
+    assert_eq!(out, "");
+}
+
+#[test]
+fn diff_reports_changes_and_exits_1() {
+    let (out, _e, code) = run_diff_files(
+        &[],
+        r#"{"a":1,"b":{"c":[1,2,3]},"gone":true}"#,
+        r#"{"b":{"c":[1,2]},"a":2,"new":null}"#,
+    );
+    assert_eq!(code, 1);
+    assert_eq!(out, "~ a: 1 -> 2\n- b.c.2: 3\n- gone: true\n+ new: null\n");
+}
+
+#[test]
+fn diff_json_output_has_real_json_values() {
+    let (out, _e, code) = run_diff_files(&["--json"], r#"{"a":[1,2]}"#, r#"{"a":[1,3]}"#);
+    assert_eq!(code, 1);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v[0]["op"], "changed");
+    assert_eq!(v[0]["path"], "a.1");
+    assert_eq!(v[0]["from"], 2);
+    assert_eq!(v[0]["to"], 3);
+}
+
+#[test]
+fn diff_can_be_scoped_with_path() {
+    let (out, _e, code) = run_diff_files(
+        &["--path", "b"],
+        r#"{"a":1,"b":{"x":1}}"#,
+        r#"{"a":9,"b":{"x":2}}"#,
+    );
+    assert_eq!(code, 1);
+    assert_eq!(out, "~ x: 1 -> 2\n");
+}
+
+#[test]
+fn diff_errors_exit_2_not_1() {
+    let (_o, err, code) = run_diff_files(&[], r#"{"a":"#, r#"{"a":1}"#);
+    assert_eq!(code, 2, "{err}");
+    let (_o, err, code) = run_diff_files(&[], r#"{"a":1}"#, "<r/>");
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("does not support XML"), "{err}");
+    let (_o, _e, code) = run_treeq(&["--diff", "/no/such/file.json"], r#"{"a":1}"#);
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn diff_conflicts_with_other_output_modes() {
+    for other in ["--stats", "--paths", "--schema", "--agent"] {
+        let (_o, err, code) = run_treeq(&["--diff", "x.json", other], "{}");
+        assert_ne!(code, 0, "{other}");
+        assert!(err.contains("cannot be used"), "{other}: {err}");
+    }
+}
+
+#[test]
+fn diff_compares_across_formats() {
+    let n = TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file = std::env::temp_dir().join(format!("treeq-{}-{n}.yaml", std::process::id()));
+    fs::write(&file, "a: 1\nb: [1, 2]\n").unwrap();
+    let path = file.to_string_lossy().to_string();
+    let (out, _e, code) = run_treeq(&["--diff", &path], r#"{"a":1,"b":[1,2]}"#);
+    fs::remove_file(&file).ok();
+    assert_eq!(code, 0, "{out}");
+}
+
+#[test]
+fn diff_understands_toml_and_jsonc() {
+    let n = TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let toml = std::env::temp_dir().join(format!("treeq-{}-{n}.toml", std::process::id()));
+    let jsonc = std::env::temp_dir().join(format!("treeq-{}-{n}.jsonc", std::process::id()));
+    fs::write(&toml, "a = 1\n[b]\nc = [1, 2]\n").unwrap();
+    fs::write(
+        &jsonc,
+        "// same data\n{\"a\": 1, \"b\": {\"c\": [1, 2,],},}\n",
+    )
+    .unwrap();
+    let (t, j) = (
+        toml.to_string_lossy().to_string(),
+        jsonc.to_string_lossy().to_string(),
+    );
+    let (_o, e, code) = run_treeq(&["--diff", &j, &t], "");
+    assert_eq!(code, 0, "{e}");
+    fs::write(&jsonc, "{\"a\": 2, \"b\": {\"c\": [1, 2]}}").unwrap();
+    let (out, _e, code) = run_treeq(&["--diff", &j, &t], "");
+    fs::remove_file(&toml).ok();
+    fs::remove_file(&jsonc).ok();
+    assert_eq!(code, 1);
+    assert_eq!(out, "~ a: 1 -> 2\n");
+}
