@@ -1256,7 +1256,6 @@ fn grep_works_for_xml_and_each_result_round_trips_into_path() {
     }
 }
 
-
 fn run_diff_files(args: &[&str], a: &str, b: &str) -> (String, String, i32) {
     let n = TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!("treeq-diff-{}-{n}", std::process::id()));
