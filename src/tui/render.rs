@@ -828,6 +828,8 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             sort_keys: false,
+
+            history: Default::default(),
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),

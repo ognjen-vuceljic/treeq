@@ -185,6 +185,9 @@ pub(super) struct AppState<'a> {
     pub(super) visual_anchor: Option<usize>,
     /// `s`: show object keys alphabetically (view only; JSON/YAML/TOML).
     pub(super) sort_keys: bool,
+
+    /// `[` / `]` / `Ctrl+o`: where big cursor jumps came from.
+    pub(super) history: super::history::JumpHistory,
 }
 
 /// Source of truth for the in-app help overlay; cross-checked by a test
@@ -206,8 +209,8 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("V", "visual select (j/k extend; l/h/c/e apply)"),
     ("H / M / L", "jump to top/middle/bottom of viewport"),
     ("PgUp / PgDn", "page up / down (Ctrl+d/u: half)"),
-    ("?", "toggle this help"),
-    ("q / Esc", "quit"),
+    ("[ / ]", "jump history back / forward (Ctrl+o: back)"),
+    ("? / q", "toggle this help / quit (Esc too)"),
 ];
 
 fn apply_pending_cursor_path(state: &mut AppState) {
@@ -413,6 +416,8 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             sort_keys: false,
+
+            history: Default::default(),
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
