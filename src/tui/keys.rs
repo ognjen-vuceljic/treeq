@@ -762,6 +762,72 @@ fn visual_expand_all(state: &mut AppState) {
     state.status_message = Some("expanded selection".to_string());
 }
 
+/// One jq filter for several selected paths. Distinct elements of the same
+/// array become `.path[0,2]`; anything else is the individual filters joined
+/// with commas (jq streams each result; wrap in `[...]` to collect them).
+pub(super) fn combined_jq(paths: &[Vec<String>]) -> String {
+    let mut distinct: Vec<&Vec<String>> = Vec::new();
+    for p in paths {
+        if !distinct.contains(&p) {
+            distinct.push(p);
+        }
+    }
+    if let [only] = distinct.as_slice() {
+        return to_jq_path(only);
+    }
+    let parent = distinct.first().map(|p| &p[..p.len() - 1]);
+    let same_array = parent.is_some_and(|parent| {
+        distinct.iter().all(|p| {
+            p.len() == parent.len() + 1
+                && p[..parent.len()] == *parent
+                && p.last().is_some_and(|s| is_array_index_segment(s))
+        })
+    });
+    match parent {
+        Some(parent) if same_array => {
+            let indexes: Vec<&str> = distinct
+                .iter()
+                .filter_map(|p| p.last())
+                .map(|s| s.trim_matches(['[', ']']))
+                .collect();
+            // `.[0,2]` at the root, `.a[0,2]` below it (to_jq_path(&[]) is ".")
+            format!("{}[{}]", to_jq_path(parent), indexes.join(","))
+        }
+        _ => distinct
+            .iter()
+            .map(|p| to_jq_path(p))
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
+/// `Y` in visual mode: copy one jq filter covering every selected line, then
+/// leave visual mode (like the other selection actions).
+fn visual_yank_jq(state: &mut AppState) {
+    if !state.is_json {
+        state.status_message = Some("jq path is only available for JSON documents".to_string());
+        return;
+    }
+    let (lo, hi) = visual_range(state);
+    let paths: Vec<Vec<String>> = state
+        .lines
+        .get(lo..=hi)
+        .unwrap_or_default()
+        .iter()
+        .map(|l| real_path(l).to_vec())
+        .collect();
+    let jq = combined_jq(&paths);
+    exit_visual_mode(state);
+    state.status_message = Some(if jq.len() > MAX_YANK_BYTES {
+        format!("filter too large to copy ({} KB)", jq.len() / 1024)
+    } else {
+        match copy_to_clipboard(&jq) {
+            Ok(()) => format!("copied: {}", crate::json_tree::escape_display_str(&jq)),
+            Err(e) => format!("copy failed: {e}"),
+        }
+    });
+}
+
 /// Key handling while `state.visual_anchor.is_some()`. `q` still quits (same
 /// precedent as the help/inspect overlays); `Esc`/`V` cancel the selection.
 fn handle_visual_key(state: &mut AppState, key: KeyCode) -> bool {
@@ -776,6 +842,7 @@ fn handle_visual_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('h') => visual_collapse(state),
         KeyCode::Char('c') => visual_collapse_all(state),
         KeyCode::Char('e') => visual_expand_all(state),
+        KeyCode::Char('Y') => visual_yank_jq(state),
         _ => {}
     }
     false
@@ -3745,5 +3812,194 @@ mod tests {
     #[test]
     fn jq_string_escapes_c1_and_bidi_too() {
         assert_eq!(escape_jq_string("a\u{9b}b\u{202e}c"), "a\\u009bb\\u202ec");
+    }
+
+    fn paths(list: &[&[&str]]) -> Vec<Vec<String>> {
+        list.iter()
+            .map(|p| p.iter().map(|s| s.to_string()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn combined_jq_of_one_path_is_that_path() {
+        assert_eq!(combined_jq(&paths(&[&["a", "b"]])), ".a.b");
+        assert_eq!(combined_jq(&paths(&[&["a", "b"], &["a", "b"]])), ".a.b");
+    }
+
+    #[test]
+    fn elements_of_one_array_collapse_into_an_index_list() {
+        assert_eq!(
+            combined_jq(&paths(&[&["a", "[0]"], &["a", "[2]"]])),
+            ".a[0,2]"
+        );
+        assert_eq!(combined_jq(&paths(&[&["[1]"], &["[3]"]])), ".[1,3]");
+        assert_eq!(
+            combined_jq(&paths(&[
+                &["a", "[0]", "b", "[1]"],
+                &["a", "[0]", "b", "[4]"]
+            ])),
+            ".a[0].b[1,4]"
+        );
+    }
+
+    #[test]
+    fn mixed_selections_are_comma_joined_in_selection_order() {
+        assert_eq!(
+            combined_jq(&paths(&[
+                &["user", "name"],
+                &["user", "tags", "[0]"],
+                &["id"]
+            ])),
+            ".user.name, .user.tags[0], .id"
+        );
+        assert_eq!(
+            combined_jq(&paths(&[&["a", "[0]"], &["b", "[0]"]])),
+            ".a[0], .b[0]"
+        );
+        assert_eq!(
+            combined_jq(&paths(&[&["a", "[0]"], &["a", "x"]])),
+            ".a[0], .a.x"
+        );
+    }
+
+    #[test]
+    fn awkward_keys_are_quoted_in_every_form() {
+        assert_eq!(
+            combined_jq(&paths(&[&["odd key"], &["say \"hi\""]])),
+            ".[\"odd key\"], .[\"say \\\"hi\\\"\"]"
+        );
+        assert_eq!(
+            combined_jq(&paths(&[&["odd key", "[0]"], &["odd key", "[1]"]])),
+            ".[\"odd key\"][0,1]"
+        );
+    }
+
+    #[test]
+    fn a_parent_and_its_child_are_both_kept() {
+        assert_eq!(combined_jq(&paths(&[&["a"], &["a", "b"]])), ".a, .a.b");
+    }
+
+    #[test]
+    fn visual_y_copies_the_filter_for_the_selected_lines_and_leaves_visual_mode() {
+        let mut state = fixture(); // user, user.name, user.age
+        state.visual_anchor = Some(1);
+        state.cursor = 2;
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("copied: .user.name, .user.age")
+        );
+        assert!(state.visual_anchor.is_none());
+    }
+
+    #[test]
+    fn visual_y_works_when_the_selection_was_made_upwards() {
+        let mut state = fixture();
+        state.visual_anchor = Some(2);
+        state.cursor = 1;
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("copied: .user.name, .user.age")
+        );
+    }
+
+    #[test]
+    fn visual_y_on_a_single_line_matches_plain_y() {
+        let mut state = fixture();
+        state.visual_anchor = Some(1);
+        state.cursor = 1;
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert_eq!(state.status_message.as_deref(), Some("copied: .user.name"));
+    }
+
+    #[test]
+    fn visual_y_is_unavailable_for_xml() {
+        let mut state = fixture();
+        state.is_json = false;
+        state.visual_anchor = Some(0);
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("jq path is only available for JSON documents")
+        );
+    }
+
+    #[test]
+    fn visual_y_on_the_array_summary_line_uses_the_arrays_real_path() {
+        let mut state = fixture();
+        state
+            .lines
+            .push(array_summary_line(&["user", "age", "…more"]));
+        state.visual_anchor = Some(2);
+        state.cursor = 3;
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert_eq!(state.status_message.as_deref(), Some("copied: .user.age"));
+    }
+
+    #[test]
+    fn a_huge_selection_reports_instead_of_copying() {
+        let mut state = fixture();
+        state.lines = (0..20_000)
+            .map(|i| line(&format!("key{i}"), false, &["root", &format!("key{i}")]))
+            .collect();
+        state.visual_anchor = Some(0);
+        state.cursor = 19_999;
+        handle_key(&mut state, KeyCode::Char('Y'));
+        assert!(
+            state
+                .status_message
+                .as_deref()
+                .unwrap()
+                .starts_with("filter too large"),
+            "{:?}",
+            state.status_message
+        );
+    }
+
+    /// The point of the feature: the filter must select exactly what was
+    /// highlighted when run through the real jq (skipped where jq is absent).
+    #[test]
+    fn the_combined_filters_select_the_same_values_in_real_jq() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let doc = r#"{"a":[10,20,30,40],"odd key":[1,2],"u":{"n":"x","t":[true]},"id":7}"#;
+        let cases: &[(&[&[&str]], &str)] = &[
+            (&[&["a", "[0]"], &["a", "[2]"]], "10 30"),
+            (&[&["odd key", "[0]"], &["odd key", "[1]"]], "1 2"),
+            (&[&["u", "n"], &["u", "t", "[0]"], &["id"]], "\"x\" true 7"),
+            (&[&["a", "[1]"], &["id"]], "20 7"),
+            (&[&["u"], &["u", "n"]], "{\"n\":\"x\",\"t\":[true]} \"x\""),
+        ];
+        for (selected, expected) in cases {
+            let filter = combined_jq(&paths(selected));
+            let child = Command::new("jq")
+                .args(["-c", &filter])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn();
+            let Ok(mut child) = child else {
+                eprintln!("jq not installed: skipping");
+                return;
+            };
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(doc.as_bytes())
+                .unwrap();
+            let out = child.wait_with_output().unwrap();
+            assert!(
+                out.status.success(),
+                "{filter}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let got = String::from_utf8_lossy(&out.stdout)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert_eq!(got, *expected, "filter {filter}");
+        }
     }
 }

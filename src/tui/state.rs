@@ -210,7 +210,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("r", "reload file (keeps folds, tags, cursor)"),
     ("y / Y / v / w", "yank path / jq path / value / write file"),
     ("c / e / s / t", "collapse / expand all / sort keys / table"),
-    ("V", "visual select (j/k extend; l/h/c/e apply)"),
+    ("V", "visual select (j/k extend; l/h/c/e/Y apply)"),
     ("H / M / L", "jump to top/middle/bottom of viewport"),
     ("PgUp / PgDn", "page up / down (Ctrl+d/u: half)"),
     ("[ / ]", "jump history back / forward (Ctrl+o: back)"),
