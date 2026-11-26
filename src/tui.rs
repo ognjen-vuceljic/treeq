@@ -1,3 +1,4 @@
+mod export;
 mod flatten;
 mod history;
 mod keys;
@@ -276,6 +277,7 @@ fn modal_active(state: &AppState) -> bool {
         || state.searching
         || state.filter_typing
         || state.goto_input.is_some()
+        || state.export.is_some()
         || state.awaiting_depth
         || state.visual_anchor.is_some()
 }
@@ -351,6 +353,8 @@ fn initial_state<'a>(
         sort_keys: false,
 
         history: Default::default(),
+
+        export: None,
         pending_cursor_occurrence: 0,
         awaiting_depth: false,
         inspect_scroll: std::cell::Cell::new(0),
@@ -893,5 +897,237 @@ mod tests {
         tap_char(&mut state, node, '[');
         assert_eq!(state.search, "[");
         assert_ne!(state.status_message.as_deref(), Some("no older jump"));
+    }
+
+    const EXPORT_DOC: &str =
+        r#"{"user": {"name": "A", "big": 12345678901234567890123, "tags": ["x", "y"]}, "n": 1}"#;
+
+    fn export_fixture(doc: &str) -> (AppState<'static>, &'static JsonNode) {
+        let node: &'static JsonNode = Box::leak(Box::new(JsonNode::from_value(
+            &serde_json::from_str(doc).unwrap(),
+        )));
+        let mut lines = Vec::new();
+        flatten_json(
+            node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut lines,
+        );
+        let mut containers = HashSet::new();
+        collect_container_paths_json(node, &[], &mut containers);
+        let state = initial_state(
+            lines,
+            HashSet::new(),
+            containers,
+            HashSet::new(),
+            Vec::new(),
+            true,
+            false,
+            false,
+            state::Source::Json(node),
+        );
+        (state, node)
+    }
+
+    fn xml_export_fixture(xml: &str) -> (AppState<'static>, &'static crate::xml_tree::XmlNode) {
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let node: &'static crate::xml_tree::XmlNode = Box::leak(Box::new(
+            crate::xml_tree::XmlNode::from_document(&doc).unwrap(),
+        ));
+        let mut lines = Vec::new();
+        flatten::flatten_xml(node, &[], 0, &HashSet::new(), &mut lines);
+        let mut containers = HashSet::new();
+        flatten::collect_container_paths_xml(node, &[], &mut containers);
+        let state = initial_state(
+            lines,
+            HashSet::new(),
+            containers,
+            HashSet::new(),
+            Vec::new(),
+            false,
+            false,
+            false,
+            state::Source::Xml(node),
+        );
+        (state, node)
+    }
+
+    fn tmp_file(tag: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("treeq-export-{}-{n}-{tag}", std::process::id()))
+    }
+
+    /// Clears the suggested name and types `name` into the open prompt.
+    fn type_name(state: &mut AppState, name: &str) {
+        for _ in 0..80 {
+            handle_key(state, KeyCode::Backspace);
+        }
+        for c in name.chars() {
+            handle_key(state, KeyCode::Char(c));
+        }
+    }
+
+    fn prompt(state: &AppState) -> String {
+        state
+            .export
+            .as_ref()
+            .map(|e| e.prompt_text())
+            .unwrap_or_default()
+    }
+
+    fn go_to(state: &mut AppState, path: &[&str]) {
+        let p: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+        state.cursor = state.lines.iter().position(|l| l.path == p).unwrap();
+    }
+
+    #[test]
+    fn w_opens_a_prompt_suggesting_the_node_name_and_esc_cancels() {
+        let (mut state, _n) = export_fixture(EXPORT_DOC);
+        go_to(&mut state, &["user", "tags"]);
+        handle_key(&mut state, KeyCode::Char('w'));
+        assert_eq!(prompt(&state), "write to: tags.json");
+        handle_key(&mut state, KeyCode::Esc);
+        assert!(state.export.is_none());
+    }
+
+    #[test]
+    fn enter_writes_the_subtree_as_pretty_json_with_full_number_precision() {
+        let (mut state, _n) = export_fixture(EXPORT_DOC);
+        go_to(&mut state, &["user"]);
+        handle_key(&mut state, KeyCode::Char('w'));
+        let file = tmp_file("user.json");
+        type_name(&mut state, &file.to_string_lossy());
+        handle_key(&mut state, KeyCode::Enter);
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::remove_file(&file).ok();
+        assert!(text.contains("\n  \"name\": \"A\""), "not pretty: {text}");
+        assert!(
+            text.contains("12345678901234567890123"),
+            "lost precision: {text}"
+        );
+        assert!(text.ends_with("}\n"));
+        assert!(state.export.is_none());
+        assert!(state.status_message.unwrap().starts_with("wrote "));
+    }
+
+    #[test]
+    fn an_existing_file_needs_a_second_enter_and_typing_resets_the_confirmation() {
+        let (mut state, _n) = export_fixture(EXPORT_DOC);
+        go_to(&mut state, &["n"]);
+        let file = tmp_file("n.json");
+        std::fs::write(&file, "old").unwrap();
+        handle_key(&mut state, KeyCode::Char('w'));
+        type_name(&mut state, &file.to_string_lossy());
+        handle_key(&mut state, KeyCode::Enter);
+        assert!(prompt(&state).contains("exists: Enter overwrites"));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "old");
+        handle_key(&mut state, KeyCode::Backspace);
+        assert!(!prompt(&state).contains("exists"));
+        handle_key(&mut state, KeyCode::Char('n'));
+        handle_key(&mut state, KeyCode::Enter);
+        assert!(
+            prompt(&state).contains("exists"),
+            "confirmation must restart"
+        );
+        handle_key(&mut state, KeyCode::Enter);
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::remove_file(&file).ok();
+        assert_eq!(text, "1\n");
+    }
+
+    #[test]
+    fn there_is_no_size_cap_unlike_the_value_yank() {
+        let big = format!(r#"{{"s": "{}"}}"#, "x".repeat(300_000));
+        let (mut state, _n) = export_fixture(&big);
+        go_to(&mut state, &["s"]);
+        handle_key(&mut state, KeyCode::Char('w'));
+        let file = tmp_file("s.json");
+        type_name(&mut state, &file.to_string_lossy());
+        handle_key(&mut state, KeyCode::Enter);
+        let len = std::fs::metadata(&file).unwrap().len();
+        std::fs::remove_file(&file).ok();
+        assert_eq!(len, 300_003); // quotes + newline
+    }
+
+    #[test]
+    fn an_empty_name_or_an_unwritable_path_reports_instead_of_crashing() {
+        let (mut state, _n) = export_fixture(EXPORT_DOC);
+        handle_key(&mut state, KeyCode::Char('w'));
+        type_name(&mut state, "");
+        handle_key(&mut state, KeyCode::Enter);
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("write cancelled: no file name")
+        );
+        handle_key(&mut state, KeyCode::Char('w'));
+        type_name(&mut state, "/no/such/dir/x.json");
+        handle_key(&mut state, KeyCode::Enter);
+        assert!(state.status_message.unwrap().starts_with("write failed"));
+        assert!(state.export.is_none());
+    }
+
+    #[test]
+    fn suggested_names_are_filesystem_safe() {
+        let s = |p: &[&str], e| {
+            export::suggested_name(&p.iter().map(|x| x.to_string()).collect::<Vec<_>>(), e)
+        };
+        assert_eq!(s(&["a", "tags"], "json"), "tags.json");
+        assert_eq!(s(&["book[1]"], "xml"), "book_1_.xml");
+        assert_eq!(s(&["b", "@id"], "txt"), "id.txt");
+        assert_eq!(s(&["a/b"], "json"), "a_b.json");
+        assert_eq!(s(&["@"], "txt"), "export.txt");
+    }
+
+    #[test]
+    fn xml_elements_export_as_xml_and_attributes_as_text() {
+        let (mut state, _n) = xml_export_fixture(r#"<r><b id="7">t&amp;</b></r>"#);
+        go_to(&mut state, &["b"]);
+        handle_key(&mut state, KeyCode::Char('w'));
+        assert_eq!(prompt(&state), "write to: b.xml");
+        let file = tmp_file("b.xml");
+        type_name(&mut state, &file.to_string_lossy());
+        handle_key(&mut state, KeyCode::Enter);
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::remove_file(&file).ok();
+        assert_eq!(text, "<b id=\"7\">t&amp;</b>\n");
+        go_to(&mut state, &["b", "@id"]);
+        handle_key(&mut state, KeyCode::Char('w'));
+        assert_eq!(prompt(&state), "write to: id.txt");
+    }
+
+    #[test]
+    fn pick_mode_refuses_to_write_files() {
+        let (mut state, _n) = export_fixture(EXPORT_DOC);
+        state.pick_mode = true;
+        handle_key(&mut state, KeyCode::Char('w'));
+        assert!(state.export.is_none());
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("write: not available in pick mode")
+        );
+    }
+
+    #[test]
+    fn keys_typed_into_the_prompt_do_not_trigger_other_commands() {
+        let (mut state, _n) = export_fixture(EXPORT_DOC);
+        handle_key(&mut state, KeyCode::Char('w'));
+        for c in "qxcs".chars() {
+            handle_key(&mut state, KeyCode::Char(c));
+        }
+        assert!(state.export.is_some());
+        assert!(!state.sort_keys && state.tags.is_empty());
+        assert!(prompt(&state).ends_with("qxcs"));
+    }
+
+    #[test]
+    fn the_prompt_counts_as_a_modal_so_the_mouse_is_ignored() {
+        let (mut state, _n) = export_fixture(EXPORT_DOC);
+        handle_key(&mut state, KeyCode::Char('w'));
+        assert!(modal_active(&state));
     }
 }

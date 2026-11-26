@@ -646,6 +646,8 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
         RtLine::from(format!("&{}", state.filter.as_deref().unwrap_or("")))
     } else if let Some(input) = &state.goto_input {
         RtLine::from(format!(":{input}"))
+    } else if let Some(e) = &state.export {
+        RtLine::from(e.prompt_text())
     } else if state.searching {
         RtLine::from(format!("/{}", state.search))
     } else if let Some(f) = state
@@ -680,6 +682,8 @@ fn render_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     };
     let (pill, pill_bg) = if state.pick_mode {
         ("PICK", Color::Rgb(198, 120, 221))
+    } else if state.export.is_some() {
+        ("WRITE", Color::Rgb(229, 192, 123))
     } else if state.searching || state.goto_input.is_some() || state.filter_typing {
         ("SEARCH", Color::Rgb(229, 192, 123))
     } else if state.visual_anchor.is_some() {
@@ -830,6 +834,8 @@ mod tests {
             sort_keys: false,
 
             history: Default::default(),
+
+            export: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
