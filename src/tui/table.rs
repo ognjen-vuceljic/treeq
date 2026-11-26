@@ -1,11 +1,14 @@
 //! `t`: show the array under the cursor as a table (one row per element,
 //! one column per key, in order of first appearance). Only arrays whose
-//! elements are all objects qualify. Cells are built for the visible rows
-//! only, so a 100k-row array opens instantly.
+//! elements are all objects qualify. A cell cursor (`hjkl`/arrows) moves over
+//! it, columns scroll sideways to keep it in view, and the cell's full value
+//! is shown in a pane below. Cells are built for the visible rows only, so a
+//! 100k-row array opens instantly.
 
 use super::keys::{json_at, real_path};
 use super::state::{AppState, Source};
-use crate::json_tree::{JsonNode, is_unsafe_display_char, to_compact_json};
+use crate::color::Color as TqColor;
+use crate::json_tree::{JsonNode, JsonScalar, is_unsafe_display_char, to_compact_json};
 use crossterm::event::KeyCode;
 use std::cell::Cell;
 
@@ -16,7 +19,13 @@ pub(super) struct TableView {
     pub(super) path: Vec<String>,
     pub(super) columns: Vec<String>,
     pub(super) rows: usize,
+    /// Selected cell.
+    pub(super) row: usize,
+    pub(super) col: usize,
+    /// First visible row / column, kept in range by `build` (a `Cell` so the
+    /// renderer can update them without `&mut AppState`).
     pub(super) scroll: Cell<usize>,
+    pub(super) col_scroll: Cell<usize>,
     pub(super) viewport: Cell<usize>,
 }
 
@@ -41,19 +50,56 @@ pub(super) fn columns_of(items: &[JsonNode]) -> Option<Vec<String>> {
     Some(columns)
 }
 
+fn field_of<'a>(row: &'a JsonNode, column: &str) -> Option<&'a JsonNode> {
+    let JsonNode::Object(fields) = row else {
+        return None;
+    };
+    fields.iter().find(|(k, _)| k == column).map(|(_, v)| v)
+}
+
 /// Strings show quoted, nested values as compact JSON, missing keys blank.
 pub(super) fn cell_text(row: &JsonNode, column: &str) -> String {
-    let JsonNode::Object(fields) = row else {
-        return String::new();
-    };
-    match fields.iter().find(|(k, _)| k == column).map(|(_, v)| v) {
+    match field_of(row, column) {
         None => String::new(),
         Some(JsonNode::Scalar(s)) => s.display(),
         Some(nested) => defang(&to_compact_json(nested)),
     }
 }
 
-/// Terminal-unsafe characters (C1, bidi, ...) shown as `\\uXXXX`; quotes stay
+/// The colour a cell is drawn in: its scalar type's colour, dim for nested
+/// values, none for a missing key.
+fn cell_color(row: &JsonNode, column: &str) -> Option<TqColor> {
+    match field_of(row, column)? {
+        JsonNode::Scalar(s) => Some(s.color()),
+        _ => Some(TqColor::Structural),
+    }
+}
+
+/// `(type, text)` for the detail pane: the whole value, never truncated.
+pub(super) fn cell_detail(row: &JsonNode, column: &str) -> (String, String) {
+    match field_of(row, column) {
+        None => ("missing".to_string(), String::new()),
+        Some(JsonNode::Scalar(JsonScalar::Str(s))) => (
+            format!("string, {} chars", s.chars().count()),
+            cell_text(row, column),
+        ),
+        Some(JsonNode::Scalar(JsonScalar::Number(_))) => ("number".into(), cell_text(row, column)),
+        Some(JsonNode::Scalar(JsonScalar::Bool(_))) => ("boolean".into(), cell_text(row, column)),
+        Some(JsonNode::Scalar(JsonScalar::Null)) => ("null".into(), cell_text(row, column)),
+        Some(JsonNode::Object(f)) => (format!("object, {} keys", f.len()), cell_text(row, column)),
+        Some(JsonNode::Array(a)) => (format!("array, {} items", a.len()), cell_text(row, column)),
+    }
+}
+
+/// What `y` copies: a string's raw content, anything else as compact JSON.
+pub(super) fn cell_copy_text(row: &JsonNode, column: &str) -> Option<String> {
+    match field_of(row, column)? {
+        JsonNode::Scalar(JsonScalar::Str(s)) => Some(s.clone()),
+        other => Some(to_compact_json(other)),
+    }
+}
+
+/// Terminal-unsafe characters (C1, bidi, ...) shown as `\uXXXX`; quotes stay
 /// as they are, since this is already JSON text.
 fn defang(s: &str) -> String {
     s.chars()
@@ -76,15 +122,10 @@ pub(super) fn fit(text: &str, width: usize) -> String {
     format!("{kept}…")
 }
 
-/// Column widths from the header and the visible cells (capped), and how
-/// many columns fit in `avail` characters, always at least one.
-pub(super) fn layout(
-    columns: &[String],
-    cells: &[Vec<String>],
-    index_width: usize,
-    avail: usize,
-) -> (Vec<usize>, usize) {
-    let widths: Vec<usize> = columns
+/// One column width per column from the header and the visible cells
+/// (capped at `MAX_COL_WIDTH`).
+pub(super) fn widths(columns: &[String], cells: &[Vec<String>]) -> Vec<usize> {
+    columns
         .iter()
         .enumerate()
         .map(|(i, c)| {
@@ -95,53 +136,106 @@ pub(super) fn layout(
                 .unwrap_or(0);
             c.chars().count().max(widest).clamp(1, MAX_COL_WIDTH)
         })
-        .collect();
+        .collect()
+}
+
+/// How many columns starting at `first` fit in `avail` characters; at least
+/// one, so a very narrow terminal still shows something.
+pub(super) fn fit_count(widths: &[usize], first: usize, index_width: usize, avail: usize) -> usize {
     let mut used = index_width;
     let mut shown = 0;
-    for w in &widths {
+    for w in &widths[first.min(widths.len())..] {
         used += SEPARATOR.chars().count() + w;
         if used > avail && shown > 0 {
             break;
         }
         shown += 1;
     }
-    (widths, shown)
+    shown
 }
 
-/// Header, rule and the visible rows as plain strings.
-pub(super) fn render_rows(
-    view: &TableView,
-    items: &[JsonNode],
-    first: usize,
-    height: usize,
+/// First visible column so that `col` is on screen: stay where we are when
+/// possible, otherwise move just far enough.
+pub(super) fn scroll_to_col(
+    widths: &[usize],
+    current: usize,
+    col: usize,
+    index_width: usize,
     avail: usize,
-) -> (Vec<String>, usize) {
+) -> usize {
+    let mut first = current.min(col);
+    while col >= first + fit_count(widths, first, index_width, avail) {
+        first += 1;
+    }
+    first
+}
+
+pub(super) struct Field {
+    pub(super) text: String,
+    pub(super) color: Option<TqColor>,
+}
+
+/// The visible window of the table, already fitted to column widths.
+pub(super) struct Grid {
+    pub(super) index_width: usize,
+    pub(super) header: Vec<String>,
+    /// `(row number, cells)` per visible row.
+    pub(super) rows: Vec<(usize, Vec<Field>)>,
+    pub(super) first_col: usize,
+    pub(super) hidden_right: usize,
+}
+
+/// Builds the window for the current cursor and scroll state, writing the
+/// corrected scroll positions back (the cursor is always kept on screen).
+pub(super) fn build(view: &TableView, items: &[JsonNode], height: usize, avail: usize) -> Grid {
+    view.viewport.set(height);
+    let mut first = view.scroll.get().min(items.len().saturating_sub(height));
+    if view.row < first {
+        first = view.row;
+    } else if height > 0 && view.row >= first + height {
+        first = view.row + 1 - height;
+    }
+    view.scroll.set(first);
     let end = (first + height).min(items.len());
-    let cells: Vec<Vec<String>> = items[first..end]
+    let window = &items[first..end];
+    let texts: Vec<Vec<String>> = window
         .iter()
-        .map(|row| view.columns.iter().map(|c| cell_text(row, c)).collect())
+        .map(|r| view.columns.iter().map(|c| cell_text(r, c)).collect())
         .collect();
     let index_width = items.len().to_string().len().max(1);
-    let (widths, shown) = layout(&view.columns, &cells, index_width, avail);
-    let join = |index: String, parts: Vec<String>| {
-        let body: Vec<String> = parts
-            .iter()
-            .zip(&widths)
-            .take(shown)
-            .map(|(p, w)| fit(p, *w))
-            .collect();
-        format!("{index:>index_width$}{SEPARATOR}{}", body.join(SEPARATOR))
-    };
-    let mut lines = vec![join("#".into(), view.columns.clone())];
-    let rule_len = lines[0].chars().count();
-    lines.push("─".repeat(rule_len));
-    for (offset, row) in cells.into_iter().enumerate() {
-        lines.push(join((first + offset).to_string(), row));
+    let widths = widths(&view.columns, &texts);
+    let first_col = scroll_to_col(&widths, view.col_scroll.get(), view.col, index_width, avail);
+    view.col_scroll.set(first_col);
+    let shown = fit_count(&widths, first_col, index_width, avail);
+    let span = first_col..first_col + shown;
+    let rows = window
+        .iter()
+        .zip(texts)
+        .enumerate()
+        .map(|(offset, (item, text))| {
+            let cells = span
+                .clone()
+                .map(|i| Field {
+                    text: fit(&text[i], widths[i]),
+                    color: cell_color(item, &view.columns[i]),
+                })
+                .collect();
+            (first + offset, cells)
+        })
+        .collect();
+    Grid {
+        index_width,
+        header: span
+            .clone()
+            .map(|i| fit(&view.columns[i], widths[i]))
+            .collect(),
+        rows,
+        first_col,
+        hidden_right: view.columns.len() - span.end,
     }
-    (lines, view.columns.len() - shown)
 }
 
-fn items_at<'a>(state: &AppState<'a>, path: &[String]) -> Option<&'a [JsonNode]> {
+pub(super) fn items_at<'a>(state: &AppState<'a>, path: &[String]) -> Option<&'a [JsonNode]> {
     let Source::Json(root) = state.source else {
         return None;
     };
@@ -169,49 +263,64 @@ pub(super) fn open(state: &mut AppState) {
         path,
         columns,
         rows,
+        row: 0,
+        col: 0,
         scroll: Cell::new(0),
+        col_scroll: Cell::new(0),
         viewport: Cell::new(10),
     });
 }
 
 pub(super) fn handle(state: &mut AppState, key: KeyCode) -> bool {
-    let Some(view) = state.table.as_ref() else {
+    let Some(view) = state.table.as_mut() else {
         return false;
     };
     let page = view.viewport.get().max(1);
-    let last = view.rows.saturating_sub(1);
-    let scroll = view.scroll.get();
-    let target = match key {
-        KeyCode::Esc | KeyCode::Char('t' | 'q') => {
-            state.table = None;
-            return false;
-        }
-        KeyCode::Down | KeyCode::Char('j') => scroll + 1,
-        KeyCode::Up | KeyCode::Char('k') => scroll.saturating_sub(1),
-        KeyCode::PageDown => scroll + page,
-        KeyCode::PageUp => scroll.saturating_sub(page),
-        KeyCode::Home | KeyCode::Char('g') => 0,
-        KeyCode::End | KeyCode::Char('G') => last,
-        _ => scroll,
-    };
-    view.scroll.set(target.min(last));
+    let (last_row, last_col) = (
+        view.rows.saturating_sub(1),
+        view.columns.len().saturating_sub(1),
+    );
+    match key {
+        KeyCode::Esc | KeyCode::Char('t' | 'q') => state.table = None,
+        KeyCode::Down | KeyCode::Char('j') => view.row = (view.row + 1).min(last_row),
+        KeyCode::Up | KeyCode::Char('k') => view.row = view.row.saturating_sub(1),
+        KeyCode::PageDown => view.row = (view.row + page).min(last_row),
+        KeyCode::PageUp => view.row = view.row.saturating_sub(page),
+        KeyCode::Home | KeyCode::Char('g') => view.row = 0,
+        KeyCode::End | KeyCode::Char('G') => view.row = last_row,
+        KeyCode::Right | KeyCode::Char('l') => view.col = (view.col + 1).min(last_col),
+        KeyCode::Left | KeyCode::Char('h') => view.col = view.col.saturating_sub(1),
+        KeyCode::Char('0' | '^') => view.col = 0,
+        KeyCode::Char('$') => view.col = last_col,
+        KeyCode::Char('y') => copy_cell(state),
+        _ => {}
+    }
     false
 }
 
-/// What the renderer needs: the rows plus the table's own bookkeeping.
-pub(super) fn visible<'a>(
-    state: &'a AppState,
-    height: usize,
-    avail: usize,
-) -> Option<(&'a TableView, Vec<String>, usize)> {
+fn copy_cell(state: &mut AppState) {
+    let Some(view) = state.table.as_ref() else {
+        return;
+    };
+    let text = items_at(state, &view.path)
+        .and_then(|items| items.get(view.row))
+        .and_then(|row| cell_copy_text(row, &view.columns[view.col]));
+    state.status_message = Some(match text {
+        None => "nothing to copy (missing cell)".to_string(),
+        Some(t) => match crate::clipboard::copy_to_clipboard(&t) {
+            Ok(()) => format!("copied cell ({} bytes)", t.len()),
+            Err(e) => format!("copy failed: {e}"),
+        },
+    });
+}
+
+/// The selected cell's column name, type and full text, for the detail pane.
+pub(super) fn selected_detail(state: &AppState) -> Option<(String, String, String)> {
     let view = state.table.as_ref()?;
-    let items = items_at(state, &view.path)?;
-    view.viewport.set(height);
-    let max_first = items.len().saturating_sub(height);
-    let first = view.scroll.get().min(max_first);
-    view.scroll.set(first);
-    let (lines, hidden) = render_rows(view, items, first, height, avail);
-    Some((view, lines, hidden))
+    let row = items_at(state, &view.path)?.get(view.row)?;
+    let column = &view.columns[view.col];
+    let (kind, text) = cell_detail(row, column);
+    Some((column.clone(), kind, text))
 }
 
 #[cfg(test)]
@@ -230,7 +339,10 @@ mod tests {
             path: vec![],
             columns: columns.iter().map(|c| c.to_string()).collect(),
             rows,
+            row: 0,
+            col: 0,
             scroll: Cell::new(0),
+            col_scroll: Cell::new(0),
             viewport: Cell::new(10),
         }
     }
@@ -261,12 +373,61 @@ mod tests {
     }
 
     #[test]
+    fn cells_are_coloured_by_type_nested_values_dim_and_missing_uncoloured() {
+        let row = &items(
+            r#"[{"s":"x","n":1,"t":true,"f":false,"z":null,"o":{"a":1},"u":"https://x.io"}]"#,
+        )[0];
+        assert_eq!(cell_color(row, "s"), Some(TqColor::Str));
+        assert_eq!(cell_color(row, "n"), Some(TqColor::Number));
+        assert_eq!(cell_color(row, "t"), Some(TqColor::True));
+        assert_eq!(cell_color(row, "f"), Some(TqColor::False));
+        assert_eq!(cell_color(row, "z"), Some(TqColor::Null));
+        assert_eq!(cell_color(row, "o"), Some(TqColor::Structural));
+        assert_eq!(cell_color(row, "u"), Some(TqColor::Url));
+        assert_eq!(cell_color(row, "missing"), None);
+    }
+
+    #[test]
+    fn the_detail_text_is_never_truncated_and_names_the_type() {
+        let long = "x".repeat(500);
+        let rows = items(&format!(
+            r#"[{{"s":"{long}","a":[1,2],"o":{{"k":1}},"n":3}}]"#
+        ));
+        let (kind, text) = cell_detail(&rows[0], "s");
+        assert_eq!(kind, "string, 500 chars");
+        assert_eq!(text.chars().count(), 502, "all of it plus the quotes");
+        assert_eq!(cell_detail(&rows[0], "a").0, "array, 2 items");
+        assert_eq!(cell_detail(&rows[0], "o").0, "object, 1 keys");
+        assert_eq!(
+            cell_detail(&rows[0], "n"),
+            ("number".to_string(), "3".to_string())
+        );
+        assert_eq!(cell_detail(&rows[0], "gone").0, "missing");
+    }
+
+    #[test]
+    fn copy_text_is_the_raw_string_or_compact_json() {
+        let row = &items(r#"[{"s":"a \"b\"","n":1,"o":{"k":[1]}}]"#)[0];
+        assert_eq!(cell_copy_text(row, "s").unwrap(), "a \"b\"");
+        assert_eq!(cell_copy_text(row, "n").unwrap(), "1");
+        assert_eq!(cell_copy_text(row, "o").unwrap(), r#"{"k":[1]}"#);
+        assert!(cell_copy_text(row, "missing").is_none());
+    }
+
+    #[test]
     fn control_and_bidi_characters_in_cells_are_escaped() {
-        let row = &items("[{\"s\":\"a\\u001b[31m\\u202eb\"}]")[0];
-        let text = cell_text(row, "s");
+        let row = &items("[{\"s\":\"a\\u001b[31m\\u202eb\",\"o\":{\"k\":\"\\u202e\"}}]")[0];
+        for column in ["s", "o"] {
+            let text = cell_text(row, column);
+            assert!(
+                !text.contains('\u{1b}') && !text.contains('\u{202e}'),
+                "{text:?}"
+            );
+        }
+        let (_, detail) = cell_detail(row, "s");
         assert!(
-            !text.contains('\u{1b}') && !text.contains('\u{202e}'),
-            "{text:?}"
+            !detail.contains('\u{202e}'),
+            "the detail pane must be safe too"
         );
     }
 
@@ -279,37 +440,112 @@ mod tests {
     }
 
     #[test]
-    fn layout_caps_widths_and_drops_columns_that_do_not_fit() {
+    fn widths_follow_the_widest_visible_cell_up_to_the_cap() {
         let cols: Vec<String> = ["id", "name", "notes"]
             .iter()
             .map(|s| s.to_string())
             .collect();
         let cells = vec![vec!["1".into(), "\"Alice\"".into(), "x".repeat(100)]];
-        let (widths, shown) = layout(&cols, &cells, 1, 200);
-        assert_eq!(widths, [2, 7, MAX_COL_WIDTH]);
-        assert_eq!(shown, 3);
-        let (_, shown) = layout(&cols, &cells, 1, 16);
-        assert_eq!(shown, 2);
-        let (_, shown) = layout(&cols, &cells, 1, 15);
-        assert_eq!(shown, 1);
-        let (_, shown) = layout(&cols, &cells, 1, 1);
-        assert_eq!(shown, 1, "always shows at least one column");
+        assert_eq!(widths(&cols, &cells), [2, 7, MAX_COL_WIDTH]);
     }
 
     #[test]
-    fn rows_render_with_header_rule_index_and_missing_cells() {
+    fn fit_count_always_shows_at_least_one_column() {
+        let w = [2, 7, 24];
+        assert_eq!(fit_count(&w, 0, 1, 200), 3);
+        assert_eq!(fit_count(&w, 0, 1, 16), 2);
+        assert_eq!(fit_count(&w, 0, 1, 15), 1);
+        assert_eq!(fit_count(&w, 0, 1, 1), 1);
+        assert_eq!(fit_count(&w, 2, 1, 40), 1);
+    }
+
+    #[test]
+    fn scroll_to_col_moves_just_far_enough_and_never_loses_the_column() {
+        let w = [10, 10, 10, 10, 10];
+        let (index, avail) = (1, 30); // two 10-wide columns fit after the index
+        assert_eq!(fit_count(&w, 0, index, avail), 2);
+        assert_eq!(scroll_to_col(&w, 0, 0, index, avail), 0);
+        assert_eq!(scroll_to_col(&w, 0, 1, index, avail), 0);
+        assert_eq!(scroll_to_col(&w, 0, 2, index, avail), 1);
+        assert_eq!(scroll_to_col(&w, 1, 4, index, avail), 3);
+        assert_eq!(
+            scroll_to_col(&w, 3, 0, index, avail),
+            0,
+            "scrolls back left too"
+        );
+        assert_eq!(
+            scroll_to_col(&w, 2, 3, index, avail),
+            2,
+            "stays put when visible"
+        );
+    }
+
+    #[test]
+    fn every_column_is_reachable_however_narrow_the_terminal() {
+        let w = [24, 24, 24, 24];
+        for col in 0..4 {
+            let first = scroll_to_col(&w, 0, col, 1, 10);
+            assert!(
+                col >= first && col < first + fit_count(&w, first, 1, 10),
+                "col {col}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_grid_scrolls_columns_sideways_to_follow_the_cursor() {
+        let rows = items(r#"[{"aaaaaaaaaa":1,"bbbbbbbbbb":2,"cccccccccc":3,"dddddddddd":4}]"#);
+        let mut v = view(&["aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd"], 1);
+        let g = build(&v, &rows, 5, 30);
+        assert_eq!((g.header.len(), g.first_col, g.hidden_right), (2, 0, 2));
+        v.col = 3;
+        let g = build(&v, &rows, 5, 30);
+        assert_eq!(g.first_col, 2);
+        assert_eq!(g.header.len(), 2);
+        assert_eq!(g.hidden_right, 0);
+        assert!(g.header[1].starts_with("dddddddddd"));
+        assert_eq!(g.rows[0].1[1].text.trim_end(), "4");
+        v.col = 0;
+        let g = build(&v, &rows, 5, 30);
+        assert_eq!(g.first_col, 0, "and back again");
+    }
+
+    #[test]
+    fn the_grid_scrolls_rows_to_keep_the_cursor_visible() {
+        let rows = items(&format!(
+            "[{}]",
+            (0..100)
+                .map(|i| format!("{{\"i\":{i}}}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
+        let mut v = view(&["i"], 100);
+        v.row = 57;
+        let g = build(&v, &rows, 10, 40);
+        assert_eq!(v.scroll.get(), 48);
+        assert_eq!(g.rows.first().unwrap().0, 48);
+        assert_eq!(g.rows.last().unwrap().0, 57);
+        v.row = 3;
+        let g = build(&v, &rows, 10, 40);
+        assert_eq!(g.rows.first().unwrap().0, 3);
+    }
+
+    #[test]
+    fn grid_fields_carry_fitted_text_and_colours_and_missing_cells_are_blank() {
         let rows = items(r#"[{"id":1,"n":"A"},{"id":2}]"#);
         let v = view(&["id", "n"], 2);
-        let (lines, hidden) = render_rows(&v, &rows, 0, 10, 80);
-        assert_eq!(hidden, 0);
-        assert_eq!(lines[0], "# │ id │ n  ");
-        assert!(lines[1].chars().all(|c| c == '─'));
-        assert_eq!(lines[2], "0 │ 1  │ \"A\"");
-        assert_eq!(lines[3], "1 │ 2  │    ");
+        let g = build(&v, &rows, 10, 80);
+        assert_eq!(g.header, ["id", "n  "]);
+        let (_, r1) = &g.rows[1];
+        assert_eq!(r1[0].text, "2 ");
+        assert_eq!(r1[0].color, Some(TqColor::Number));
+        assert_eq!(r1[1].text, "   ");
+        assert_eq!(r1[1].color, None);
+        assert_eq!(g.rows[0].1[1].color, Some(TqColor::Str));
     }
 
     #[test]
-    fn only_the_requested_window_of_rows_is_built() {
+    fn only_the_visible_window_of_rows_is_built() {
         let rows = items(&format!(
             "[{}]",
             (0..1000)
@@ -317,11 +553,11 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(",")
         ));
-        let v = view(&["i"], 1000);
-        let (lines, _) = render_rows(&v, &rows, 500, 3, 80);
-        assert_eq!(lines.len(), 5);
-        assert!(lines[2].trim_start().starts_with("500"));
-        assert!(lines[4].trim_start().starts_with("502"));
+        let mut v = view(&["i"], 1000);
+        v.row = 502;
+        let g = build(&v, &rows, 3, 80);
+        assert_eq!(g.rows.len(), 3);
+        assert_eq!(g.rows.last().unwrap().0, 502);
     }
 
     #[test]
@@ -331,12 +567,12 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         let rows = items(&format!("[{body}]"));
-        let cols = columns_of(&rows).unwrap();
-        let v = view(&["id", "v"], rows.len());
-        assert_eq!(cols, ["id", "v"]);
+        assert_eq!(columns_of(&rows).unwrap(), ["id", "v"]);
+        let mut v = view(&["id", "v"], rows.len());
+        v.row = 99_999;
         let t = std::time::Instant::now();
-        let (lines, _) = render_rows(&v, &rows, 99_990, 20, 80);
+        let g = build(&v, &rows, 20, 80);
         assert!(t.elapsed().as_millis() < 500);
-        assert_eq!(lines.len(), 12);
+        assert_eq!(g.rows.len(), 20);
     }
 }

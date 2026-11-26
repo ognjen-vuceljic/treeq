@@ -1293,38 +1293,242 @@ mod tests {
         assert!(text.contains("30"));
     }
 
-    #[test]
-    fn a_narrow_terminal_reports_the_columns_that_do_not_fit() {
-        let mut state = table_state(TABLE_DOC);
-        go_to(&mut state, &["people"]);
+    fn open_table(doc: &str, path: &[&str]) -> AppState<'static> {
+        let mut state = table_state(doc);
+        go_to(&mut state, path);
         handle_key(&mut state, KeyCode::Char('t'));
-        let text = drawn(&state, 30, 14);
-        assert!(text.contains("+1 more"), "{text}");
+        assert!(state.table.is_some());
+        state
+    }
+
+    fn buffer_of(state: &AppState, w: u16, h: u16) -> ratatui::buffer::Buffer {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| render_frame(f, state)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    /// Position of the first cell of `needle` on any row.
+    fn find(buffer: &ratatui::buffer::Buffer, needle: &str) -> (u16, u16) {
+        for y in 0..buffer.area.height {
+            let row: Vec<String> = (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol().to_string())
+                .collect();
+            let line = row.concat();
+            if let Some(byte) = line.find(needle) {
+                return (line[..byte].chars().count() as u16, y);
+            }
+        }
+        panic!("{needle:?} not on screen:\n{}", grid(buffer));
     }
 
     #[test]
-    fn j_k_page_and_g_scroll_and_clamp() {
+    fn a_narrow_terminal_marks_the_hidden_columns_in_the_title() {
+        let state = open_table(TABLE_DOC, &["people"]);
+        let text = drawn(&state, 30, 14);
+        assert!(text.contains('›'), "{text}");
+        assert!(!text.contains('‹'), "nothing is hidden on the left yet");
+    }
+
+    #[test]
+    fn l_and_h_move_the_cell_cursor_and_clamp_and_0_and_dollar_jump_to_the_ends() {
+        let mut state = open_table(TABLE_DOC, &["people"]);
+        let col = |s: &AppState| s.table.as_ref().unwrap().col;
+        handle_key(&mut state, KeyCode::Char('l'));
+        handle_key(&mut state, KeyCode::Right);
+        assert_eq!(col(&state), 2);
+        handle_key(&mut state, KeyCode::Char('h'));
+        assert_eq!(col(&state), 1);
+        handle_key(&mut state, KeyCode::Char('$'));
+        assert_eq!(col(&state), 3);
+        handle_key(&mut state, KeyCode::Char('l'));
+        assert_eq!(col(&state), 3, "cannot move past the last column");
+        handle_key(&mut state, KeyCode::Char('0'));
+        handle_key(&mut state, KeyCode::Left);
+        assert_eq!(col(&state), 0, "cannot move before the first column");
+    }
+
+    #[test]
+    fn every_column_can_be_reached_by_scrolling_sideways_in_a_narrow_terminal() {
+        let mut state = open_table(TABLE_DOC, &["people"]);
+        assert!(
+            !drawn(&state, 30, 14).contains("age"),
+            "off-screen at first"
+        );
+        handle_key(&mut state, KeyCode::Char('$'));
+        let text = drawn(&state, 30, 14);
+        assert!(text.contains("age"), "{text}");
+        assert!(
+            text.contains('‹'),
+            "the title shows columns hidden on the left: {text}"
+        );
+        handle_key(&mut state, KeyCode::Char('0'));
+        let text = drawn(&state, 30, 14);
+        assert!(text.contains("id") && !text.contains('‹'), "{text}");
+    }
+
+    #[test]
+    fn j_k_page_and_g_move_the_row_cursor_and_clamp() {
         let rows = (0..50)
             .map(|i| format!("{{\"i\": {i}}}"))
             .collect::<Vec<_>>()
             .join(",");
-        let mut state = table_state(&format!(r#"{{"rows": [{rows}]}}"#));
-        go_to(&mut state, &["rows"]);
-        handle_key(&mut state, KeyCode::Char('t'));
-        let scroll = |s: &AppState| s.table.as_ref().unwrap().scroll.get();
+        let mut state = open_table(&format!(r#"{{"rows": [{rows}]}}"#), &["rows"]);
+        let row = |s: &AppState| s.table.as_ref().unwrap().row;
         handle_key(&mut state, KeyCode::Char('j'));
-        assert_eq!(scroll(&state), 1);
+        assert_eq!(row(&state), 1);
         handle_key(&mut state, KeyCode::Char('k'));
         handle_key(&mut state, KeyCode::Char('k'));
-        assert_eq!(scroll(&state), 0, "cannot scroll above the first row");
+        assert_eq!(row(&state), 0, "cannot go above the first row");
         handle_key(&mut state, KeyCode::Char('G'));
-        assert_eq!(scroll(&state), 49);
+        assert_eq!(row(&state), 49);
         handle_key(&mut state, KeyCode::Char('j'));
-        assert_eq!(scroll(&state), 49, "cannot scroll past the last row");
-        let text = drawn(&state, 80, 20);
-        assert!(text.contains("49"), "{text}");
+        assert_eq!(row(&state), 49, "cannot go past the last row");
+        assert!(drawn(&state, 80, 20).contains("49"));
         handle_key(&mut state, KeyCode::Char('g'));
-        assert_eq!(scroll(&state), 0);
+        assert_eq!(row(&state), 0);
+        handle_key(&mut state, KeyCode::PageDown);
+        assert!(row(&state) > 1);
+    }
+
+    #[test]
+    fn the_row_cursor_scrolls_the_window_so_its_row_is_always_visible() {
+        let rows = (0..200)
+            .map(|i| format!("{{\"i\": {i}}}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut state = open_table(&format!(r#"{{"rows": [{rows}]}}"#), &["rows"]);
+        for _ in 0..120 {
+            handle_key(&mut state, KeyCode::Char('j'));
+        }
+        let text = drawn(&state, 60, 16);
+        assert!(text.contains("120"), "{text}");
+    }
+
+    #[test]
+    fn cells_are_drawn_in_their_type_colours_when_colour_is_on() {
+        let mut state = open_table(TABLE_DOC, &["people"]);
+        state.use_color = true;
+        let buf = drawn_buffer(&state, 100, 24);
+        let (x, y) = find(&buf, "Alice");
+        assert_eq!(
+            buf[(x, y)].fg,
+            state::ratatui_color(crate::color::Color::Str)
+        );
+        let (x, y) = find(&buf, "30");
+        assert_eq!(
+            buf[(x, y)].fg,
+            state::ratatui_color(crate::color::Color::Number)
+        );
+        let (x, y) = find(&buf, "name");
+        assert_eq!(
+            buf[(x, y)].fg,
+            state::ratatui_color(crate::color::Color::Key)
+        );
+        let (x, y) = find(&buf, "[\"a\"]");
+        assert_eq!(
+            buf[(x, y)].fg,
+            state::ratatui_color(crate::color::Color::Structural)
+        );
+    }
+
+    fn drawn_buffer(state: &AppState, w: u16, h: u16) -> ratatui::buffer::Buffer {
+        buffer_of(state, w, h)
+    }
+
+    #[test]
+    fn the_selected_cell_stands_out_from_its_row_and_other_cells() {
+        let mut state = open_table(TABLE_DOC, &["people"]);
+        state.use_color = true;
+        handle_key(&mut state, KeyCode::Char('l')); // name column, row 0
+        let buf = drawn_buffer(&state, 100, 24);
+        let (x, y) = find(&buf, "Alice");
+        let cell_bg = buf[(x, y)].bg;
+        let (ix, _) = find(&buf, "\"Alice\"");
+        let other_in_row = buf[(ix.saturating_sub(6), y)].bg; // the id column's cell
+        let (tx, ty) = find(&buf, "30"); // another row entirely
+        assert_ne!(
+            cell_bg, other_in_row,
+            "selected cell differs from its row tint"
+        );
+        assert_ne!(other_in_row, buf[(tx, ty)].bg, "the selected row is tinted");
+    }
+
+    #[test]
+    fn without_colour_the_selected_cell_is_reversed_and_nothing_is_coloured() {
+        let mut state = open_table(TABLE_DOC, &["people"]);
+        state.use_color = false;
+        let buf = drawn_buffer(&state, 100, 24);
+        let (x, y) = find(&buf, "id");
+        assert_eq!(buf[(x, y + 2)].fg, ratatui::style::Color::Reset);
+        let (cx, cy) = find(&buf, "1  ");
+        assert!(
+            buf[(cx, cy)]
+                .modifier
+                .contains(ratatui::style::Modifier::REVERSED)
+        );
+    }
+
+    #[test]
+    fn the_detail_pane_shows_the_whole_value_that_the_cell_truncates() {
+        let long = format!("{}TAIL-MARKER", "abcdefghij".repeat(15));
+        let doc = format!(r#"{{"rows": [{{"id": 1, "token": "{long}"}}]}}"#);
+        let mut state = open_table(&doc, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('l')); // token
+        let text = drawn(&state, 80, 24);
+        assert!(
+            text.contains("TAIL-MARKER"),
+            "the detail pane has the end: {text}"
+        );
+        assert!(
+            text.contains("token") && text.contains("string, 161 chars"),
+            "{text}"
+        );
+        assert!(
+            text.contains('…'),
+            "the cell itself is still truncated: {text}"
+        );
+    }
+
+    #[test]
+    fn the_detail_pane_describes_nested_and_missing_cells() {
+        let mut state = open_table(TABLE_DOC, &["people"]);
+        handle_key(&mut state, KeyCode::Char('$')); // age: missing in row 0
+        assert!(drawn(&state, 100, 24).contains("(missing)"));
+        handle_key(&mut state, KeyCode::Char('0'));
+        handle_key(&mut state, KeyCode::Char('l'));
+        handle_key(&mut state, KeyCode::Char('l')); // tags: ["a"]
+        let text = drawn(&state, 100, 24);
+        assert!(text.contains("array, 1 items"), "{text}");
+    }
+
+    #[test]
+    fn a_short_terminal_drops_the_detail_pane_but_still_draws_the_table() {
+        let state = open_table(TABLE_DOC, &["people"]);
+        let text = drawn(&state, 100, 9);
+        assert!(text.contains("Alice"), "{text}");
+        assert!(
+            !text.contains("y copy cell"),
+            "no room for the pane: {text}"
+        );
+    }
+
+    #[test]
+    fn y_copies_the_selected_cell() {
+        let mut state = open_table(TABLE_DOC, &["people"]);
+        handle_key(&mut state, KeyCode::Char('l')); // "Alice"
+        handle_key(&mut state, KeyCode::Char('y'));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("copied cell (5 bytes)")
+        );
+        handle_key(&mut state, KeyCode::Char('$')); // age missing in row 0
+        handle_key(&mut state, KeyCode::Char('y'));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("nothing to copy (missing cell)")
+        );
+        assert!(state.table.is_some(), "y does not close the table");
     }
 
     #[test]

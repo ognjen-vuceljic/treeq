@@ -251,27 +251,160 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
     }
 }
 
+/// The selected table cell: brighter than the row tint so it stands out.
+fn cell_bg() -> Color {
+    if is_light() {
+        Color::Rgb(196, 208, 232)
+    } else {
+        Color::Rgb(84, 96, 128)
+    }
+}
+
+fn table_cell_style(color: Option<TqColor>, use_color: bool) -> Style {
+    match color {
+        Some(c) if use_color => {
+            let style = Style::default().fg(ratatui_color(c));
+            if c == TqColor::Url {
+                style.add_modifier(Modifier::UNDERLINED)
+            } else {
+                style
+            }
+        }
+        _ => Style::default(),
+    }
+}
+
 fn render_table_popup(frame: &mut Frame, area: Rect, state: &AppState) {
-    let inner_width = area.width.saturating_sub(2) as usize;
-    // header + rule take two of the interior rows
-    let height = area.height.saturating_sub(4) as usize;
-    let Some((view, lines, hidden)) = super::table::visible(state, height, inner_width) else {
+    use super::table;
+    let Some(view) = state.table.as_ref() else {
         return;
     };
-    let more = if hidden > 0 {
-        format!(" +{hidden} more")
+    let Some(items) = table::items_at(state, &view.path) else {
+        return;
+    };
+    let use_color = state.use_color;
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    let detail_h = match inner.height {
+        0..=7 => 0,
+        8..=11 => 4,
+        _ => 6,
+    };
+    let grid_h = inner.height.saturating_sub(detail_h);
+    let grid = table::build(
+        view,
+        items,
+        grid_h.saturating_sub(2) as usize,
+        inner.width as usize,
+    );
+
+    let left = if grid.first_col > 0 {
+        format!(" ‹{}", grid.first_col)
+    } else {
+        String::new()
+    };
+    let right = if grid.hidden_right > 0 {
+        format!(" {}›", grid.hidden_right)
     } else {
         String::new()
     };
     let title = format!(
-        "Table {} {}×{}{more} (Esc closes)",
+        "Table {} {}×{} r{} c{}{left}{right}",
         display_path(&view.path),
         view.rows,
-        view.columns.len()
+        view.columns.len(),
+        view.row + 1,
+        view.col + 1,
     );
-    let rows: Vec<RtLine> = lines.into_iter().map(RtLine::from).collect();
-    let paragraph = Paragraph::new(rows).block(rounded_block(true, state.use_color).title(title));
-    frame.render_widget(paragraph, area);
+    frame.render_widget(rounded_block(true, use_color).title(title), area);
+
+    let dim = table_cell_style(Some(TqColor::Structural), use_color);
+    let sep = Span::styled(" │ ", dim);
+    let head_style = if use_color {
+        Style::default()
+            .fg(ratatui_color(TqColor::Key))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    };
+    let mut lines: Vec<RtLine> = Vec::new();
+    let mut header = vec![Span::styled(format!("{:>1$}", "#", grid.index_width), dim)];
+    for (i, h) in grid.header.iter().enumerate() {
+        let style = if grid.first_col + i == view.col {
+            head_style.add_modifier(Modifier::UNDERLINED)
+        } else {
+            head_style
+        };
+        header.push(sep.clone());
+        header.push(Span::styled(h.clone(), style));
+    }
+    let rule_len: usize = header.iter().map(|s| s.content.chars().count()).sum();
+    lines.push(RtLine::from(header));
+    lines.push(RtLine::from(Span::styled("─".repeat(rule_len), dim)));
+    for (row_no, cells) in &grid.rows {
+        let selected_row = *row_no == view.row;
+        let row_style = if selected_row {
+            cursor_style(use_color)
+        } else {
+            Style::default()
+        };
+        let mut spans = vec![Span::styled(
+            format!("{:>1$}", row_no, grid.index_width),
+            dim.patch(row_style),
+        )];
+        for (i, cell) in cells.iter().enumerate() {
+            spans.push(Span::styled(" │ ", dim.patch(row_style)));
+            let mut style = table_cell_style(cell.color, use_color).patch(row_style);
+            if selected_row && grid.first_col + i == view.col {
+                style = if use_color {
+                    style.bg(cell_bg()).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                };
+            }
+            spans.push(Span::styled(cell.text.clone(), style));
+        }
+        lines.push(RtLine::from(spans));
+    }
+    let grid_area = Rect {
+        height: grid_h,
+        ..inner
+    };
+    frame.render_widget(Paragraph::new(lines), grid_area);
+
+    if detail_h > 0 {
+        let detail_area = Rect {
+            y: inner.y + grid_h,
+            height: detail_h,
+            ..inner
+        };
+        render_table_detail(frame, detail_area, state, head_style);
+    }
+}
+
+/// Full value of the selected cell, wrapped; the table itself truncates.
+fn render_table_detail(frame: &mut Frame, area: Rect, state: &AppState, head_style: Style) {
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .title("hjkl move · 0/$ ends · y copy cell · Esc closes");
+    let body = block.inner(area);
+    frame.render_widget(block, area);
+    let Some((column, kind, text)) = super::table::selected_detail(state) else {
+        return;
+    };
+    let mut lines = vec![RtLine::from(vec![
+        Span::styled(column, head_style),
+        Span::raw(format!("  ({kind})")),
+    ])];
+    let room = body.height.saturating_sub(1) as usize;
+    let mut wrapped = wrap_text(&text, body.width as usize);
+    if wrapped.len() > room {
+        wrapped.truncate(room);
+        if let Some(last) = wrapped.last_mut() {
+            last.push('…');
+        }
+    }
+    lines.extend(wrapped.into_iter().map(RtLine::from));
+    frame.render_widget(Paragraph::new(lines), body);
 }
 
 /// Greedy word wrap into lines of at most `width` chars, hard-breaking any
