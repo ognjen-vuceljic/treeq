@@ -32,6 +32,7 @@ ratatui = "0.29"
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
 mimalloc = "0.1.52"
 toml = { version = "0.8", features = ["preserve_order"] }
+regex = "1"
 
 [profile.release]
 lto = "fat"
