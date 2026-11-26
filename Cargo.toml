@@ -31,6 +31,7 @@ ratatui = "0.29"
 # problem. See issue #85.
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
 mimalloc = "0.1.52"
+toml = { version = "0.8", features = ["preserve_order"] }
 
 [profile.release]
 lto = "fat"
