@@ -15,6 +15,8 @@ mod render;
 mod schema;
 mod stats;
 mod toml_tree;
+
+mod top;
 mod tui;
 mod xml_tree;
 
@@ -68,12 +70,15 @@ struct Args {
     // mode, and `run_json_tree`/`run_xml_tree` only ever check them in one
     // fixed order, so combining them used to silently pick whichever came
     // first in that order instead of erroring (issue #129).
-    #[arg(long, conflicts_with_all = ["paths", "schema", "agent"])]
+    #[arg(long, conflicts_with_all = ["paths", "schema", "agent", "top"])]
     stats: bool,
-    #[arg(long, conflicts_with_all = ["schema", "agent"])]
+    #[arg(long, conflicts_with_all = ["schema", "agent", "top"])]
     paths: bool,
-    #[arg(long, conflicts_with_all = ["schema"])]
+    #[arg(long, conflicts_with_all = ["schema", "top"])]
     agent: bool,
+    /// List the N largest nodes by serialized bytes (`--json` for machine output).
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..), conflicts_with = "schema")]
+    top: Option<u64>,
     #[arg(long)]
     ndjson: bool,
     /// Machine-readable output for --stats, --paths, --schema and --agent.
@@ -158,7 +163,7 @@ fn progress_message(len: usize) -> Option<String> {
 
 fn show_progress(input_len: usize, args: &Args) {
     let tui_mode = !args.r#static
-        && !(args.stats || args.paths || args.schema || args.agent)
+        && !(args.stats || args.paths || args.schema || args.agent || args.top.is_some())
         && (args.pick || io::stdout().is_terminal());
     if tui_mode
         && io::stderr().is_terminal()
@@ -281,6 +286,23 @@ fn agent_color(args: &Args) -> color::ColorMode {
         color::ColorMode::Off
     } else {
         color::ColorMode::detect(use_color())
+    }
+}
+
+fn print_top(entries: &[top::Entry], json: bool) {
+    if json {
+        let rows: Vec<_> = entries
+            .iter()
+            .map(|e| serde_json::json!({ "path": e.path, "bytes": e.bytes }))
+            .collect();
+        print_text(&format!("{}\n", serde_json::Value::from(rows)));
+    } else {
+        print_lines(
+            entries
+                .iter()
+                .map(|e| format!("{}\t{}", e.bytes, e.path))
+                .collect(),
+        );
     }
 }
 
@@ -422,6 +444,10 @@ fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<
         print_agent(&json_stat_pairs(&s, input_len), tree, args.json);
         return;
     }
+    if let Some(n) = args.top {
+        print_top(&top::json_top(target, n as usize), args.json);
+        return;
+    }
     if args.paths {
         print_paths(json_paths(target), args.json);
         return;
@@ -537,6 +563,10 @@ fn run_xml(input: String, args: &Args) {
         print_agent(&xml_stat_pairs(&s, input_len), tree, args.json);
         return;
     }
+    if let Some(n) = args.top {
+        print_top(&top::xml_top(target, n as usize), args.json);
+        return;
+    }
     if args.paths {
         print_paths(xml_paths(target), args.json);
         return;
@@ -628,8 +658,8 @@ fn main() {
         eprintln!("error: --ndjson is not supported with --format xml");
         process::exit(1);
     }
-    if args.json && !(args.stats || args.paths || args.schema || args.agent) {
-        eprintln!("error: --json needs one of --stats, --paths, --schema or --agent");
+    if args.json && !(args.stats || args.paths || args.schema || args.agent || args.top.is_some()) {
+        eprintln!("error: --json needs one of --stats, --paths, --schema, --agent or --top");
         process::exit(1);
     }
     if args.pick && args.r#static {

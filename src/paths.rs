@@ -32,7 +32,7 @@ fn walk_json(node: &JsonNode, path: &[String], out: &mut Vec<String>) {
     }
 }
 
-fn display_path(path: &[String]) -> String {
+pub fn display_path(path: &[String]) -> String {
     path.iter()
         .map(|s| escape_path_segment(s))
         .collect::<Vec<_>>()

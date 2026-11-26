@@ -1139,3 +1139,56 @@ fn jsonc_reload_state_and_ndjson_are_unaffected() {
     assert_eq!(code, 0);
     assert!(out.contains("[1]"), "got: {out}");
 }
+
+const TOP_DOC: &str = r#"{"a":"xxxxxxxxxx","b":{"c":[1,2,3],"d":"é"},"e":null}"#;
+
+#[test]
+fn top_lists_largest_nodes_as_bytes_tab_path() {
+    let (out, _e, code) = run_treeq(&["--top", "3"], TOP_DOC);
+    assert_eq!(code, 0);
+    assert_eq!(out, "22\tb\n12\ta\n7\tb.c\n");
+}
+
+#[test]
+fn top_json_output_is_an_array_of_path_and_bytes() {
+    let (out, _e, code) = run_treeq(&["--top", "2", "--json"], TOP_DOC);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v[0]["path"], "b");
+    assert_eq!(v[0]["bytes"], 22);
+    assert_eq!(v.as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn top_respects_path_and_works_for_xml_yaml_toml() {
+    let (out, _e, _c) = run_treeq(&["--top", "1", "--path", "b"], TOP_DOC);
+    assert_eq!(out, "7\tc\n");
+    let (out, _e, _c) = run_treeq(&["--top", "1"], "<r><a>hello</a><b/></r>");
+    assert_eq!(out, "12\ta\n");
+    let (out, _e, _c) = run_treeq(&["--top", "1", "--format", "yaml"], "a: xx\nb: yyyy\n");
+    assert_eq!(out, "6\tb\n");
+    let (out, _e, _c) = run_treeq(&["--top", "1", "--format", "json"], "[1,22,3]");
+    assert_eq!(out, "2\t1\n");
+}
+
+#[test]
+fn top_rejects_zero_and_conflicting_modes() {
+    let (_o, err, code) = run_treeq(&["--top", "0"], TOP_DOC);
+    assert_ne!(code, 0);
+    assert!(err.contains("--top"), "got: {err}");
+    for other in ["--stats", "--paths", "--schema", "--agent"] {
+        let (_o, err, code) = run_treeq(&["--top", "3", other], TOP_DOC);
+        assert_ne!(code, 0, "{other}");
+        assert!(err.contains("cannot be used"), "{other}: {err}");
+    }
+}
+
+#[test]
+fn top_beyond_node_count_lists_everything_and_empty_docs_print_nothing() {
+    let (out, _e, code) = run_treeq(&["--top", "99"], r#"{"a":1}"#);
+    assert_eq!(code, 0);
+    assert_eq!(out, "1\ta\n");
+    let (out, _e, code) = run_treeq(&["--top", "5"], "[]");
+    assert_eq!(code, 0);
+    assert_eq!(out, "");
+}
