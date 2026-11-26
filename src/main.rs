@@ -98,7 +98,8 @@ const AGENT_DEFAULT_DEPTH: usize = 3;
 
 fn read_input(file: &Option<PathBuf>) -> io::Result<String> {
     let buf = match file {
-        Some(path) => fs::read_to_string(path)?,
+        Some(path) => fs::read_to_string(path)
+            .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?,
         None => {
             let mut buf = String::new();
             io::stdin().read_to_string(&mut buf)?;
