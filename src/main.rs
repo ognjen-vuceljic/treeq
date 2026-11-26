@@ -13,6 +13,7 @@ mod paths;
 mod render;
 mod schema;
 mod stats;
+mod toml_tree;
 mod tui;
 mod xml_tree;
 
@@ -38,6 +39,7 @@ enum FormatArg {
     Json,
     Xml,
     Yaml,
+    Toml,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]
@@ -374,6 +376,19 @@ fn run_yaml(input: String, args: &Args) {
     );
 }
 
+fn run_toml(input: String, args: &Args) {
+    let tree = toml_tree::parse_toml_tree(&input).unwrap_or_else(|e| die(e));
+    let input_len = input.len();
+    drop(input);
+    let reload = || toml_tree::parse_toml_tree(&read_for_reload(args)?);
+    run_json_tree(
+        &tree,
+        input_len,
+        args,
+        args.file.is_some().then_some(&reload),
+    );
+}
+
 fn run_json_tree(tree: &JsonNode, input_len: usize, args: &Args, reload: Reload<'_, JsonNode>) {
     let target = match &args.path {
         Some(p) => match find_json_path(tree, p) {
@@ -621,6 +636,7 @@ fn main() {
             FormatArg::Json => Format::Json,
             FormatArg::Xml => Format::Xml,
             FormatArg::Yaml => Format::Yaml,
+            FormatArg::Toml => Format::Toml,
         })
         .or_else(|| detect_format(&input, args.file.as_deref()))
         .unwrap_or_else(|| {
@@ -635,6 +651,7 @@ fn main() {
         Format::Json => run_json(input, &args, false),
         Format::Xml => run_xml(input, &args),
         Format::Yaml => run_yaml(input, &args),
+        Format::Toml => run_toml(input, &args),
         Format::Ndjson => run_json(input, &args, true),
     }
 }

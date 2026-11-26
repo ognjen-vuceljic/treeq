@@ -1,3 +1,4 @@
+use crate::toml_tree::looks_like_toml;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6,6 +7,7 @@ pub enum Format {
     Xml,
     Yaml,
     Ndjson,
+    Toml,
 }
 
 /// File extension wins; otherwise sniff the content. Only ever picks YAML or
@@ -20,6 +22,7 @@ pub fn detect_format(input: &str, file: Option<&Path>) -> Option<Format> {
     match ext.as_deref() {
         Some("yaml" | "yml") => return Some(Format::Yaml),
         Some("ndjson" | "jsonl") => return Some(Format::Ndjson),
+        Some("toml") => return Some(Format::Toml),
         _ => {}
     }
     if first == '<' {
@@ -30,6 +33,9 @@ pub fn detect_format(input: &str, file: Option<&Path>) -> Option<Format> {
     }
     if matches!(first, '{' | '[') && looks_like_ndjson(trimmed) {
         return Some(Format::Ndjson);
+    }
+    if first != '{' && looks_like_toml(trimmed) {
+        return Some(Format::Toml);
     }
     if !matches!(first, '{' | '[' | '"') && looks_like_yaml(trimmed) {
         return Some(Format::Yaml);
@@ -69,6 +75,25 @@ mod tests {
     #[test]
     fn returns_none_for_empty_input() {
         assert_eq!(detect_format("   ", None), None);
+    }
+
+    #[test]
+    fn sniffs_toml_without_stealing_json_or_yaml() {
+        assert_eq!(
+            detect_format("a = 1\nb = \"x\"\n", None),
+            Some(Format::Toml)
+        );
+        assert_eq!(
+            detect_format("[pkg]\nname = \"x\"\n", None),
+            Some(Format::Toml)
+        );
+        assert_eq!(detect_format("[1, 2]", None), Some(Format::Json));
+        assert_eq!(detect_format("a: 1\n", None), Some(Format::Yaml));
+        assert_eq!(detect_format("hello", None), Some(Format::Json));
+        assert_eq!(
+            detect_format("{}", Some(Path::new("c.toml"))),
+            Some(Format::Toml)
+        );
     }
 
     #[test]

@@ -20,6 +20,20 @@ pub fn json_error_context(input: &str, err: &serde_json::Error) -> String {
     )
 }
 
+/// `toml` reports a byte span, so line/column are derived from its start.
+pub fn toml_error_context(input: &str, err: &toml::de::Error) -> String {
+    let start = err.span().map_or(0, |s| s.start).min(input.len());
+    let before = &input.as_bytes()[..start];
+    let line = before.iter().filter(|&&b| b == b'\n').count() + 1;
+    let column = start
+        - before
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i + 1)
+        + 1;
+    format_error_context("TOML", input, line, column, true, err.message())
+}
+
 /// `roxmltree`'s column is already a *character* offset (unlike
 /// `serde_json`'s byte offset), so it's marked accordingly.
 pub fn xml_error_context(input: &str, err: &roxmltree::Error) -> String {

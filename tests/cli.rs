@@ -1007,3 +1007,62 @@ fn xml_entity_bombs_and_external_entities_are_rejected_fast() {
         assert!(start.elapsed().as_secs() < 5);
     }
 }
+
+
+const CARGO_LIKE: &str = "[package]\nname = \"treeq\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"a\"\n\n[[bin]]\nname = \"b\"\n";
+
+#[test]
+fn toml_is_detected_from_the_extension() {
+    let n = TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file = std::env::temp_dir().join(format!("treeq-{}-{n}.toml", std::process::id()));
+    fs::write(&file, CARGO_LIKE).unwrap();
+    let path = file.to_string_lossy().to_string();
+    let (out, _e, code) = run_treeq(&["--static", &path], "");
+    fs::remove_file(&file).ok();
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("name: \"treeq\"") && out.contains("[1]"),
+        "got: {out}"
+    );
+}
+
+#[test]
+fn toml_is_sniffed_from_stdin_and_forced_with_format() {
+    let (out, _e, code) = run_treeq(&["--paths"], CARGO_LIKE);
+    assert_eq!(code, 0);
+    assert!(out.starts_with("package\npackage.name\n"), "got: {out}");
+    let (out, _e, code) = run_treeq(&["--static", "--format", "toml"], "a = 1\n");
+    assert_eq!(code, 0);
+    assert!(out.contains("a: 1"), "got: {out}");
+}
+
+#[test]
+fn toml_path_stats_schema_and_json_flags_work() {
+    let (out, _e, code) = run_treeq(&["--static", "--path", "bin.1"], CARGO_LIKE);
+    assert_eq!(code, 0);
+    assert!(out.contains("name: \"b\""), "got: {out}");
+    let (out, _e, _c) = run_treeq(&["--stats", "--json"], CARGO_LIKE);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["arrays"], 1);
+    let (out, _e, code) = run_treeq(&["--schema"], CARGO_LIKE);
+    assert_eq!(code, 0);
+    assert!(out.contains("package: object"), "got: {out}");
+}
+
+#[test]
+fn invalid_toml_with_format_flag_reports_a_toml_error() {
+    let (out, err, code) = run_treeq(&["--static", "--format", "toml"], "a = 1\nb = \n");
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(err.contains("invalid TOML at line 2"), "got: {err}");
+}
+
+#[test]
+fn json_and_yaml_are_not_misdetected_as_toml() {
+    let (out, _e, _c) = run_treeq(&["--static"], r#"{"a": 1}"#);
+    assert!(out.contains("a: 1"));
+    let (out, _e, _c) = run_treeq(&["--static"], "a: 1\nb: [2]\n");
+    assert!(out.contains("b"), "got: {out}");
+    let (out, _e, _c) = run_treeq(&["--static"], "[1, 2, 3]");
+    assert!(out.contains("[2]: 3"), "got: {out}");
+}
