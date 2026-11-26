@@ -920,3 +920,59 @@ fn stdin_read_error_is_not_path_prefixed() {
     assert_eq!(code, 1);
     assert!(err.starts_with("error:"), "stderr was: {err}");
 }
+
+const MIXED: &str = "<r>lead<b/>mid<c x=\"1\">t</c>tail</r>";
+
+#[test]
+fn xml_mixed_content_renders_text_runs_in_order() {
+    let (out, _e, code) = run_treeq(&["--static"], MIXED);
+    assert_eq!(code, 0);
+    let rows: Vec<&str> = out
+        .lines()
+        .map(|l| l.trim_start_matches(['├', '└', '─', ' ']))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "r",
+            "#text: lead",
+            "b",
+            "#text: mid",
+            "c [x=\"1\"]: t",
+            "#text: tail"
+        ]
+    );
+}
+
+#[test]
+fn xml_mixed_content_paths_and_path_selection() {
+    let (out, _e, _c) = run_treeq(&["--paths"], MIXED);
+    assert_eq!(out, "#text[0]\nb\n#text[1]\nc\nc.@x\n#text[2]\n");
+    let (out, _e, code) = run_treeq(&["--static", "--path", "#text[1]"], MIXED);
+    assert_eq!(code, 0);
+    assert!(out.contains("#text: mid"), "got: {out}");
+}
+
+#[test]
+fn xml_mixed_content_stats_count_text_runs_separately() {
+    let (out, _e, _c) = run_treeq(&["--stats", "--json"], MIXED);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["elements"], 3);
+    assert_eq!(v["text_nodes"], 4);
+}
+
+#[test]
+fn xml_text_leaf_output_is_unchanged() {
+    let (out, _e, _c) = run_treeq(&["--static"], "<r><a>x</a><b>y</b></r>");
+    assert!(out.contains("a: x") && out.contains("b: y"), "got: {out}");
+    assert!(!out.contains("#text"), "got: {out}");
+}
+
+#[test]
+fn xml_depth_truncation_previews_mixed_text() {
+    let (out, _e, _c) = run_treeq(
+        &["--static", "--depth", "1"],
+        r#"<r><a id="7">t<b/>u</a></r>"#,
+    );
+    assert!(out.contains(r#"a [id="7"]: t u …"#), "got: {out}");
+}
