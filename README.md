@@ -68,6 +68,9 @@ treeq file.json --stats --json        # machine-readable (also --paths/--schema/
 treeq config.yaml                     # YAML, TOML and NDJSON are auto-detected
 
 treeq tsconfig.jsonc                  # JSON with comments / trailing commas
+
+treeq file.json --top 10              # the 10 largest nodes by bytes ("where is the bulk?")
+treeq file.json --stats --json        # machine-readable (also --paths/--schema/--agent/--top)
 treeq config.yaml                     # YAML and NDJSON are auto-detected
 treeq file.json --no-mouse            # leave mouse to the terminal (wheel/click are on by default)
 treeq file.json --theme light         # palette for light terminals (auto via COLORFGBG)
@@ -133,7 +136,7 @@ lines, precise search-match highlighting, and a truecolor palette:
   [tmux integration](#tmux-integration) and scripting:
   `selected="$(treeq --pick file.json)"`.
 - **Agent-friendly flags** — `--path`, `--depth`, `--stats`, `--paths`,
-  `--schema`, and `--agent` (bundles stats + a shallow tree in one
+  `--top`, `--schema`, and `--agent` (bundles stats + a shallow tree in one
   non-interactive call) for exploring a document in bounded slices instead
   of dumping it whole. `--paths` pairs naturally with
   [`fzf`](https://github.com/junegunn/fzf):
