@@ -190,6 +190,8 @@ pub(super) struct AppState<'a> {
     pub(super) history: super::history::JumpHistory,
     /// `Some` while the `w` (write subtree to file) prompt is open.
     pub(super) export: Option<super::export::ExportPrompt>,
+    /// `Some` while the `t` table view is open.
+    pub(super) table: Option<super::table::TableView>,
 }
 
 /// Source of truth for the in-app help overlay; cross-checked by a test
@@ -207,7 +209,7 @@ pub(super) const HELP_LEGEND: &[(&str, &str)] = &[
     ("1-8 / x", "tag / untag node / clear all tags"),
     ("r", "reload file (keeps folds, tags, cursor)"),
     ("y / Y / v / w", "yank path / jq path / value / write file"),
-    ("c / e / s", "collapse all / expand all / sort keys"),
+    ("c / e / s / t", "collapse / expand all / sort keys / table"),
     ("V", "visual select (j/k extend; l/h/c/e apply)"),
     ("H / M / L", "jump to top/middle/bottom of viewport"),
     ("PgUp / PgDn", "page up / down (Ctrl+d/u: half)"),
@@ -422,6 +424,8 @@ mod tests {
             history: Default::default(),
 
             export: None,
+
+            table: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),

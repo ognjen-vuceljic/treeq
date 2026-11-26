@@ -244,6 +244,34 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         frame.render_widget(Clear, popup_area);
         render_inspect_popup(frame, popup_area, state);
     }
+    if state.table.is_some() {
+        let popup_area = centered_rect(96, 90, area);
+        frame.render_widget(Clear, popup_area);
+        render_table_popup(frame, popup_area, state);
+    }
+}
+
+fn render_table_popup(frame: &mut Frame, area: Rect, state: &AppState) {
+    let inner_width = area.width.saturating_sub(2) as usize;
+    // header + rule take two of the interior rows
+    let height = area.height.saturating_sub(4) as usize;
+    let Some((view, lines, hidden)) = super::table::visible(state, height, inner_width) else {
+        return;
+    };
+    let more = if hidden > 0 {
+        format!(" +{hidden} more")
+    } else {
+        String::new()
+    };
+    let title = format!(
+        "Table {} {}×{}{more} (Esc closes)",
+        display_path(&view.path),
+        view.rows,
+        view.columns.len()
+    );
+    let rows: Vec<RtLine> = lines.into_iter().map(RtLine::from).collect();
+    let paragraph = Paragraph::new(rows).block(rounded_block(true, state.use_color).title(title));
+    frame.render_widget(paragraph, area);
 }
 
 /// Greedy word wrap into lines of at most `width` chars, hard-breaking any
@@ -836,6 +864,8 @@ mod tests {
             history: Default::default(),
 
             export: None,
+
+            table: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
