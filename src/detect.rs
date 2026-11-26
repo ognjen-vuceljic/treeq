@@ -1,4 +1,6 @@
 use crate::toml_tree::looks_like_toml;
+
+use crate::jsonc;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,6 +10,8 @@ pub enum Format {
     Yaml,
     Ndjson,
     Toml,
+
+    Jsonc,
 }
 
 /// File extension wins; otherwise sniff the content. Only ever picks YAML or
@@ -23,6 +27,8 @@ pub fn detect_format(input: &str, file: Option<&Path>) -> Option<Format> {
         Some("yaml" | "yml") => return Some(Format::Yaml),
         Some("ndjson" | "jsonl") => return Some(Format::Ndjson),
         Some("toml") => return Some(Format::Toml),
+
+        Some("jsonc") => return Some(Format::Jsonc),
         _ => {}
     }
     if first == '<' {
@@ -36,6 +42,10 @@ pub fn detect_format(input: &str, file: Option<&Path>) -> Option<Format> {
     }
     if first != '{' && looks_like_toml(trimmed) {
         return Some(Format::Toml);
+    }
+
+    if jsonc::parses_after_strip(trimmed) {
+        return Some(Format::Jsonc);
     }
     if !matches!(first, '{' | '[' | '"') && looks_like_yaml(trimmed) {
         return Some(Format::Yaml);
@@ -93,6 +103,23 @@ mod tests {
         assert_eq!(
             detect_format("{}", Some(Path::new("c.toml"))),
             Some(Format::Toml)
+        );
+    }
+
+    #[test]
+
+    fn sniffs_jsonc_only_when_stripping_makes_it_valid() {
+        assert_eq!(
+            detect_format("{\"a\":1, // c\n}", None),
+            Some(Format::Jsonc)
+        );
+        assert_eq!(detect_format("[1, 2,]", None), Some(Format::Jsonc));
+        assert_eq!(detect_format("// c\n{\"a\":1}", None), Some(Format::Jsonc));
+        assert_eq!(detect_format("{\"a\":", None), Some(Format::Json));
+        assert_eq!(detect_format("{\"a\":1}", None), Some(Format::Json));
+        assert_eq!(
+            detect_format("{}", Some(Path::new("t.jsonc"))),
+            Some(Format::Jsonc)
         );
     }
 

@@ -1065,3 +1065,77 @@ fn json_and_yaml_are_not_misdetected_as_toml() {
     let (out, _e, _c) = run_treeq(&["--static"], "[1, 2, 3]");
     assert!(out.contains("[2]: 3"), "got: {out}");
 }
+
+const JSONC_DOC: &str =
+    "// header\n{\n  \"a\": 1, /* inline */\n  \"u\": \"http://x/*y*/\",\n  \"l\": [1, 2,],\n}\n";
+
+#[test]
+fn jsonc_is_detected_from_the_extension() {
+    let n = TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file = std::env::temp_dir().join(format!("treeq-{}-{n}.jsonc", std::process::id()));
+    fs::write(&file, JSONC_DOC).unwrap();
+    let path = file.to_string_lossy().to_string();
+    let (out, _e, code) = run_treeq(&["--static", &path], "");
+    fs::remove_file(&file).ok();
+    assert_eq!(code, 0);
+    assert!(out.contains("a: 1") && out.contains("[1]: 2"), "got: {out}");
+    assert!(out.contains("u: \"http://x/*y*/\""), "got: {out}");
+}
+
+#[test]
+fn jsonc_is_sniffed_from_stdin_and_forced_with_format() {
+    let (out, _e, code) = run_treeq(&["--paths"], JSONC_DOC);
+    assert_eq!(code, 0);
+    assert_eq!(out, "a\nu\nl\nl.0\nl.1\n");
+    let (out, _e, code) = run_treeq(&["--static", "--format", "jsonc"], "[1,]");
+    assert_eq!(code, 0);
+    assert!(out.contains("[0]: 1"), "got: {out}");
+}
+
+#[test]
+fn jsonc_works_with_path_stats_and_agent() {
+    let (out, _e, code) = run_treeq(&["--static", "--path", "l.1"], JSONC_DOC);
+    assert_eq!(code, 0);
+    assert!(out.contains("2"), "got: {out}");
+    let (out, _e, _c) = run_treeq(&["--stats", "--json"], JSONC_DOC);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["scalars"], 4);
+    let (out, _e, code) = run_treeq(&["--agent"], JSONC_DOC);
+    assert_eq!(code, 0);
+    assert!(out.contains("scalars: 4"), "got: {out}");
+}
+
+#[test]
+fn jsonc_error_points_at_the_original_line_and_column() {
+    let (_o, err, code) = run_treeq(
+        &["--static", "--format", "jsonc"],
+        "{\"a\": 1, // note\n \"b\": oops}",
+    );
+    assert_eq!(code, 1);
+    assert!(err.contains("line 2, column 7"), "got: {err}");
+    assert!(
+        err.contains("// note"),
+        "snippet should show the original: {err}"
+    );
+}
+
+#[test]
+fn plain_json_keeps_rejecting_comments_and_trailing_commas() {
+    let (_o, err, code) = run_treeq(&["--static", "--format", "json"], "{\"a\":1,}");
+    assert_eq!(code, 1);
+    assert!(err.contains("invalid JSON"), "got: {err}");
+}
+
+#[test]
+fn broken_json_is_not_sniffed_as_jsonc() {
+    let (_o, err, code) = run_treeq(&["--static"], "{\"a\":");
+    assert_eq!(code, 1);
+    assert!(err.contains("invalid JSON"), "got: {err}");
+}
+
+#[test]
+fn jsonc_reload_state_and_ndjson_are_unaffected() {
+    let (out, _e, code) = run_treeq(&["--static", "--ndjson"], "{\"a\":1}\n{\"a\":2}\n");
+    assert_eq!(code, 0);
+    assert!(out.contains("[1]"), "got: {out}");
+}
