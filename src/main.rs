@@ -346,7 +346,7 @@ fn parse_yaml_documents(input: &str) -> Result<serde_yaml::Value, String> {
 
 fn parse_yaml_tree(input: &str) -> Result<JsonNode, String> {
     let value = parse_yaml_documents(input).map_err(|e| format!("error: invalid YAML: {e}"))?;
-    JsonNode::from_yaml_value(&value).map_err(|e| format!("error: invalid YAML: {e}"))
+    Ok(JsonNode::from_yaml_value(&value))
 }
 
 fn run_yaml(input: String, args: &Args) {

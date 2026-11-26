@@ -287,21 +287,31 @@ impl JsonNode {
         }
     }
 
-    pub fn from_yaml_value(value: &serde_yaml::Value) -> Result<JsonNode, String> {
+    /// Lenient by design: a viewer should show something rather than refuse.
+    /// A tagged scalar becomes the string `"!tag value"`; a tag on a
+    /// sequence/mapping is dropped (the structure is what's being viewed).
+    pub fn from_yaml_value(value: &serde_yaml::Value) -> JsonNode {
+        use serde_yaml::Value as Y;
+        let scalar = |s| JsonNode::Scalar(s);
         match value {
-            serde_yaml::Value::Null => Ok(JsonNode::Scalar(JsonScalar::Null)),
-            serde_yaml::Value::Bool(b) => Ok(JsonNode::Scalar(JsonScalar::Bool(*b))),
-            serde_yaml::Value::Number(n) => Ok(JsonNode::Scalar(JsonScalar::Number(n.to_string()))),
-            serde_yaml::Value::String(s) => Ok(JsonNode::Scalar(JsonScalar::Str(s.clone()))),
-            serde_yaml::Value::Sequence(items) => {
-                let converted = items
-                    .iter()
-                    .map(JsonNode::from_yaml_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(JsonNode::Array(converted))
+            Y::Null => scalar(JsonScalar::Null),
+            Y::Bool(b) => scalar(JsonScalar::Bool(*b)),
+            Y::Number(n) => scalar(JsonScalar::Number(n.to_string())),
+            Y::String(s) => scalar(JsonScalar::Str(s.clone())),
+            Y::Sequence(items) => {
+                JsonNode::Array(items.iter().map(JsonNode::from_yaml_value).collect())
             }
-            serde_yaml::Value::Mapping(map) => JsonNode::from_yaml_mapping(map),
-            serde_yaml::Value::Tagged(_) => Err("YAML tags are not supported".to_string()),
+            Y::Mapping(map) => JsonNode::from_yaml_mapping(map),
+            Y::Tagged(t) => match JsonNode::from_yaml_value(&t.value) {
+                JsonNode::Scalar(inner) => {
+                    let text = match &inner {
+                        JsonScalar::Str(s) => s.clone(),
+                        other => other.display(),
+                    };
+                    scalar(JsonScalar::Str(format!("{} {text}", t.tag)))
+                }
+                container => container,
+            },
         }
     }
 
@@ -310,15 +320,21 @@ impl JsonNode {
     /// same as any other key. Implementing real merge semantics (including
     /// `<<: [*a, *b]` and merge-vs-explicit-key precedence) is out of scope
     /// for this viewer; treeq shows the document's raw structure.
-    fn from_yaml_mapping(map: &serde_yaml::Mapping) -> Result<JsonNode, String> {
-        let mut fields = Vec::with_capacity(map.len());
-        for (k, v) in map {
-            let key = k
-                .as_str()
-                .ok_or_else(|| "YAML mapping keys must be strings".to_string())?;
-            fields.push((key.to_string(), JsonNode::from_yaml_value(v)?));
-        }
-        Ok(JsonNode::Object(fields))
+    fn from_yaml_mapping(map: &serde_yaml::Mapping) -> JsonNode {
+        let fields = map
+            .iter()
+            .map(|(k, v)| (yaml_key(k), JsonNode::from_yaml_value(v)))
+            .collect();
+        JsonNode::Object(fields)
+    }
+}
+
+/// Scalar keys are stringified (`1` -> `"1"`, `true` -> `"true"`); complex
+/// keys (`? [1, 2]`) become their compact JSON.
+fn yaml_key(key: &serde_yaml::Value) -> String {
+    match key {
+        serde_yaml::Value::String(s) => s.clone(),
+        other => to_compact_json(&JsonNode::from_yaml_value(other)),
     }
 }
 
@@ -636,7 +652,7 @@ mod tests {
     fn converts_yaml_mapping_and_sequence() {
         let value: serde_yaml::Value =
             serde_yaml::from_str("name: Alice\ntags:\n  - admin\n  - user\n").unwrap();
-        let node = JsonNode::from_yaml_value(&value).unwrap();
+        let node = JsonNode::from_yaml_value(&value);
         assert_eq!(
             node,
             JsonNode::Object(vec![
@@ -659,7 +675,7 @@ mod tests {
     fn converts_yaml_scalars() {
         let value: serde_yaml::Value =
             serde_yaml::from_str("age: 30\nactive: true\nmiddle_name: null\n").unwrap();
-        let node = JsonNode::from_yaml_value(&value).unwrap();
+        let node = JsonNode::from_yaml_value(&value);
         assert_eq!(
             node,
             JsonNode::Object(vec![
@@ -679,18 +695,70 @@ mod tests {
         );
     }
 
-    #[test]
-    fn errors_on_non_string_mapping_key() {
-        let value: serde_yaml::Value = serde_yaml::from_str("1: one\n2: two\n").unwrap();
-        let err = JsonNode::from_yaml_value(&value).unwrap_err();
-        assert_eq!(err, "YAML mapping keys must be strings");
+    fn yaml(src: &str) -> JsonNode {
+        JsonNode::from_yaml_value(&serde_yaml::from_str(src).unwrap())
+    }
+
+    fn keys(node: &JsonNode) -> Vec<&str> {
+        match node {
+            JsonNode::Object(f) => f.iter().map(|(k, _)| k.as_str()).collect(),
+            _ => panic!("not an object"),
+        }
+    }
+
+    fn str_val(node: &JsonNode) -> &str {
+        match node {
+            JsonNode::Scalar(JsonScalar::Str(s)) => s,
+            _ => panic!("not a string"),
+        }
     }
 
     #[test]
-    fn errors_on_yaml_tagged_value() {
-        let value: serde_yaml::Value = serde_yaml::from_str("!Tag value").unwrap();
-        let err = JsonNode::from_yaml_value(&value).unwrap_err();
-        assert_eq!(err, "YAML tags are not supported");
+    fn stringifies_scalar_mapping_keys() {
+        let n = yaml("1: one\ntrue: yes\nnull: nothing\n2.5: f\n");
+        assert_eq!(keys(&n), ["1", "true", "null", "2.5"]);
+    }
+
+    #[test]
+    fn renders_complex_mapping_keys_as_compact_json() {
+        let n = yaml("? [1, 2]\n: seq\n? {a: 1}\n: map\n");
+        assert_eq!(keys(&n), ["[1,2]", "{\"a\":1}"]);
+    }
+
+    #[test]
+    fn tagged_scalar_keeps_its_tag_in_the_text() {
+        let n = yaml("a: !mytag 5\nb: !Ref name\nc: !flag true\nd: !n ~\n");
+        let JsonNode::Object(f) = &n else { panic!() };
+        let texts: Vec<&str> = f.iter().map(|(_, v)| str_val(v)).collect();
+        assert_eq!(texts, ["!mytag 5", "!Ref name", "!flag true", "!n null"]);
+    }
+
+    #[test]
+    fn tag_on_a_container_is_dropped_but_contents_kept() {
+        let n = yaml("a: !seq [1, 2]\nb: !map {k: v}\n");
+        assert_eq!(to_compact_json(&n), r#"{"a":[1,2],"b":{"k":"v"}}"#);
+    }
+
+    #[test]
+    fn top_level_tag_is_handled() {
+        assert_eq!(str_val(&yaml("!Tag value")), "!Tag value");
+    }
+
+    #[test]
+    fn yaml_anchors_aliases_and_merge_keys_are_shown_raw() {
+        let n = yaml("base: &b {x: 1}\ncopy: *b\nmerged:\n  <<: *b\n  y: 2\n");
+        assert_eq!(
+            to_compact_json(&n),
+            r#"{"base":{"x":1},"copy":{"x":1},"merged":{"<<":{"x":1},"y":2}}"#
+        );
+    }
+
+    #[test]
+    fn bulk_yaml_with_ten_thousand_int_keys_converts() {
+        let src: String = (0..10_000).map(|i| format!("{i}: v{i}\n")).collect();
+        let n = yaml(&src);
+        assert_eq!(keys(&n).len(), 10_000);
+        assert_eq!(keys(&n)[9_999], "9999");
     }
 
     #[test]

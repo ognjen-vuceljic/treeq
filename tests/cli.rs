@@ -603,28 +603,47 @@ fn yaml_composes_with_path_depth_stats_and_paths_flags() {
 }
 
 #[test]
-fn reports_non_string_yaml_key_when_nested_below_the_root() {
-    let (_stdout, stderr, code) = run_treeq(
+fn renders_non_string_yaml_keys_nested_below_the_root() {
+    let (stdout, _stderr, code) = run_treeq(
         &["--static", "--format", "yaml"],
-        "outer:\n  1: not-a-string-key\n",
+        "outer:\n  1: first\n  true: second\n",
     );
-    assert_eq!(code, 1);
-    assert!(
-        stderr.contains("YAML mapping keys must be strings"),
-        "got: {stderr}"
-    );
+    assert_eq!(code, 0);
+    assert!(stdout.contains("1: \"first\""), "got: {stdout}");
+    assert!(stdout.contains("true: \"second\""), "got: {stdout}");
 }
 
 #[test]
-fn reports_yaml_tag_when_nested_below_the_root() {
-    let (_stdout, stderr, code) = run_treeq(
+fn renders_yaml_tag_nested_below_the_root() {
+    let (stdout, _stderr, code) = run_treeq(
         &["--static", "--format", "yaml"],
         "outer:\n  value: !mytag 5\n",
     );
-    assert_eq!(code, 1);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("value: \"!mytag 5\""), "got: {stdout}");
+}
+
+#[test]
+fn yaml_complex_keys_and_tags_work_in_paths_and_stats() {
+    let doc = "c: !tag v\n1: int-key\n? [1, 2]\n: complex\n";
+    let (paths, _e, code) = run_treeq(&["--paths", "--format", "yaml"], doc);
+    assert_eq!(code, 0);
+    assert_eq!(paths, "c\n1\n[1,2]\n");
+    let (stats, _e, code) = run_treeq(&["--stats", "--format", "yaml"], doc);
+    assert_eq!(code, 0);
+    assert!(stats.contains("scalars: 3"), "got: {stats}");
+}
+
+#[test]
+fn yaml_tagged_multi_document_stream_becomes_an_array() {
+    let (stdout, _e, code) = run_treeq(
+        &["--static", "--format", "yaml"],
+        "---\na: !t 1\n---\n2: b\n",
+    );
+    assert_eq!(code, 0);
     assert!(
-        stderr.contains("YAML tags are not supported"),
-        "got: {stderr}"
+        stdout.contains("[0]") && stdout.contains("[1]"),
+        "got: {stdout}"
     );
 }
 
