@@ -1,4 +1,5 @@
 mod flatten;
+mod history;
 mod keys;
 mod render;
 mod state;
@@ -219,6 +220,15 @@ where
 /// Ctrl+Alt is skipped: on some layouts AltGr reports as Ctrl+Alt and is how
 /// `[`, `{`, `@` etc. are typed, into the search box included.
 fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
+    let from = history::before(state, &key);
+    let quit = dispatch_key_event(state, key);
+    if let Some(from) = from {
+        history::record(state, from);
+    }
+    quit
+}
+
+fn dispatch_key_event(state: &mut AppState, key: KeyEvent) -> bool {
     let ctrl =
         key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT);
     if !ctrl {
@@ -228,6 +238,7 @@ fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
         KeyCode::Char('c') => return true,
         KeyCode::Char('d') => keys::half_page_down(state),
         KeyCode::Char('u') => keys::half_page_up(state),
+        KeyCode::Char('o') => history::step(state, history::Dir::Back),
         _ => {}
     }
     false
@@ -338,6 +349,8 @@ fn initial_state<'a>(
         all_paths,
         pending_cursor_path: None,
         sort_keys: false,
+
+        history: Default::default(),
         pending_cursor_occurrence: 0,
         awaiting_depth: false,
         inspect_scroll: std::cell::Cell::new(0),
@@ -732,5 +745,153 @@ mod tests {
         let keys = keys_in_order(&state);
         assert_eq!(keys[0], "a");
         assert!(keys[1..].windows(2).all(|w| w[0] <= w[1]));
+    }
+
+    const HIST_DOC: &str = r#"{"a": {"x": 1, "y": 2}, "b": [1, 2, 3], "c": {"d": {"e": 5}}}"#;
+
+    fn hist_fixture() -> (AppState<'static>, &'static JsonNode) {
+        // Leaked so the state can borrow it as its `Source`: history checks
+        // its targets against the search index, which is built from there.
+        let node: &'static JsonNode = Box::leak(Box::new(JsonNode::from_value(
+            &serde_json::from_str(HIST_DOC).unwrap(),
+        )));
+        let mut lines = Vec::new();
+        flatten_json(
+            node,
+            &[],
+            0,
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            &mut lines,
+        );
+        let mut containers = HashSet::new();
+        collect_container_paths_json(node, &[], &mut containers);
+        let state = initial_state(
+            lines,
+            HashSet::new(),
+            containers,
+            HashSet::new(),
+            Vec::new(),
+            true,
+            false,
+            false,
+            state::Source::Json(node),
+        );
+        (state, node)
+    }
+
+    /// One pass of the real event loop: handle the key, then rebuild if needed.
+    fn tap(state: &mut AppState, node: &JsonNode, code: KeyCode, mods: KeyModifiers) {
+        let key = KeyEvent::new(code, mods);
+        handle_key_event(state, key);
+        if key_may_change_lines(state, &key) {
+            rebuild_json_lines(state, node);
+        }
+    }
+
+    fn tap_char(state: &mut AppState, node: &JsonNode, c: char) {
+        tap(state, node, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+
+    fn at(state: &AppState) -> Vec<String> {
+        state.lines[state.cursor].path.clone()
+    }
+
+    #[test]
+    fn bracket_goes_back_to_where_a_big_jump_started_and_forward_again() {
+        let (mut state, node) = hist_fixture();
+        tap_char(&mut state, node, 'G');
+        let last = at(&state);
+        assert_ne!(last, ["a"]);
+        tap_char(&mut state, node, '[');
+        assert_eq!(at(&state), ["a"]);
+        tap_char(&mut state, node, ']');
+        assert_eq!(at(&state), last);
+    }
+
+    #[test]
+    fn ctrl_o_is_an_alias_for_back() {
+        let (mut state, node) = hist_fixture();
+        tap_char(&mut state, node, 'G');
+        tap(&mut state, node, KeyCode::Char('o'), KeyModifiers::CONTROL);
+        assert_eq!(at(&state), ["a"]);
+    }
+
+    #[test]
+    fn single_line_steps_are_not_recorded() {
+        let (mut state, node) = hist_fixture();
+        tap_char(&mut state, node, 'j');
+        tap_char(&mut state, node, 'k');
+        tap_char(&mut state, node, '[');
+        assert_eq!(state.status_message.as_deref(), Some("no older jump"));
+    }
+
+    #[test]
+    fn empty_history_reports_both_ends() {
+        let (mut state, node) = hist_fixture();
+        tap_char(&mut state, node, ']');
+        assert_eq!(state.status_message.as_deref(), Some("no newer jump"));
+        tap_char(&mut state, node, '[');
+        assert_eq!(state.status_message.as_deref(), Some("no older jump"));
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn a_new_jump_after_going_back_discards_the_forward_stack() {
+        let (mut state, node) = hist_fixture();
+        tap_char(&mut state, node, 'G');
+        tap_char(&mut state, node, '[');
+        tap_char(&mut state, node, 'G');
+        tap_char(&mut state, node, ']');
+        assert_eq!(state.status_message.as_deref(), Some("no newer jump"));
+    }
+
+    #[test]
+    fn goto_path_is_recorded_and_hidden_targets_are_revealed_on_return() {
+        let (mut state, node) = hist_fixture();
+        tap_char(&mut state, node, 'c'); // collapse everything
+        tap_char(&mut state, node, ':');
+        for ch in "c.d.e".chars() {
+            tap_char(&mut state, node, ch);
+        }
+        tap(&mut state, node, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(at(&state), ["c", "d", "e"]);
+        tap_char(&mut state, node, '[');
+        assert_eq!(at(&state), ["a"]);
+        tap_char(&mut state, node, 'c'); // hide the target again
+        tap_char(&mut state, node, ']');
+        assert_eq!(at(&state), ["c", "d", "e"]);
+    }
+
+    #[test]
+    fn history_is_bounded_to_one_hundred_entries() {
+        let (mut state, node) = hist_fixture();
+        for _ in 0..150 {
+            tap_char(&mut state, node, 'G');
+            tap_char(&mut state, node, 'g');
+            tap_char(&mut state, node, 'g');
+        }
+        let mut steps = 0;
+        loop {
+            state.status_message = None;
+            tap_char(&mut state, node, '[');
+            if state.status_message.as_deref() == Some("no older jump") {
+                break;
+            }
+            steps += 1;
+            assert!(steps <= 200, "unbounded history");
+        }
+        assert_eq!(steps, 100);
+    }
+
+    #[test]
+    fn typing_brackets_into_search_is_not_history_navigation() {
+        let (mut state, node) = hist_fixture();
+        tap_char(&mut state, node, 'G');
+        tap_char(&mut state, node, '/');
+        tap_char(&mut state, node, '[');
+        assert_eq!(state.search, "[");
+        assert_ne!(state.status_message.as_deref(), Some("no older jump"));
     }
 }

@@ -1072,6 +1072,9 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         KeyCode::Char('c') => collapse_all(state),
         KeyCode::Char('e') => expand_all(state),
         KeyCode::Char('s') => toggle_sort_keys(state),
+
+        KeyCode::Char('[') => super::history::step(state, super::history::Dir::Back),
+        KeyCode::Char(']') => super::history::step(state, super::history::Dir::Forward),
         KeyCode::Char('x') => {
             let n = state.tags.len();
             state.tags.clear();
@@ -1337,6 +1340,8 @@ mod tests {
             ],
             pending_cursor_path: None,
             sort_keys: false,
+
+            history: Default::default(),
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -1822,6 +1827,8 @@ mod tests {
             ],
             pending_cursor_path: None,
             sort_keys: false,
+
+            history: Default::default(),
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -1864,6 +1871,8 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             sort_keys: false,
+
+            history: Default::default(),
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -2676,6 +2685,8 @@ mod tests {
             all_paths,
             pending_cursor_path: None,
             sort_keys: false,
+
+            history: Default::default(),
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -2779,6 +2790,8 @@ mod tests {
             all_paths: Vec::new(),
             pending_cursor_path: None,
             sort_keys: false,
+
+            history: Default::default(),
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -3082,6 +3095,8 @@ mod tests {
             all_paths,
             pending_cursor_path: None,
             sort_keys: false,
+
+            history: Default::default(),
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),

@@ -185,6 +185,7 @@ lines, precise search-match highlighting, and a truecolor palette:
 | mouse | Wheel scrolls, click selects, click the selected row to toggle (`--no-mouse` disables) |
 | `r` | Reload the file from disk, keeping folds, tags and cursor (file input only; errors keep the old view) |
 | `:` | Jump to a typed path (`user.tags.0`, `book.@id`); `Enter` jumps, `Esc` cancels |
+| `[` / `]` | Jump history: back / forward through where search, `:`, `F`, `gg`/`G` and `g<n>` jumps came from (`Ctrl+o` is also back; `Ctrl+i` can't be told apart from `Tab` in a terminal) |
 | `Y` | Yank current node as a jq filter, e.g. `.user.tags[0]` (JSON/YAML only) |
 | `?` | Toggle the in-app keybinding help overlay |
 | `q` / `Esc` | Quit |
