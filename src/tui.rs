@@ -1645,4 +1645,200 @@ mod tests {
             "only one column is expanded: {moved}"
         );
     }
+
+    const SORT_TABLE_DOC: &str = r#"{"rows": [{"n": 10, "s": "b", "z": 1}, {"n": 2, "s": "c", "a": 5}, {"n": 33, "z": 3}, {"n": 2, "s": "a"}]}"#;
+
+    fn cell_col(state: &mut AppState, name: &str) {
+        let at = state
+            .table
+            .as_ref()
+            .unwrap()
+            .columns
+            .iter()
+            .position(|c| c == name)
+            .unwrap();
+        state.table.as_mut().unwrap().col = at;
+    }
+
+    fn shown_order(state: &AppState) -> Vec<usize> {
+        let view = state.table.as_ref().unwrap();
+        (0..view.rows).map(|p| table::item_index(view, p)).collect()
+    }
+
+    #[test]
+    fn s_sorts_rows_by_the_selected_column_ascending_then_descending_then_off() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        assert_eq!(shown_order(&state), [0, 1, 2, 3]);
+        handle_key(&mut state, KeyCode::Char('s'));
+        assert_eq!(shown_order(&state), [1, 3, 0, 2], "2, 2, 10, 33");
+        let text = drawn(&state, 100, 24);
+        assert!(text.contains("↑n"), "title shows the sort: {text}");
+        assert!(text.contains("n ▲"), "header shows the arrow: {text}");
+        handle_key(&mut state, KeyCode::Char('s'));
+        assert_eq!(shown_order(&state), [2, 0, 1, 3], "33, 10, 2, 2");
+        let text = drawn(&state, 100, 24);
+        assert!(text.contains("↓n") && text.contains("n ▼"), "{text}");
+        handle_key(&mut state, KeyCode::Char('s'));
+        assert_eq!(shown_order(&state), [0, 1, 2, 3], "third press restores");
+        let text = drawn(&state, 100, 24);
+        assert!(!text.contains('▲') && !text.contains('▼'));
+    }
+
+    #[test]
+    fn sorted_rows_keep_their_original_row_numbers() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('s'));
+        let buf = buffer_of(&state, 100, 24);
+        let (_, y2) = find(&buf, "33");
+        let (_, y1) = find(&buf, " 10 ");
+        assert!(y1 < y2, "10 is above 33 when ascending");
+        let line = |y: u16| {
+            (0..100)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+        };
+        assert!(line(y2).contains("2 │ 33"), "33 is element 2: {}", line(y2));
+        assert!(line(y1).contains("0 │ 10"), "10 is element 0: {}", line(y1));
+    }
+
+    #[test]
+    fn the_cursor_stays_on_the_same_element_when_sorting() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('j')); // element 1 (n=2)
+        handle_key(&mut state, KeyCode::Char('s'));
+        assert_eq!(
+            state.table.as_ref().unwrap().row,
+            0,
+            "element 1 sorts first"
+        );
+        handle_key(&mut state, KeyCode::Char('s'));
+        assert_eq!(
+            state.table.as_ref().unwrap().row,
+            2,
+            "descending: [2, 0, 1, 3]"
+        );
+        handle_key(&mut state, KeyCode::Char('s'));
+        assert_eq!(state.table.as_ref().unwrap().row, 1);
+    }
+
+    #[test]
+    fn sorting_another_column_starts_ascending_again() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('s'));
+        handle_key(&mut state, KeyCode::Char('s')); // n descending
+        cell_col(&mut state, "s");
+        handle_key(&mut state, KeyCode::Char('s'));
+        let view = state.table.as_ref().unwrap();
+        assert_eq!(view.sort, Some(("s".to_string(), false)));
+        let text = drawn(&state, 100, 24);
+        assert!(text.contains("↑s") && text.contains("s ▲"), "{text}");
+        assert!(!text.contains("n ▼"));
+    }
+
+    #[test]
+    fn rows_with_a_missing_value_sink_to_the_bottom_when_sorting() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        cell_col(&mut state, "s");
+        handle_key(&mut state, KeyCode::Char('s'));
+        let order: Vec<usize> = (0..4)
+            .map(|p| table::item_index(state.table.as_ref().unwrap(), p))
+            .collect();
+        assert_eq!(order, [3, 0, 1, 2], "a, b, c then the row without s");
+        handle_key(&mut state, KeyCode::Char('s'));
+        let order: Vec<usize> = (0..4)
+            .map(|p| table::item_index(state.table.as_ref().unwrap(), p))
+            .collect();
+        assert_eq!(order, [1, 0, 3, 2], "c, b, a, still missing last");
+    }
+
+    #[test]
+    fn the_detail_pane_and_copy_follow_the_sorted_row() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('s')); // top row is now element 1 (n=2)
+        handle_key(&mut state, KeyCode::Char('G')); // bottom row: element 2 (n=33)
+        let (column, _, text) = table::selected_detail(&state).unwrap();
+        assert_eq!((column.as_str(), text.as_str()), ("n", "33"));
+        handle_key(&mut state, KeyCode::Char('y'));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("copied cell (2 bytes)")
+        );
+    }
+
+    #[test]
+    fn capital_s_orders_columns_by_name_ascending_then_descending_then_off() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        let columns = |s: &AppState| s.table.as_ref().unwrap().columns.clone();
+        assert_eq!(columns(&state), ["n", "s", "z", "a"]);
+        handle_key(&mut state, KeyCode::Char('S'));
+        assert_eq!(columns(&state), ["a", "n", "s", "z"]);
+        assert!(drawn(&state, 100, 24).contains("cols↑"));
+        handle_key(&mut state, KeyCode::Char('S'));
+        assert_eq!(columns(&state), ["z", "s", "n", "a"]);
+        assert!(drawn(&state, 100, 24).contains("cols↓"));
+        handle_key(&mut state, KeyCode::Char('S'));
+        assert_eq!(
+            columns(&state),
+            ["n", "s", "z", "a"],
+            "third press restores the order"
+        );
+        let text = drawn(&state, 100, 24);
+        assert!(!text.contains("cols↑") && !text.contains("cols↓"));
+    }
+
+    #[test]
+    fn the_cursor_stays_on_the_same_column_when_columns_are_sorted() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        cell_col(&mut state, "z");
+        handle_key(&mut state, KeyCode::Char('S'));
+        let view = state.table.as_ref().unwrap();
+        assert_eq!(view.columns[view.col], "z");
+        handle_key(&mut state, KeyCode::Char('S'));
+        let view = state.table.as_ref().unwrap();
+        assert_eq!(view.columns[view.col], "z");
+    }
+
+    #[test]
+    fn column_names_sort_case_insensitively() {
+        let doc = r#"{"rows": [{"b": 1, "A": 2, "a": 3, "B": 4}]}"#;
+        let mut state = open_table(doc, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('S'));
+        assert_eq!(state.table.as_ref().unwrap().columns, ["A", "a", "B", "b"]);
+    }
+
+    #[test]
+    fn row_sort_survives_a_column_sort_because_it_tracks_the_column_by_name() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        cell_col(&mut state, "s");
+        handle_key(&mut state, KeyCode::Char('s'));
+        handle_key(&mut state, KeyCode::Char('S'));
+        let text = drawn(&state, 100, 24);
+        assert!(text.contains("↑s") && text.contains("s ▲"), "{text}");
+        let view = state.table.as_ref().unwrap();
+        assert_eq!(view.columns[view.col], "s");
+        assert_eq!(table::item_index(view, 0), 3);
+    }
+
+    #[test]
+    fn closing_and_reopening_the_table_starts_unsorted() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('s'));
+        handle_key(&mut state, KeyCode::Char('S'));
+        handle_key(&mut state, KeyCode::Esc);
+        handle_key(&mut state, KeyCode::Char('t'));
+        let view = state.table.as_ref().unwrap();
+        assert!(view.sort.is_none() && view.col_sort.is_none());
+        assert_eq!(view.columns, ["n", "s", "z", "a"]);
+    }
+
+    #[test]
+    fn sort_keys_in_the_table_do_not_touch_the_trees_sort() {
+        let mut state = open_table(SORT_TABLE_DOC, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('s'));
+        handle_key(&mut state, KeyCode::Char('S'));
+        assert!(
+            !state.sort_keys,
+            "the tree's key sort is a separate setting"
+        );
+    }
 }

@@ -275,7 +275,7 @@ fn table_cell_style(color: Option<TqColor>, use_color: bool) -> Style {
 }
 
 fn render_table_popup(frame: &mut Frame, area: Rect, state: &AppState) {
-    use super::table;
+    use super::table::{self, GridRow};
     let Some(view) = state.table.as_ref() else {
         return;
     };
@@ -307,8 +307,18 @@ fn render_table_popup(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         String::new()
     };
+    let arrow = |desc: bool| if desc { '↓' } else { '↑' };
+    let sorted = view
+        .sort
+        .as_ref()
+        .map(|(name, desc)| format!(" {}{name}", arrow(*desc)))
+        .unwrap_or_default();
+    let col_sorted = view
+        .col_sort
+        .map(|d| format!(" cols{}", arrow(d)))
+        .unwrap_or_default();
     let title = format!(
-        "Table {} {}×{} r{} c{}{left}{right}",
+        "Table {} {}×{} r{} c{}{sorted}{col_sorted}{left}{right}",
         display_path(&view.path),
         view.rows,
         view.columns.len(),
@@ -340,15 +350,15 @@ fn render_table_popup(frame: &mut Frame, area: Rect, state: &AppState) {
     let rule_len: usize = header.iter().map(|s| s.content.chars().count()).sum();
     lines.push(RtLine::from(header));
     lines.push(RtLine::from(Span::styled("─".repeat(rule_len), dim)));
-    for (row_no, cells) in &grid.rows {
-        let selected_row = *row_no == view.row;
+    for GridRow { pos, index, cells } in &grid.rows {
+        let selected_row = *pos == view.row;
         let row_style = if selected_row {
             cursor_style(use_color)
         } else {
             Style::default()
         };
         let mut spans = vec![Span::styled(
-            format!("{:>1$}", row_no, grid.index_width),
+            format!("{:>1$}", index, grid.index_width),
             dim.patch(row_style),
         )];
         for (i, cell) in cells.iter().enumerate() {
@@ -385,7 +395,7 @@ fn render_table_popup(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_table_detail(frame: &mut Frame, area: Rect, state: &AppState, head_style: Style) {
     let block = Block::default()
         .borders(Borders::TOP)
-        .title("hjkl move · 0/$ ends · y copy cell · Esc closes");
+        .title("hjkl move · s sort rows · S sort cols · y copy cell · Esc closes");
     let body = block.inner(area);
     frame.render_widget(block, area);
     let Some((column, kind, text)) = super::table::selected_detail(state) else {
