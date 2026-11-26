@@ -63,6 +63,8 @@ pub struct TuiOpts {
     pub start_path: Option<String>,
     /// One-off status-bar message shown on open (e.g. duplicate-key warning).
     pub notice: Option<String>,
+    /// `--watch`: reload when this file's modification time changes.
+    pub watch: Option<std::path::PathBuf>,
 }
 
 fn save_ui(state: &AppState) -> SavedUi {
@@ -132,6 +134,53 @@ fn install_panic_restore_hook() {
     });
 }
 
+const WATCH_POLL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Remembers the file's modification time (`None` while it is missing, as
+/// during an editor's atomic replace) and says when it differs.
+struct Watcher {
+    path: std::path::PathBuf,
+    seen: Option<std::time::SystemTime>,
+}
+
+impl Watcher {
+    fn new(path: std::path::PathBuf) -> Self {
+        let seen = modified(&path);
+        Watcher { path, seen }
+    }
+
+    fn changed(&self) -> bool {
+        modified(&self.path) != self.seen
+    }
+}
+
+fn modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+enum Next {
+    Event(Event),
+    FileChanged,
+}
+
+/// Blocks for the next terminal event; with a watcher it wakes every
+/// `WATCH_POLL` to check the file. A change reloads through the same path as
+/// `r` (so a half-written file just keeps the old view, and the next write
+/// reloads again).
+fn next_event(watcher: Option<&mut Watcher>) -> io::Result<Next> {
+    let Some(w) = watcher else {
+        return Ok(Next::Event(event::read()?));
+    };
+    loop {
+        if event::poll(WATCH_POLL)? {
+            return Ok(Next::Event(event::read()?));
+        }
+        if w.changed() {
+            return Ok(Next::FileChanged);
+        }
+    }
+}
+
 /// Renders over `/dev/tty` in pick mode rather than stdout, since pick
 /// mode's whole point is capturing stdout (`$(treeq --pick file.json)` or
 /// a pipe into `tmux load-buffer`) -- the UI must stay off that stream.
@@ -141,6 +190,7 @@ fn run_loop<W, F>(
     out: W,
     mouse: bool,
     reload_ok: bool,
+    watch: Option<std::path::PathBuf>,
 ) -> io::Result<TuiExit>
 where
     W: io::Write,
@@ -170,12 +220,16 @@ where
     // restored on every path, not just the success one (issue #127).
     let result = (|| -> io::Result<TuiExit> {
         let mut picked = None;
+        let mut watcher = watch.map(Watcher::new);
         loop {
             terminal.draw(|f| render_frame(f, &state))?;
             // Non-key events (notably `Resize`) just fall through to the redraw
             // at the top of the loop; key releases are dropped so Windows
             // doesn't see every key twice (issue #125).
-            let event = event::read()?;
+            let event = match next_event(watcher.as_mut())? {
+                Next::Event(e) => e,
+                Next::FileChanged => return Ok(TuiExit::Reload(save_ui(&state))),
+            };
             if let Event::Mouse(m) = event {
                 handle_mouse(&mut state, m);
                 if matches!(m.kind, MouseEventKind::Down(_)) || state.pending_cursor_path.is_some()
@@ -419,9 +473,23 @@ pub fn run_json_tui(node: &JsonNode, opts: TuiOpts) -> io::Result<TuiExit> {
         rebuild(&mut state);
     }
     if opts.pick {
-        run_loop(state, rebuild, open_tty()?, opts.mouse, opts.reload_ok)
+        run_loop(
+            state,
+            rebuild,
+            open_tty()?,
+            opts.mouse,
+            opts.reload_ok,
+            opts.watch,
+        )
     } else {
-        run_loop(state, rebuild, io::stdout(), opts.mouse, opts.reload_ok)
+        run_loop(
+            state,
+            rebuild,
+            io::stdout(),
+            opts.mouse,
+            opts.reload_ok,
+            opts.watch,
+        )
     }
 }
 
@@ -455,9 +523,23 @@ pub fn run_xml_tui(node: &XmlNode, opts: TuiOpts) -> io::Result<TuiExit> {
         rebuild(&mut state);
     }
     if opts.pick {
-        run_loop(state, rebuild, open_tty()?, opts.mouse, opts.reload_ok)
+        run_loop(
+            state,
+            rebuild,
+            open_tty()?,
+            opts.mouse,
+            opts.reload_ok,
+            opts.watch,
+        )
     } else {
-        run_loop(state, rebuild, io::stdout(), opts.mouse, opts.reload_ok)
+        run_loop(
+            state,
+            rebuild,
+            io::stdout(),
+            opts.mouse,
+            opts.reload_ok,
+            opts.watch,
+        )
     }
 }
 
@@ -1270,5 +1352,62 @@ mod tests {
         state.cursor = summary;
         handle_key(&mut state, KeyCode::Char('t'));
         assert_eq!(state.table.as_ref().unwrap().rows, 300);
+    }
+
+    fn watch_file(tag: &str, text: &str) -> std::path::PathBuf {
+        let file = tmp_file(tag);
+        std::fs::write(&file, text).unwrap();
+        file
+    }
+
+    fn bump_mtime(file: &std::path::Path, secs: u64) {
+        let f = std::fs::OpenOptions::new().write(true).open(file).unwrap();
+        let later = std::fs::metadata(file).unwrap().modified().unwrap()
+            + std::time::Duration::from_secs(secs);
+        f.set_modified(later).unwrap();
+    }
+
+    #[test]
+    fn the_watcher_is_quiet_until_the_modification_time_changes() {
+        let file = watch_file("w1.json", "{}");
+        let w = Watcher::new(file.clone());
+        assert!(!w.changed());
+        assert!(!w.changed(), "polling must not consume the change state");
+        bump_mtime(&file, 5);
+        assert!(w.changed());
+        std::fs::remove_file(&file).ok();
+    }
+
+    #[test]
+    fn a_rewrite_with_a_new_mtime_is_seen_again_by_a_fresh_watcher_only() {
+        let file = watch_file("w2.json", "{}");
+        let first = Watcher::new(file.clone());
+        bump_mtime(&file, 5);
+        assert!(first.changed());
+        let second = Watcher::new(file.clone());
+        assert!(
+            !second.changed(),
+            "a new run_loop starts from the current mtime"
+        );
+        std::fs::remove_file(&file).ok();
+    }
+
+    #[test]
+    fn a_vanished_file_counts_as_changed_and_its_return_does_too() {
+        let file = watch_file("w3.json", "{}");
+        let w = Watcher::new(file.clone());
+        std::fs::remove_file(&file).unwrap();
+        assert!(w.changed(), "atomic-replace editors remove the file first");
+        let gone = Watcher::new(file.clone());
+        assert!(!gone.changed(), "still missing: nothing new to reload");
+        std::fs::write(&file, "{}").unwrap();
+        assert!(gone.changed(), "the file coming back reloads");
+        std::fs::remove_file(&file).ok();
+    }
+
+    #[test]
+    fn watching_a_file_that_never_existed_does_not_panic() {
+        let w = Watcher::new(tmp_file("never-created"));
+        assert!(!w.changed());
     }
 }
