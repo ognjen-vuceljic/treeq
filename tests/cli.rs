@@ -1349,3 +1349,28 @@ fn diff_compares_across_formats() {
     fs::remove_file(&file).ok();
     assert_eq!(code, 0, "{out}");
 }
+
+#[test]
+fn diff_understands_toml_and_jsonc() {
+    let n = TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let toml = std::env::temp_dir().join(format!("treeq-{}-{n}.toml", std::process::id()));
+    let jsonc = std::env::temp_dir().join(format!("treeq-{}-{n}.jsonc", std::process::id()));
+    fs::write(&toml, "a = 1\n[b]\nc = [1, 2]\n").unwrap();
+    fs::write(
+        &jsonc,
+        "// same data\n{\"a\": 1, \"b\": {\"c\": [1, 2,],},}\n",
+    )
+    .unwrap();
+    let (t, j) = (
+        toml.to_string_lossy().to_string(),
+        jsonc.to_string_lossy().to_string(),
+    );
+    let (_o, e, code) = run_treeq(&["--diff", &j, &t], "");
+    assert_eq!(code, 0, "{e}");
+    fs::write(&jsonc, "{\"a\": 2, \"b\": {\"c\": [1, 2]}}").unwrap();
+    let (out, _e, code) = run_treeq(&["--diff", &j, &t], "");
+    fs::remove_file(&toml).ok();
+    fs::remove_file(&jsonc).ok();
+    assert_eq!(code, 1);
+    assert_eq!(out, "~ a: 1 -> 2\n");
+}

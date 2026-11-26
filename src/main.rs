@@ -86,7 +86,7 @@ struct Args {
     grep: Option<regex::Regex>,
 
     /// Structural diff against FILE: `+` added, `-` removed, `~` changed.
-    /// Exit 0 identical, 1 different, 2 error. JSON, YAML and NDJSON only.
+    /// Exit 0 identical, 1 different, 2 error. Not available for XML.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["stats", "paths", "schema", "agent", "pick"])]
     diff: Option<PathBuf>,
     #[arg(long)]
@@ -173,9 +173,12 @@ fn progress_message(len: usize) -> Option<String> {
 
 fn show_progress(input_len: usize, args: &Args) {
     let tui_mode = !args.r#static
-        && !(args.stats || args.paths || args.schema || args.agent || args.top.is_some())
-
-        && !(args.stats || args.paths || args.schema || args.agent || args.diff.is_some())
+        && !(args.stats
+            || args.paths
+            || args.schema
+            || args.agent
+            || args.top.is_some()
+            || args.diff.is_some())
         && (args.pick || io::stdout().is_terminal());
     if tui_mode
         && io::stderr().is_terminal()
@@ -456,12 +459,13 @@ fn run_toml(input: String, args: &Args) {
     );
 }
 
-
 fn format_of(arg: FormatArg) -> Format {
     match arg {
         FormatArg::Json => Format::Json,
         FormatArg::Xml => Format::Xml,
         FormatArg::Yaml => Format::Yaml,
+        FormatArg::Toml => Format::Toml,
+        FormatArg::Jsonc => Format::Jsonc,
     }
 }
 
@@ -474,8 +478,10 @@ fn diff_tree(input: &str, file: Option<&std::path::Path>, args: &Args) -> Result
             .or_else(|| detect_format(input, file))
     };
     let tree = match format.ok_or("error: empty input")? {
-        Format::Json => parse_json_tree(input, false)?,
-        Format::Ndjson => parse_json_tree(input, true)?,
+        Format::Json => parse_json_tree(input, Dialect::Json)?,
+        Format::Jsonc => parse_json_tree(input, Dialect::Jsonc)?,
+        Format::Ndjson => parse_json_tree(input, Dialect::Ndjson)?,
+        Format::Toml => toml_tree::parse_toml_tree(input)?,
         Format::Yaml => parse_yaml_tree(input)?,
         Format::Xml => return Err("error: --diff does not support XML".to_string()),
     };
@@ -741,12 +747,17 @@ fn main() {
         eprintln!("error: --ndjson is not supported with --format xml");
         process::exit(1);
     }
-    if args.json && !(args.stats || args.paths || args.schema || args.agent || args.top.is_some()) {
-        eprintln!("error: --json needs one of --stats, --paths, --schema, --agent or --top");
-
-    if args.json && !(args.stats || args.paths || args.schema || args.agent || args.diff.is_some())
+    if args.json
+        && !(args.stats
+            || args.paths
+            || args.schema
+            || args.agent
+            || args.top.is_some()
+            || args.diff.is_some())
     {
-        eprintln!("error: --json needs one of --stats, --paths, --schema, --agent or --diff");
+        eprintln!(
+            "error: --json needs one of --stats, --paths, --schema, --agent, --top or --diff"
+        );
         process::exit(1);
     }
     if args.pick && args.r#static {
