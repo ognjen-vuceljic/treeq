@@ -899,6 +899,9 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
     if state.export.is_some() {
         return super::export::handle(state, key);
     }
+    if state.table.is_some() {
+        return super::table::handle(state, key);
+    }
     if let Some(input) = &mut state.goto_input {
         match key {
             KeyCode::Esc => state.goto_input = None,
@@ -1048,6 +1051,7 @@ pub(super) fn handle_key(state: &mut AppState, key: KeyCode) -> bool {
         }
         KeyCode::Char(':') => state.goto_input = Some(String::new()),
         KeyCode::Char('w') => super::export::open(state),
+        KeyCode::Char('t') => super::table::open(state),
         KeyCode::Char('&') => {
             state.filter = Some(String::new());
             state.filter_typing = true;
@@ -1348,6 +1352,8 @@ mod tests {
             history: Default::default(),
 
             export: None,
+
+            table: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -1837,6 +1843,8 @@ mod tests {
             history: Default::default(),
 
             export: None,
+
+            table: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -1883,6 +1891,8 @@ mod tests {
             history: Default::default(),
 
             export: None,
+
+            table: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -2699,6 +2709,8 @@ mod tests {
             history: Default::default(),
 
             export: None,
+
+            table: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -2806,6 +2818,8 @@ mod tests {
             history: Default::default(),
 
             export: None,
+
+            table: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),
@@ -3113,6 +3127,8 @@ mod tests {
             history: Default::default(),
 
             export: None,
+
+            table: None,
             pending_cursor_occurrence: 0,
             awaiting_depth: false,
             inspect_scroll: std::cell::Cell::new(0),

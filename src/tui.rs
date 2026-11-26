@@ -4,6 +4,7 @@ mod history;
 mod keys;
 mod render;
 mod state;
+mod table;
 
 use crate::json_tree::JsonNode;
 use crate::xml_tree::XmlNode;
@@ -278,6 +279,7 @@ fn modal_active(state: &AppState) -> bool {
         || state.filter_typing
         || state.goto_input.is_some()
         || state.export.is_some()
+        || state.table.is_some()
         || state.awaiting_depth
         || state.visual_anchor.is_some()
 }
@@ -355,6 +357,8 @@ fn initial_state<'a>(
         history: Default::default(),
 
         export: None,
+
+        table: None,
         pending_cursor_occurrence: 0,
         awaiting_depth: false,
         inspect_scroll: std::cell::Cell::new(0),
@@ -1129,5 +1133,142 @@ mod tests {
         let (mut state, _n) = export_fixture(EXPORT_DOC);
         handle_key(&mut state, KeyCode::Char('w'));
         assert!(modal_active(&state));
+    }
+
+    const TABLE_DOC: &str = r#"{"people": [{"id": 1, "name": "Alice", "tags": ["a"]}, {"id": 2, "age": 30}], "plain": [1, 2], "obj": {"k": 1}}"#;
+
+    fn table_state(doc: &str) -> AppState<'static> {
+        export_fixture(doc).0
+    }
+
+    fn grid(buffer: &ratatui::buffer::Buffer) -> String {
+        let a = buffer.area;
+        (0..a.height)
+            .map(|y| {
+                (0..a.width)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn drawn(state: &AppState, w: u16, h: u16) -> String {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| render_frame(f, state)).unwrap();
+        grid(terminal.backend().buffer())
+    }
+
+    #[test]
+    fn t_opens_a_table_for_an_array_of_objects_and_esc_closes_it() {
+        let mut state = table_state(TABLE_DOC);
+        go_to(&mut state, &["people"]);
+        handle_key(&mut state, KeyCode::Char('t'));
+        let view = state.table.as_ref().expect("table should open");
+        assert_eq!(view.columns, ["id", "name", "tags", "age"]);
+        assert_eq!(view.rows, 2);
+        assert!(modal_active(&state));
+        handle_key(&mut state, KeyCode::Esc);
+        assert!(state.table.is_none());
+    }
+
+    #[test]
+    fn t_on_anything_else_explains_instead_of_opening() {
+        let mut state = table_state(TABLE_DOC);
+        for path in [&["plain"][..], &["obj"][..], &["people", "[0]"][..]] {
+            go_to(&mut state, path);
+            handle_key(&mut state, KeyCode::Char('t'));
+            assert!(state.table.is_none(), "{path:?}");
+            assert_eq!(
+                state.status_message.as_deref(),
+                Some("table: needs an array of objects")
+            );
+        }
+    }
+
+    #[test]
+    fn t_is_unavailable_for_xml() {
+        let (mut state, _n) = xml_export_fixture("<r><a/><a/></r>");
+        handle_key(&mut state, KeyCode::Char('t'));
+        assert!(state.table.is_none());
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("table: not available for XML")
+        );
+    }
+
+    #[test]
+    fn the_table_renders_header_rows_title_and_blank_missing_cells() {
+        let mut state = table_state(TABLE_DOC);
+        go_to(&mut state, &["people"]);
+        handle_key(&mut state, KeyCode::Char('t'));
+        let text = drawn(&state, 100, 24);
+        assert!(text.contains("Table people 2×4"), "{text}");
+        assert!(text.contains("id") && text.contains("name") && text.contains("age"));
+        assert!(text.contains("\"Alice\""));
+        assert!(text.contains(r#"["a"]"#), "nested value as compact JSON");
+        assert!(text.contains("30"));
+    }
+
+    #[test]
+    fn a_narrow_terminal_reports_the_columns_that_do_not_fit() {
+        let mut state = table_state(TABLE_DOC);
+        go_to(&mut state, &["people"]);
+        handle_key(&mut state, KeyCode::Char('t'));
+        let text = drawn(&state, 30, 14);
+        assert!(text.contains("+1 more"), "{text}");
+    }
+
+    #[test]
+    fn j_k_page_and_g_scroll_and_clamp() {
+        let rows = (0..50)
+            .map(|i| format!("{{\"i\": {i}}}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut state = table_state(&format!(r#"{{"rows": [{rows}]}}"#));
+        go_to(&mut state, &["rows"]);
+        handle_key(&mut state, KeyCode::Char('t'));
+        let scroll = |s: &AppState| s.table.as_ref().unwrap().scroll.get();
+        handle_key(&mut state, KeyCode::Char('j'));
+        assert_eq!(scroll(&state), 1);
+        handle_key(&mut state, KeyCode::Char('k'));
+        handle_key(&mut state, KeyCode::Char('k'));
+        assert_eq!(scroll(&state), 0, "cannot scroll above the first row");
+        handle_key(&mut state, KeyCode::Char('G'));
+        assert_eq!(scroll(&state), 49);
+        handle_key(&mut state, KeyCode::Char('j'));
+        assert_eq!(scroll(&state), 49, "cannot scroll past the last row");
+        let text = drawn(&state, 80, 20);
+        assert!(text.contains("49"), "{text}");
+        handle_key(&mut state, KeyCode::Char('g'));
+        assert_eq!(scroll(&state), 0);
+    }
+
+    #[test]
+    fn keys_inside_the_table_do_not_leak_to_the_tree() {
+        let mut state = table_state(TABLE_DOC);
+        go_to(&mut state, &["people"]);
+        let cursor = state.cursor;
+        handle_key(&mut state, KeyCode::Char('t'));
+        for c in "sxcw/".chars() {
+            handle_key(&mut state, KeyCode::Char(c));
+        }
+        assert!(state.table.is_some());
+        assert!(!state.sort_keys && state.export.is_none() && !state.searching);
+        assert_eq!(state.cursor, cursor);
+    }
+
+    #[test]
+    fn t_works_on_an_array_summary_line_for_long_arrays() {
+        let rows = (0..300)
+            .map(|i| format!("{{\"i\": {i}}}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut state = table_state(&format!(r#"{{"rows": [{rows}]}}"#));
+        let summary = state.lines.iter().position(|l| l.is_array_summary).unwrap();
+        state.cursor = summary;
+        handle_key(&mut state, KeyCode::Char('t'));
+        assert_eq!(state.table.as_ref().unwrap().rows, 300);
     }
 }
