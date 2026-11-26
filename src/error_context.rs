@@ -24,15 +24,26 @@ pub fn json_error_context(input: &str, err: &serde_json::Error) -> String {
 /// `serde_json`'s byte offset), so it's marked accordingly.
 pub fn xml_error_context(input: &str, err: &roxmltree::Error) -> String {
     let pos = err.pos();
+    let message = match err {
+        roxmltree::Error::DtdDetected => DTD_UNSUPPORTED.to_string(),
+        other => other.to_string(),
+    };
     format_error_context(
         "XML",
         input,
         pos.row as usize,
         pos.col as usize,
         false,
-        &err.to_string(),
+        &message,
     )
 }
+
+/// DTDs stay rejected on purpose: expanding internal entities lets a ~100 KB
+/// document balloon to gigabytes (measured: 5,000 references to a 100 KB
+/// entity took ~2 minutes and 1.8 GB), and `--static`/`--agent` are meant to
+/// be safe on untrusted payloads.
+const DTD_UNSUPPORTED: &str =
+    "XML with a DTD (<!DOCTYPE ...>) is not supported: entity expansion can exhaust memory";
 
 fn format_error_context(
     kind: &str,
@@ -324,5 +335,24 @@ mod tests {
         assert!(out.contains("invalid XML"));
         assert!(out.contains('^'));
         assert!(out.contains("1 | "));
+    }
+
+    #[test]
+    fn dtd_error_explains_why_it_is_unsupported() {
+        let input = r#"<!DOCTYPE r [<!ENTITY e "x">]><r>&e;</r>"#;
+        let msg = xml_error_context(input, &parse_xml_err(input));
+        assert!(msg.contains("DTD"), "got: {msg}");
+        assert!(msg.contains("not supported"), "got: {msg}");
+        assert!(msg.contains("exhaust memory"), "got: {msg}");
+    }
+
+    #[test]
+    fn non_dtd_xml_errors_keep_the_parsers_own_message() {
+        let input = "<r>&nope;</r>";
+        let msg = xml_error_context(input, &parse_xml_err(input));
+        assert!(
+            msg.contains("unknown entity reference 'nope'"),
+            "got: {msg}"
+        );
     }
 }
